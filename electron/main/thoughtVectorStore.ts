@@ -14,6 +14,11 @@ type SQLiteDatabase = any
 
 const OPENAI_VECTOR_DIMENSION = 1536 // OpenAI embedding dimension
 const LOCAL_VECTOR_DIMENSION = 384 // multilingual-e5-small embedding dimension (Go backend)
+const DOUBAO_VECTOR_DIMENSION = 4096 // doubao-embedding-large dimension (火山方舟, native size)
+
+// Three embedding providers are kept in separate HNSW buckets because each
+// has its own vector dimension: openai (1536), local (384), doubao (4096).
+type EmbeddingProvider = 'openai' | 'local' | 'doubao'
 const LOCAL_EMBEDDING_MODEL =
   'intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3'
 const LOCAL_EMBEDDING_REINDEXED_FLAG =
@@ -29,6 +34,7 @@ const LOCAL_EMBEDDING_READY_TIMEOUT_MS = 120000
 const MAX_ELEMENTS_HNSW = 10000
 const HNSW_OPENAI_INDEX_FILE_NAME = 'alice-thoughts-hnsw-openai.index'
 const HNSW_LOCAL_INDEX_FILE_NAME = 'alice-thoughts-hnsw-local.index'
+const HNSW_DOUBAO_INDEX_FILE_NAME = 'alice-thoughts-hnsw-doubao.index'
 const DB_FILE_NAME = 'alice-thoughts.sqlite'
 const OLD_MEMORIES_JSON_FILE = 'alice-memories.json'
 
@@ -39,6 +45,10 @@ const hnswOpenAIIndexFilePath = path.join(
 const hnswLocalIndexFilePath = path.join(
   app.getPath('userData'),
   HNSW_LOCAL_INDEX_FILE_NAME
+)
+const hnswDoubaoIndexFilePath = path.join(
+  app.getPath('userData'),
+  HNSW_DOUBAO_INDEX_FILE_NAME
 )
 const dbFilePath = path.join(app.getPath('userData'), DB_FILE_NAME)
 const oldJsonMemoriesPath = path.join(
@@ -78,11 +88,64 @@ export interface MemoryRecord {
 
 let hnswOpenAIIndex: HierarchicalNSWIndex | null = null
 let hnswLocalIndex: HierarchicalNSWIndex | null = null
+let hnswDoubaoIndex: HierarchicalNSWIndex | null = null
 
 let openAILabelToThoughtId: Map<number, string> = new Map()
 let localLabelToThoughtId: Map<number, string> = new Map()
+let doubaoLabelToThoughtId: Map<number, string> = new Map()
 let db: SQLiteDatabase | null = null
 let isStoreInitialized = false
+
+// Provider-based accessors keep the three HNSW buckets symmetric and make
+// it easy to add future providers without touching every call site.
+function getIndexForProvider(
+  provider: EmbeddingProvider
+): HierarchicalNSWIndex | null {
+  return provider === 'local'
+    ? hnswLocalIndex
+    : provider === 'doubao'
+      ? hnswDoubaoIndex
+      : hnswOpenAIIndex
+}
+
+function setIndexForProvider(
+  provider: EmbeddingProvider,
+  index: HierarchicalNSWIndex
+): void {
+  if (provider === 'local') {
+    hnswLocalIndex = index
+  } else if (provider === 'doubao') {
+    hnswDoubaoIndex = index
+  } else {
+    hnswOpenAIIndex = index
+  }
+}
+
+function getLabelMappingForProvider(
+  provider: EmbeddingProvider
+): Map<number, string> {
+  return provider === 'local'
+    ? localLabelToThoughtId
+    : provider === 'doubao'
+      ? doubaoLabelToThoughtId
+      : openAILabelToThoughtId
+}
+
+function getDimensionForProvider(provider: EmbeddingProvider): number {
+  return provider === 'local'
+    ? LOCAL_VECTOR_DIMENSION
+    : provider === 'doubao'
+      ? DOUBAO_VECTOR_DIMENSION
+      : OPENAI_VECTOR_DIMENSION
+}
+
+function getIndexPathForProvider(provider: EmbeddingProvider): string {
+  return provider === 'local'
+    ? hnswLocalIndexFilePath
+    : provider === 'doubao'
+      ? hnswDoubaoIndexFilePath
+      : hnswOpenAIIndexFilePath
+}
 
 function initDB() {
   if (db) return
@@ -137,6 +200,37 @@ function initDB() {
 
   runDualEmbeddingMigration()
   runMultilingualLocalEmbeddingMigration()
+  runDoubaoEmbeddingMigration()
+}
+
+// Adds the doubao (4096-dim) embedding column to both tables. Mirrors the
+// dual-embedding migration pattern: non-fatal if it partially fails, and the
+// migration flag prevents repeated work.
+function runDoubaoEmbeddingMigration() {
+  if (!db) return
+
+  const migrationFlag = db
+    .prepare('SELECT completed FROM migration_flags WHERE flag_name = ?')
+    .get('doubao_embedding_support') as { completed?: number } | undefined
+  if (migrationFlag?.completed) return
+
+  try {
+    db.exec('ALTER TABLE thoughts ADD COLUMN embedding_doubao BLOB;')
+  } catch {
+    // Column already exists on databases created after this feature.
+  }
+  try {
+    db.exec('ALTER TABLE long_term_memories ADD COLUMN embedding_doubao BLOB;')
+  } catch {
+    // Column already exists.
+  }
+
+  db.prepare(
+    'INSERT OR REPLACE INTO migration_flags (flag_name, completed) VALUES (?, 1)'
+  ).run('doubao_embedding_support')
+  console.log(
+    '[ThoughtVectorStore Migration] Doubao embedding columns ensured.'
+  )
 }
 
 function runMultilingualLocalEmbeddingMigration() {
@@ -514,7 +608,7 @@ function insertThoughtMetadata(
   textContent: string,
   createdAt: string,
   embedding: number[],
-  provider: 'openai' | 'local' = 'openai'
+  provider: EmbeddingProvider = 'openai'
 ) {
   if (!db) throw new Error('Database not initialized for inserting metadata.')
   try {
@@ -529,7 +623,11 @@ function insertThoughtMetadata(
     if (existing) {
       // Update existing thought with new embedding
       const embeddingColumn =
-        provider === 'local' ? 'embedding_local' : 'embedding_openai'
+        provider === 'local'
+          ? 'embedding_local'
+          : provider === 'doubao'
+            ? 'embedding_doubao'
+            : 'embedding_openai'
       const updateStmt = db.prepare(`
         UPDATE thoughts SET ${embeddingColumn} = ?, 
         role = ?, text_content = ?, created_at = ?
@@ -548,6 +646,7 @@ function insertThoughtMetadata(
       // Insert new thought - generate unique hnsw_label to avoid constraint issues
       const embeddingOpenAI = provider === 'openai' ? embeddingBuffer : null
       const embeddingLocal = provider === 'local' ? embeddingBuffer : null
+      const embeddingDoubao = provider === 'doubao' ? embeddingBuffer : null
       const legacyEmbedding = provider === 'openai' ? embeddingBuffer : null
 
       // Get next available hnsw_label from database
@@ -559,8 +658,8 @@ function insertThoughtMetadata(
       const nextLabel = maxLabelResult.next_label
 
       const insertStmt = db.prepare(`
-        INSERT INTO thoughts (hnsw_label, thought_id, conversation_id, role, text_content, created_at, embedding, embedding_openai, embedding_local)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO thoughts (hnsw_label, thought_id, conversation_id, role, text_content, created_at, embedding, embedding_openai, embedding_local, embedding_doubao)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
 
       const info = insertStmt.run(
@@ -572,7 +671,8 @@ function insertThoughtMetadata(
         createdAt,
         legacyEmbedding,
         embeddingOpenAI,
-        embeddingLocal
+        embeddingLocal,
+        embeddingDoubao
       )
 
       if (info.changes === 0) {
@@ -590,13 +690,12 @@ function insertThoughtMetadata(
 
 function getThoughtMetadataByLabels(
   labels: number[],
-  provider: 'openai' | 'local'
+  provider: EmbeddingProvider
 ): ThoughtMetadata[] {
   if (!db) throw new Error('Database not initialized for fetching metadata.')
   if (labels.length === 0) return []
 
-  const labelMapping =
-    provider === 'local' ? localLabelToThoughtId : openAILabelToThoughtId
+  const labelMapping = getLabelMappingForProvider(provider)
 
   // Convert HNSW labels to thought_ids using our mapping
   const thoughtIds = labels
@@ -622,7 +721,7 @@ function getThoughtMetadataByLabels(
   }))
 }
 
-function getAllEmbeddingsWithLabelsFromDB(provider: 'openai' | 'local'): {
+function getAllEmbeddingsWithLabelsFromDB(provider: EmbeddingProvider): {
   label: number
   embedding: number[]
   thoughtId: string
@@ -633,6 +732,9 @@ function getAllEmbeddingsWithLabelsFromDB(provider: 'openai' | 'local'): {
   if (provider === 'local') {
     query =
       'SELECT thought_id, embedding_local as embedding FROM thoughts WHERE embedding_local IS NOT NULL ORDER BY thought_id'
+  } else if (provider === 'doubao') {
+    query =
+      'SELECT thought_id, embedding_doubao as embedding FROM thoughts WHERE embedding_doubao IS NOT NULL ORDER BY thought_id'
   } else {
     // For OpenAI, prefer new column but fallback to legacy
     query =
@@ -660,13 +762,15 @@ async function loadIndexAndSyncWithDB() {
   if (!db)
     throw new Error('Failed to initialize database for loading HNSW index.')
 
-  // Initialize both OpenAI and Local indices
+  // Initialize all three provider indices
   hnswOpenAIIndex = new HierarchicalNSW('cosine', OPENAI_VECTOR_DIMENSION)
   hnswLocalIndex = new HierarchicalNSW('cosine', LOCAL_VECTOR_DIMENSION)
+  hnswDoubaoIndex = new HierarchicalNSW('cosine', DOUBAO_VECTOR_DIMENSION)
 
   let numPointsInDB = 0
   let numOpenAIEmbeddings = 0
   let numLocalEmbeddings = 0
+  let numDoubaoEmbeddings = 0
 
   try {
     const countResult = db
@@ -688,13 +792,20 @@ async function loadIndexAndSyncWithDB() {
       )
       .get() as { count: number }
     numLocalEmbeddings = localCountResult.count
+
+    const doubaoCountResult = db
+      .prepare(
+        'SELECT COUNT(*) as count FROM thoughts WHERE embedding_doubao IS NOT NULL'
+      )
+      .get() as { count: number }
+    numDoubaoEmbeddings = doubaoCountResult.count
   } catch (e) {
     console.error('[ThoughtVectorStore DB] Error counting thoughts in DB:', e)
   }
 
   if (numPointsInDB > 0) {
     console.log(
-      `[ThoughtVectorStore LOAD] Loading ${numPointsInDB} points (OpenAI: ${numOpenAIEmbeddings}, Local: ${numLocalEmbeddings})`
+      `[ThoughtVectorStore LOAD] Loading ${numPointsInDB} points (OpenAI: ${numOpenAIEmbeddings}, Local: ${numLocalEmbeddings}, Doubao: ${numDoubaoEmbeddings})`
     )
   }
 
@@ -714,11 +825,19 @@ async function loadIndexAndSyncWithDB() {
     numLocalEmbeddings
   )
 
+  // Load Doubao index
+  await loadProviderIndex(
+    'doubao',
+    hnswDoubaoIndex,
+    hnswDoubaoIndexFilePath,
+    numDoubaoEmbeddings
+  )
+
   isStoreInitialized = true
 }
 
 async function loadProviderIndex(
-  provider: 'openai' | 'local',
+  provider: EmbeddingProvider,
   index: HierarchicalNSWIndex,
   indexFilePath: string,
   numEmbeddings: number
@@ -754,10 +873,9 @@ async function loadProviderIndex(
   }
 }
 
-async function rebuildHnswIndexFromDB(provider: 'openai' | 'local') {
-  const index = provider === 'local' ? hnswLocalIndex : hnswOpenAIIndex
-  const labelMapping =
-    provider === 'local' ? localLabelToThoughtId : openAILabelToThoughtId
+async function rebuildHnswIndexFromDB(provider: EmbeddingProvider) {
+  const index = getIndexForProvider(provider)
+  const labelMapping = getLabelMappingForProvider(provider)
 
   if (!db || !index) {
     console.error(
@@ -770,7 +888,9 @@ async function rebuildHnswIndexFromDB(provider: 'openai' | 'local') {
   const countQuery =
     provider === 'local'
       ? 'SELECT COUNT(*) as count FROM thoughts WHERE embedding_local IS NOT NULL'
-      : 'SELECT COUNT(*) as count FROM thoughts WHERE embedding_openai IS NOT NULL OR (embedding_openai IS NULL AND embedding IS NOT NULL)'
+      : provider === 'doubao'
+        ? 'SELECT COUNT(*) as count FROM thoughts WHERE embedding_doubao IS NOT NULL'
+        : 'SELECT COUNT(*) as count FROM thoughts WHERE embedding_openai IS NOT NULL OR (embedding_openai IS NULL AND embedding IS NOT NULL)'
 
   const embeddingCount = (db.prepare(countQuery).get() as { count: number })
     .count
@@ -798,7 +918,7 @@ async function rebuildHnswIndexFromDB(provider: 'openai' | 'local') {
   await saveHnswIndex(provider)
 }
 
-async function saveHnswIndex(provider?: 'openai' | 'local') {
+async function saveHnswIndex(provider?: EmbeddingProvider) {
   if (!isStoreInitialized) {
     console.warn(
       '[ThoughtVectorStore Save] Attempted to save HNSW index but store not ready.'
@@ -806,16 +926,16 @@ async function saveHnswIndex(provider?: 'openai' | 'local') {
     return
   }
 
-  // If no provider specified, save both
+  // If no provider specified, save all
   if (!provider) {
     await saveHnswIndex('openai')
     await saveHnswIndex('local')
+    await saveHnswIndex('doubao')
     return
   }
 
-  const index = provider === 'local' ? hnswLocalIndex : hnswOpenAIIndex
-  const indexFilePath =
-    provider === 'local' ? hnswLocalIndexFilePath : hnswOpenAIIndexFilePath
+  const index = getIndexForProvider(provider)
+  const indexFilePath = getIndexPathForProvider(provider)
 
   if (!index) {
     console.warn(
@@ -848,17 +968,16 @@ export async function addThoughtVector(
   role: string,
   textContent: string,
   embedding: number[],
-  provider: 'openai' | 'local' = 'openai'
+  provider: EmbeddingProvider = 'openai'
 ): Promise<void> {
-  const expectedDimension =
-    provider === 'local' ? LOCAL_VECTOR_DIMENSION : OPENAI_VECTOR_DIMENSION
-  const hnswIndex = provider === 'local' ? hnswLocalIndex : hnswOpenAIIndex
+  const expectedDimension = getDimensionForProvider(provider)
+  let hnswIndex = getIndexForProvider(provider)
 
   if (!isStoreInitialized || !hnswIndex || !db) {
     console.error('[ThoughtVectorStore ADD] Store not initialized properly.')
     await initializeThoughtVectorStore()
-    const currentIndex = provider === 'local' ? hnswLocalIndex : hnswOpenAIIndex
-    if (!isStoreInitialized || !currentIndex || !db) {
+    hnswIndex = getIndexForProvider(provider)
+    if (!isStoreInitialized || !hnswIndex || !db) {
       throw new Error(
         'Failed to initialize thought vector store for adding vector.'
       )
@@ -873,9 +992,8 @@ export async function addThoughtVector(
 
   // Generate a unique thought ID
   const thoughtId = `${conversationId}-${role}-${Date.now()}-${randomUUID().substring(0, 8)}`
-  const currentIndex = provider === 'local' ? hnswLocalIndex : hnswOpenAIIndex
-  const labelMapping =
-    provider === 'local' ? localLabelToThoughtId : openAILabelToThoughtId
+  const currentIndex = getIndexForProvider(provider)
+  const labelMapping = getLabelMappingForProvider(provider)
 
   // Get next available label for this provider's index
   const label = currentIndex!.getCurrentCount()
@@ -913,7 +1031,7 @@ export async function addThoughtVector(
 export async function searchSimilarThoughts(
   queryEmbedding: number[],
   topK: number,
-  provider?: 'openai' | 'local' | 'both'
+  provider?: EmbeddingProvider | 'both'
 ): Promise<ThoughtMetadata[]> {
   if (!isStoreInitialized || !db) {
     console.log('[ThoughtVectorStore SEARCH] Store not ready.')
@@ -926,6 +1044,8 @@ export async function searchSimilarThoughts(
       provider = 'openai'
     } else if (queryEmbedding.length === LOCAL_VECTOR_DIMENSION) {
       provider = 'local'
+    } else if (queryEmbedding.length === DOUBAO_VECTOR_DIMENSION) {
+      provider = 'doubao'
     } else {
       console.error(
         `[ThoughtVectorStore SEARCH] Unknown embedding dimension: ${queryEmbedding.length}`
@@ -961,11 +1081,10 @@ export async function searchSimilarThoughts(
 async function searchWithProvider(
   queryEmbedding: number[],
   topK: number,
-  provider: 'openai' | 'local'
+  provider: EmbeddingProvider
 ): Promise<ThoughtMetadata[]> {
-  const expectedDimension =
-    provider === 'local' ? LOCAL_VECTOR_DIMENSION : OPENAI_VECTOR_DIMENSION
-  const hnswIndex = provider === 'local' ? hnswLocalIndex : hnswOpenAIIndex
+  const expectedDimension = getDimensionForProvider(provider)
+  const hnswIndex = getIndexForProvider(provider)
 
   if (!hnswIndex || hnswIndex.getCurrentCount() === 0) {
     return []
@@ -1013,7 +1132,7 @@ export async function deleteAllThoughtVectors(): Promise<void> {
   }
   db.prepare('DELETE FROM thoughts').run()
 
-  // Clear both indices and mappings
+  // Clear all indices and mappings
   if (hnswOpenAIIndex) {
     hnswOpenAIIndex = new HierarchicalNSW('cosine', OPENAI_VECTOR_DIMENSION)
     hnswOpenAIIndex.initIndex(MAX_ELEMENTS_HNSW)
@@ -1024,6 +1143,11 @@ export async function deleteAllThoughtVectors(): Promise<void> {
     hnswLocalIndex.initIndex(MAX_ELEMENTS_HNSW)
     localLabelToThoughtId.clear()
   }
+  if (hnswDoubaoIndex) {
+    hnswDoubaoIndex = new HierarchicalNSW('cosine', DOUBAO_VECTOR_DIMENSION)
+    hnswDoubaoIndex.initIndex(MAX_ELEMENTS_HNSW)
+    doubaoLabelToThoughtId.clear()
+  }
 
   await saveHnswIndex()
 }
@@ -1032,7 +1156,8 @@ export async function ensureSaveOnQuit(): Promise<void> {
   if (isStoreInitialized) {
     if (
       (hnswOpenAIIndex && hnswOpenAIIndex.getCurrentCount() > 0) ||
-      (hnswLocalIndex && hnswLocalIndex.getCurrentCount() > 0)
+      (hnswLocalIndex && hnswLocalIndex.getCurrentCount() > 0) ||
+      (hnswDoubaoIndex && hnswDoubaoIndex.getCurrentCount() > 0)
     ) {
       await saveHnswIndex()
     }

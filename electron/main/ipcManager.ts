@@ -201,8 +201,12 @@ export function registerIPCHandlers(): void {
       }
     ) => {
       try {
-        const provider: 'openai' | 'local' =
-          embedding.length === 384 ? 'local' : 'openai'
+        const provider: 'openai' | 'local' | 'doubao' =
+          embedding.length === 384
+            ? 'local'
+            : embedding.length === 4096
+              ? 'doubao'
+              : 'openai'
 
         await addThoughtVector(
           conversationId,
@@ -232,12 +236,14 @@ export function registerIPCHandlers(): void {
       }
     ) => {
       try {
-        const provider: 'openai' | 'local' | 'both' =
+        const provider: 'openai' | 'local' | 'doubao' | 'both' =
           queryEmbedding.length === 384
             ? 'local'
             : queryEmbedding.length === 1536
               ? 'openai'
-              : 'both'
+              : queryEmbedding.length === 4096
+                ? 'doubao'
+                : 'both'
 
         const thoughtsMetadatas = await searchSimilarThoughts(
           queryEmbedding,
@@ -365,12 +371,14 @@ export function registerIPCHandlers(): void {
         embedding,
         embeddingOpenAI,
         embeddingLocal,
+        embeddingDoubao,
       }: {
         content: string
         memoryType?: string
         embedding?: number[]
         embeddingOpenAI?: number[]
         embeddingLocal?: number[]
+        embeddingDoubao?: number[]
       }
     ) => {
       try {
@@ -379,7 +387,8 @@ export function registerIPCHandlers(): void {
           memoryType,
           embedding,
           embeddingOpenAI,
-          embeddingLocal
+          embeddingLocal,
+          embeddingDoubao
         )
         return { success: true, data: savedMemory }
       } catch (error) {
@@ -441,6 +450,7 @@ export function registerIPCHandlers(): void {
         embedding,
         embeddingOpenAI,
         embeddingLocal,
+        embeddingDoubao,
       }: {
         id: string
         content: string
@@ -448,6 +458,7 @@ export function registerIPCHandlers(): void {
         embedding?: number[]
         embeddingOpenAI?: number[]
         embeddingLocal?: number[]
+        embeddingDoubao?: number[]
       }
     ) => {
       try {
@@ -457,7 +468,8 @@ export function registerIPCHandlers(): void {
           memoryType,
           embedding,
           embeddingOpenAI,
-          embeddingLocal
+          embeddingLocal,
+          embeddingDoubao
         )
         if (updatedMemory) {
           return { success: true, data: updatedMemory }

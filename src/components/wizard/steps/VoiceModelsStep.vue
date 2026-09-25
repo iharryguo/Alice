@@ -148,169 +148,413 @@
     <div v-else>
       <!-- Cloud Models Configuration -->
       <div class="space-y-4">
-        <!-- OpenAI Key requirement for non-OpenAI providers -->
-        <div
-          v-if="
-            (formData.aiProvider === 'ollama' ||
-              formData.aiProvider === 'lm-studio' ||
-              formData.aiProvider === 'openrouter' ||
-              formData.aiProvider === 'zai' ||
-              formData.aiProvider === 'minimax' ||
-              formData.aiProvider === 'deepseek' ||
-              formData.aiProvider === 'api-route') &&
-            !formData.VITE_OPENAI_API_KEY?.trim()
-          "
-          class="alert alert-warning text-sm"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            class="stroke-current shrink-0 w-5 h-5"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.314 16.5c-.77.833.192 2.5 1.732 2.5z"
-            ></path>
-          </svg>
-          <span
-            >Cloud mode uses OpenAI for text-to-speech and embeddings, so an
-            OpenAI API key is required unless you switch to local mode.</span
-          >
-        </div>
-
-        <div v-else class="alert alert-info text-sm">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            class="stroke-current shrink-0 w-5 h-5"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            ></path>
-          </svg>
-          <span
-            >Cloud mode keeps voice and embedding setup simple for first run.
-            You can change TTS, embeddings, and local options in Settings.</span
-          >
-        </div>
-
-        <!-- OpenAI API Key for non-OpenAI providers -->
-        <div
-          v-if="
-            formData.aiProvider === 'ollama' ||
-            formData.aiProvider === 'lm-studio' ||
-            formData.aiProvider === 'openrouter' ||
-            formData.aiProvider === 'zai' ||
-            formData.aiProvider === 'minimax' ||
-            formData.aiProvider === 'deepseek' ||
-            formData.aiProvider === 'api-route'
-          "
-          class="form-control"
-        >
-          <label class="label">
-            <span class="label-text">OpenAI API Key (for Voice Features)</span>
-          </label>
-          <div class="text-sm text-base-content/70 mb-2">
-            Required for cloud text-to-speech and embeddings. Get one from the
-            <a
-              href="https://platform.openai.com/api-keys"
-              target="_blank"
-              class="link link-primary"
-              >OpenAI Platform</a
-            >.
-          </div>
-          <input
-            type="password"
-            v-model="formData.VITE_OPENAI_API_KEY"
-            placeholder="sk-..."
-            class="input input-bordered w-full focus:input-primary"
-          />
-        </div>
-
-        <div class="form-control">
-          <label class="label">
-            <span class="label-text font-medium">Speech-to-Text Provider</span>
-          </label>
-          <select
-            v-model="formData.sttProvider"
-            class="select select-bordered w-full focus:select-primary focus:outline-none"
-          >
-            <option value="openai">OpenAI (Good quality, integrated)</option>
-            <option value="groq">Groq (Faster, requires separate key)</option>
-            <option value="google">Google (Cloud)</option>
-          </select>
-        </div>
-
-        <div v-if="formData.sttProvider === 'groq'" class="form-control">
-          <label class="label">
-            <span class="label-text">Groq API Key</span>
-          </label>
-          <div class="text-sm text-base-content/70 mb-2">
-            Get your key from the
-            <a
-              href="https://console.groq.com/keys"
-              target="_blank"
-              class="link link-primary"
-              >Groq Console</a
+        <!-- STT -->
+        <div class="bg-base-200/60 p-4 rounded-lg space-y-3">
+          <h3 class="font-medium text-base-content/90">① 语音转文字 (STT)</h3>
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">提供商</span>
+            </label>
+            <select
+              v-model="formData.sttProvider"
+              class="select select-bordered w-full focus:select-primary focus:outline-none"
             >
+              <option value="openai">OpenAI</option>
+              <option value="groq">Groq</option>
+              <option value="google">Google</option>
+              <option value="doubao">豆包 Doubao (火山方舟)</option>
+              <option value="qwen">通义 Qwen (阿里百炼)</option>
+              <option value="local">本地 (Go 后端 Whisper)</option>
+            </select>
           </div>
-          <input
-            type="password"
-            v-model="formData.VITE_GROQ_API_KEY"
-            placeholder="gsk_..."
-            class="input input-bordered w-full focus:input-primary"
-          />
+
+          <div v-if="formData.sttProvider === 'openai'" class="form-control">
+            <label class="label">
+              <span class="label-text">API Key</span>
+            </label>
+            <input
+              type="password"
+              v-model="formData.VITE_OPENAI_API_KEY"
+              placeholder="sk-..."
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">模型 ID</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.openaiSttModel"
+              placeholder="gpt-4o-transcribe"
+              class="input input-bordered w-full focus:input-primary"
+            />
+          </div>
+
+          <div v-else-if="formData.sttProvider === 'groq'" class="form-control">
+            <label class="label">
+              <span class="label-text">API Key</span>
+            </label>
+            <input
+              type="password"
+              v-model="formData.VITE_GROQ_API_KEY"
+              placeholder="gsk_..."
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <p class="text-xs text-base-content/60 mt-1">
+              使用内置模型 whisper-large-v3。
+            </p>
+          </div>
+
+          <div
+            v-else-if="formData.sttProvider === 'google'"
+            class="form-control"
+          >
+            <label class="label">
+              <span class="label-text">API Key</span>
+            </label>
+            <input
+              type="password"
+              v-model="formData.VITE_GOOGLE_API_KEY"
+              placeholder="AIza..."
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">Language</span>
+            </label>
+            <select
+              v-model="formData.localSttLanguage"
+              class="select select-bordered w-full focus:select-primary"
+            >
+              <option value="auto">Auto-detect</option>
+              <option value="en">English</option>
+              <option value="zh">Chinese</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+            </select>
+          </div>
+
+          <div
+            v-else-if="formData.sttProvider === 'doubao'"
+            class="form-control"
+          >
+            <label class="label">
+              <span class="label-text">API Key</span>
+            </label>
+            <input
+              type="password"
+              v-model="formData.VITE_DOUBAO_API_KEY"
+              placeholder="火山方舟 API Key"
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">模型 ID</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.doubaoSttModel"
+              placeholder="例如 ep-2024xxxxxx 或模型名称"
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">请求地址 (Base URL)</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.doubaoBaseUrl"
+              placeholder="https://ark.cn-beijing.volces.com/api/v3"
+              class="input input-bordered w-full focus:input-primary"
+            />
+          </div>
+
+          <div
+            v-else-if="formData.sttProvider === 'qwen'"
+            class="form-control"
+          >
+            <label class="label">
+              <span class="label-text">API Key</span>
+            </label>
+            <input
+              type="password"
+              v-model="formData.VITE_QWEN_API_KEY"
+              placeholder="sk-..."
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">模型 ID</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.qwenSttModel"
+              placeholder="qwen3-asr-flash"
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">请求地址 (Base URL)</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.qwenBaseUrl"
+              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+              class="input input-bordered w-full focus:input-primary"
+            />
+          </div>
+
+          <p v-else class="text-xs text-base-content/60">
+            使用本地 Go 后端的 Whisper 模型，模型规格可在 Settings 中选择。
+          </p>
         </div>
 
-        <div v-if="formData.sttProvider === 'google'" class="form-control">
-          <label class="label">
-            <span class="label-text">Google API Key</span>
-          </label>
-          <div class="text-sm text-base-content/70 mb-2">
-            Required for Google Cloud Speech-to-Text.
+        <!-- TTS -->
+        <div class="bg-base-200/60 p-4 rounded-lg space-y-3">
+          <h3 class="font-medium text-base-content/90">② 文字转语音 (TTS)</h3>
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">提供商</span>
+            </label>
+            <select
+              v-model="formData.ttsProvider"
+              class="select select-bordered w-full focus:select-primary focus:outline-none"
+            >
+              <option value="openai">OpenAI</option>
+              <option value="google">Google</option>
+              <option value="doubao">豆包 Doubao (火山方舟)</option>
+              <option value="qwen">通义 Qwen (阿里百炼)</option>
+              <option value="local">本地 (Piper)</option>
+            </select>
           </div>
-          <input
-            type="password"
-            v-model="formData.VITE_GOOGLE_API_KEY"
-            placeholder="AIza..."
-            class="input input-bordered w-full focus:input-primary"
-          />
 
-          <label class="label mt-2">
-            <span class="label-text">Language</span>
-          </label>
-          <select
-            v-model="formData.localSttLanguage"
-            class="select select-bordered w-full focus:select-primary"
+          <div v-if="formData.ttsProvider === 'openai'" class="form-control">
+            <label class="label">
+              <span class="label-text">API Key</span>
+            </label>
+            <input
+              type="password"
+              v-model="formData.VITE_OPENAI_API_KEY"
+              placeholder="sk-..."
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">模型 ID</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.openaiTtsModel"
+              placeholder="gpt-4o-mini-tts"
+              class="input input-bordered w-full focus:input-primary"
+            />
+          </div>
+
+          <div
+            v-else-if="formData.ttsProvider === 'google'"
+            class="form-control"
           >
-            <option value="auto">Auto-detect (Defaults to English)</option>
-            <option value="en">English</option>
-            <option value="es">Spanish</option>
-            <option value="fr">French</option>
-            <option value="de">German</option>
-            <option value="it">Italian</option>
-            <option value="pt">Portuguese</option>
-            <option value="ru">Russian</option>
-            <option value="ja">Japanese</option>
-            <option value="ko">Korean</option>
-            <option value="zh">Chinese</option>
-            <option value="ar">Arabic</option>
-            <option value="hi">Hindi</option>
-            <option value="tr">Turkish</option>
-            <option value="pl">Polish</option>
-            <option value="nl">Dutch</option>
-            <option value="sv">Swedish</option>
-            <option value="da">Danish</option>
-            <option value="no">Norwegian</option>
-            <option value="fi">Finnish</option>
-          </select>
+            <label class="label">
+              <span class="label-text">API Key</span>
+            </label>
+            <input
+              type="password"
+              v-model="formData.VITE_GOOGLE_API_KEY"
+              placeholder="AIza..."
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <p class="text-xs text-base-content/60 mt-1">
+              音色可在 Settings 中选择。
+            </p>
+          </div>
+
+          <div
+            v-else-if="formData.ttsProvider === 'doubao'"
+            class="form-control"
+          >
+            <label class="label">
+              <span class="label-text">API Key</span>
+            </label>
+            <input
+              type="password"
+              v-model="formData.VITE_DOUBAO_API_KEY"
+              placeholder="火山方舟 API Key"
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">模型 ID</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.doubaoTtsModel"
+              placeholder="例如 ep-2024xxxxxx 或模型名称"
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">请求地址 (Base URL)</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.doubaoBaseUrl"
+              placeholder="https://ark.cn-beijing.volces.com/api/v3"
+              class="input input-bordered w-full focus:input-primary"
+            />
+          </div>
+
+          <div
+            v-else-if="formData.ttsProvider === 'qwen'"
+            class="form-control"
+          >
+            <label class="label">
+              <span class="label-text">API Key</span>
+            </label>
+            <input
+              type="password"
+              v-model="formData.VITE_QWEN_API_KEY"
+              placeholder="sk-..."
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">模型 ID</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.qwenTtsModel"
+              placeholder="qwen-tts-latest"
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">请求地址 (Base URL)</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.qwenBaseUrl"
+              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <p class="text-xs text-base-content/60 mt-1">
+              Qwen-Audio-TTS / CosyVoice 系列模型需填写工作空间专属地址，例如
+              https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api/v1
+            </p>
+          </div>
+
+          <p v-else class="text-xs text-base-content/60">
+            使用本地 Piper 语音，音色可在 Settings 中选择。
+          </p>
+        </div>
+
+        <!-- Embedding -->
+        <div class="bg-base-200/60 p-4 rounded-lg space-y-3">
+          <h3 class="font-medium text-base-content/90">
+            ③ Embedding (记忆向量化)
+          </h3>
+          <div class="form-control">
+            <label class="label">
+              <span class="label-text">提供商</span>
+            </label>
+            <select
+              v-model="formData.embeddingProvider"
+              class="select select-bordered w-full focus:select-primary focus:outline-none"
+            >
+              <option value="openai">OpenAI</option>
+              <option value="doubao">豆包 Doubao (火山方舟)</option>
+              <option value="qwen">通义 Qwen (阿里百炼)</option>
+              <option value="local">本地 (Go 后端 E5)</option>
+            </select>
+          </div>
+
+          <div
+            v-if="formData.embeddingProvider === 'openai'"
+            class="form-control"
+          >
+            <label class="label">
+              <span class="label-text">API Key</span>
+            </label>
+            <input
+              type="password"
+              v-model="formData.VITE_OPENAI_API_KEY"
+              placeholder="sk-..."
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">模型 ID</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.openaiEmbeddingModel"
+              placeholder="text-embedding-ada-002"
+              class="input input-bordered w-full focus:input-primary"
+            />
+          </div>
+
+          <div
+            v-else-if="formData.embeddingProvider === 'doubao'"
+            class="form-control"
+          >
+            <label class="label">
+              <span class="label-text">API Key</span>
+            </label>
+            <input
+              type="password"
+              v-model="formData.VITE_DOUBAO_API_KEY"
+              placeholder="火山方舟 API Key"
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">模型 ID</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.doubaoEmbeddingModel"
+              placeholder="doubao-embedding-large"
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">请求地址 (Base URL)</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.doubaoBaseUrl"
+              placeholder="https://ark.cn-beijing.volces.com/api/v3"
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <p class="text-xs text-base-content/60 mt-1">
+              使用模型原生维度（doubao-embedding-large 为 4096 维），主进程会自动建立对应维度的向量索引。
+            </p>
+          </div>
+
+          <div
+            v-else-if="formData.embeddingProvider === 'qwen'"
+            class="form-control"
+          >
+            <label class="label">
+              <span class="label-text">API Key</span>
+            </label>
+            <input
+              type="password"
+              v-model="formData.VITE_QWEN_API_KEY"
+              placeholder="sk-..."
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">模型 ID</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.qwenEmbeddingModel"
+              placeholder="text-embedding-v4"
+              class="input input-bordered w-full focus:input-primary"
+            />
+            <label class="label mt-2">
+              <span class="label-text">请求地址 (Base URL)</span>
+            </label>
+            <input
+              type="text"
+              v-model="formData.qwenBaseUrl"
+              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+              class="input input-bordered w-full focus:input-primary"
+            />
+          </div>
+
+          <p v-else class="text-xs text-base-content/60">
+            使用本地 Go 后端的 multilingual-e5-small 模型，无需任何 Key。
+          </p>
         </div>
 
         <div class="bg-base-200 p-4 rounded-lg space-y-2">
@@ -338,7 +582,7 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+const props = defineProps<{
   formData: any
 }>()
 
@@ -351,6 +595,8 @@ const providerLabel = (provider: string) => {
     google: 'Google',
     local: 'Local',
     openai: 'OpenAI',
+    doubao: 'Doubao (火山方舟)',
+    qwen: 'Qwen (阿里百炼)',
   }
 
   return labels[provider] || provider

@@ -105,6 +105,7 @@ async function save_memory(args: SaveMemoryArgs) {
   try {
     let generatedEmbeddingOpenAI: number[] | undefined = undefined
     let generatedEmbeddingLocal: number[] | undefined = undefined
+    let generatedEmbeddingDoubao: number[] | undefined = undefined
     try {
       const embeddings = await createDualEmbeddings(args.content)
       if (embeddings.openai && embeddings.openai.length > 0) {
@@ -112,6 +113,9 @@ async function save_memory(args: SaveMemoryArgs) {
       }
       if (embeddings.local && embeddings.local.length > 0) {
         generatedEmbeddingLocal = embeddings.local
+      }
+      if (embeddings.doubao && embeddings.doubao.length > 0) {
+        generatedEmbeddingDoubao = embeddings.doubao
       }
     } catch (embedError) {
       console.error(
@@ -125,6 +129,7 @@ async function save_memory(args: SaveMemoryArgs) {
       memoryType: args.memoryType,
       embeddingOpenAI: generatedEmbeddingOpenAI,
       embeddingLocal: generatedEmbeddingLocal,
+      embeddingDoubao: generatedEmbeddingDoubao,
     })
     if (result.success) {
       console.log('Memory saved via IPC:', result.data)

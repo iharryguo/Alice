@@ -43,6 +43,8 @@
             <option value="openai">OpenAI (gpt-4o-transcribe)</option>
             <option value="groq">Groq (whisper-large-v3)</option>
             <option value="google">Google (Cloud)</option>
+            <option value="doubao">豆包 Doubao (火山方舟)</option>
+            <option value="qwen">通义 Qwen ASR (阿里百炼)</option>
             <option value="local">Local (Go Backend)</option>
           </select>
         </div>
@@ -108,6 +110,42 @@
           <p class="text-xs text-gray-400 mt-1">
             Required for TTS/STT/embeddings regardless of AI provider.
           </p>
+        </div>
+        <div v-if="currentSettings.sttProvider === 'openai'">
+          <label for="openai-stt-model" class="block mb-1 text-sm"
+            >OpenAI STT 模型</label
+          >
+          <input
+            id="openai-stt-model"
+            type="text"
+            v-model="currentSettings.openaiSttModel"
+            class="input focus:outline-none w-full"
+            placeholder="gpt-4o-transcribe"
+          />
+        </div>
+        <div v-if="currentSettings.ttsProvider === 'openai'">
+          <label for="openai-tts-model" class="block mb-1 text-sm"
+            >OpenAI TTS 模型</label
+          >
+          <input
+            id="openai-tts-model"
+            type="text"
+            v-model="currentSettings.openaiTtsModel"
+            class="input focus:outline-none w-full"
+            placeholder="gpt-4o-mini-tts"
+          />
+        </div>
+        <div v-if="currentSettings.embeddingProvider === 'openai'">
+          <label for="openai-embedding-model" class="block mb-1 text-sm"
+            >OpenAI Embedding 模型</label
+          >
+          <input
+            id="openai-embedding-model"
+            type="text"
+            v-model="currentSettings.openaiEmbeddingModel"
+            class="input focus:outline-none w-full"
+            placeholder="text-embedding-ada-002"
+          />
         </div>
         <div v-if="currentSettings.aiProvider === 'openrouter'">
           <label for="openrouter-key" class="block mb-1 text-sm"
@@ -373,6 +411,122 @@
             Required for Google STT or TTS services.
           </p>
         </div>
+        <div
+          v-if="
+            currentSettings.sttProvider === 'doubao' ||
+            currentSettings.ttsProvider === 'doubao' ||
+            currentSettings.embeddingProvider === 'doubao'
+          "
+        >
+          <label for="doubao-key" class="block mb-1 text-sm"
+            >豆包 Doubao API Key (火山方舟) *</label
+          >
+          <input
+            id="doubao-key"
+            type="password"
+            v-model="currentSettings.VITE_DOUBAO_API_KEY"
+            class="input focus:outline-none w-full"
+            autocomplete="new-password"
+            placeholder="火山方舟 API Key"
+          />
+          <p class="text-xs text-gray-400 mt-1">
+            From the Volcengine Ark console (火山方舟控制台 → API Key 管理).
+          </p>
+        </div>
+        <div
+          v-if="
+            currentSettings.sttProvider === 'doubao' ||
+            currentSettings.ttsProvider === 'doubao' ||
+            currentSettings.embeddingProvider === 'doubao'
+          "
+        >
+          <label for="doubao-url" class="block mb-1 text-sm"
+            >豆包 Doubao Base URL</label
+          >
+          <input
+            id="doubao-url"
+            type="text"
+            v-model="currentSettings.doubaoBaseUrl"
+            class="input focus:outline-none w-full"
+            placeholder="https://ark.cn-beijing.volces.com/api/v3"
+          />
+          <p class="text-xs text-gray-400 mt-1">
+            OpenAI-compatible endpoint for Volcengine Ark.
+          </p>
+        </div>
+        <div v-if="currentSettings.sttProvider === 'doubao'">
+          <label for="doubao-stt-model" class="block mb-1 text-sm"
+            >豆包 STT 模型 ID *</label
+          >
+          <input
+            id="doubao-stt-model"
+            type="text"
+            v-model="currentSettings.doubaoSttModel"
+            class="input focus:outline-none w-full"
+            placeholder="例如 ep-2024xxxxxx 或模型名称"
+          />
+          <p class="text-xs text-gray-400 mt-1">
+            Ark endpoint ID (ep-xxx) or model name from the Ark console.
+          </p>
+        </div>
+        <div
+          v-if="
+            currentSettings.sttProvider === 'qwen' ||
+            currentSettings.ttsProvider === 'qwen' ||
+            currentSettings.embeddingProvider === 'qwen'
+          "
+        >
+          <label for="qwen-key" class="block mb-1 text-sm"
+            >通义 Qwen API Key (阿里百炼) *</label
+          >
+          <input
+            id="qwen-key"
+            type="password"
+            v-model="currentSettings.VITE_QWEN_API_KEY"
+            class="input focus:outline-none w-full"
+            autocomplete="new-password"
+            placeholder="sk-..."
+          />
+          <p class="text-xs text-gray-400 mt-1">
+            From the Alibaba Bailian (百炼) console → API-KEY 管理.
+          </p>
+        </div>
+        <div
+          v-if="
+            currentSettings.sttProvider === 'qwen' ||
+            currentSettings.ttsProvider === 'qwen' ||
+            currentSettings.embeddingProvider === 'qwen'
+          "
+        >
+          <label for="qwen-url" class="block mb-1 text-sm"
+            >通义 Qwen Base URL</label
+          >
+          <input
+            id="qwen-url"
+            type="text"
+            v-model="currentSettings.qwenBaseUrl"
+            class="input focus:outline-none w-full"
+            placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+          />
+          <p class="text-xs text-gray-400 mt-1">
+            OpenAI-compatible endpoint for Alibaba DashScope.
+          </p>
+        </div>
+        <div v-if="currentSettings.sttProvider === 'qwen'">
+          <label for="qwen-stt-model" class="block mb-1 text-sm"
+            >通义 STT 模型</label
+          >
+          <input
+            id="qwen-stt-model"
+            type="text"
+            v-model="currentSettings.qwenSttModel"
+            class="input focus:outline-none w-full"
+            placeholder="qwen3-asr-flash"
+          />
+          <p class="text-xs text-gray-400 mt-1">
+            Defaults to qwen3-asr-flash.
+          </p>
+        </div>
       </div>
     </fieldset>
 
@@ -484,10 +638,78 @@
           >
             <option value="openai">OpenAI (Cloud)</option>
             <option value="google">Google (Cloud)</option>
+            <option value="doubao">豆包 Doubao (火山方舟)</option>
+            <option value="qwen">通义 Qwen TTS (阿里百炼)</option>
             <option value="local">Local (Piper)</option>
           </select>
           <p class="text-xs text-gray-400 mt-1">
-            Choose between cloud-based OpenAI TTS or local Piper TTS.
+            Choose between cloud TTS providers or local Piper TTS.
+          </p>
+        </div>
+        <div v-if="currentSettings.ttsProvider === 'doubao'">
+          <label for="doubao-tts-model" class="block mb-1 text-sm"
+            >豆包 TTS 模型 ID *</label
+          >
+          <input
+            id="doubao-tts-model"
+            type="text"
+            v-model="currentSettings.doubaoTtsModel"
+            class="input focus:outline-none w-full"
+            placeholder="例如 ep-2024xxxxxx 或模型名称"
+          />
+          <p class="text-xs text-gray-400 mt-1">
+            Ark endpoint ID (ep-xxx) or model name from the Ark console.
+          </p>
+        </div>
+        <div v-if="currentSettings.ttsProvider === 'doubao'">
+          <label for="doubao-tts-voice" class="block mb-1 text-sm"
+            >豆包 TTS 音色</label
+          >
+          <input
+            id="doubao-tts-voice"
+            type="text"
+            v-model="currentSettings.doubaoTtsVoice"
+            class="input focus:outline-none w-full"
+            placeholder="zh_female_cancan_mars_bigtts"
+          />
+          <p class="text-xs text-gray-400 mt-1">
+            Voice ID from the Volcengine voice list.
+          </p>
+        </div>
+        <div v-if="currentSettings.ttsProvider === 'qwen'">
+          <label for="qwen-tts-model" class="block mb-1 text-sm"
+            >通义 TTS 模型</label
+          >
+          <input
+            id="qwen-tts-model"
+            type="text"
+            v-model="currentSettings.qwenTtsModel"
+            class="input focus:outline-none w-full"
+            placeholder="qwen-tts-latest"
+          />
+        </div>
+        <div v-if="currentSettings.ttsProvider === 'qwen'">
+          <label for="qwen-tts-voice" class="block mb-1 text-sm"
+            >通义 TTS 音色</label
+          >
+          <select
+            id="qwen-tts-voice"
+            v-model="currentSettings.qwenTtsVoice"
+            class="select select-bordered w-full focus:select-primary"
+          >
+            <option value="Cherry">Cherry (女声，温柔)</option>
+            <option value="Ethan">Ethan (男声)</option>
+            <option value="Nofish">Nofish (男声，可爱)</option>
+            <option value="Jennifer">Jennifer (女声，静夜深思)</option>
+            <option value="Ryan">Ryan (男声， journalism)</option>
+            <option value="Katerina">Katerina (女声)</option>
+            <option value="Elias">Elias (男声)</option>
+            <option value="Jada">Jada (女声)</option>
+            <option value="Dylan">Dylan (男声)</option>
+            <option value="Sunny">Sunny (女声，快乐)</option>
+          </select>
+          <p class="text-xs text-gray-400 mt-1">
+            Voice for qwen-tts. Defaults to Cherry.
           </p>
         </div>
         <div v-if="currentSettings.ttsProvider === 'openai'">
@@ -677,12 +899,46 @@
             class="select select-bordered w-full focus:select-primary"
           >
             <option value="openai">OpenAI (Cloud)</option>
+            <option value="doubao">豆包 Doubao Embedding (火山方舟)</option>
+            <option value="qwen">通义 Qwen Embedding (阿里百炼)</option>
             <option value="local">Local (multi-lang E5)</option>
           </select>
           <p class="text-xs text-gray-400 mt-1">
-            Choose between cloud-based OpenAI embeddings or local multi-lang E5
-            embeddings. Existing text is preserved; local vectors are rebuilt
-            when the model changes.
+            Choose between cloud-based or local multi-lang E5 embeddings.
+            Doubao uses its native 4096 dimensions; Qwen uses 1536 dimensions.
+            Each provider gets its own vector index. Existing text is
+            preserved; local vectors are rebuilt when the model changes.
+          </p>
+        </div>
+        <div v-if="currentSettings.embeddingProvider === 'doubao'">
+          <label for="doubao-embedding-model" class="block mb-1 text-sm"
+            >豆包 Embedding 模型 ID</label
+          >
+          <input
+            id="doubao-embedding-model"
+            type="text"
+            v-model="currentSettings.doubaoEmbeddingModel"
+            class="input focus:outline-none w-full"
+            placeholder="doubao-embedding-large-text-240915"
+          />
+          <p class="text-xs text-gray-400 mt-1">
+            Uses the model's native dimension (doubao-embedding-large: 4096).
+          </p>
+        </div>
+        <div v-if="currentSettings.embeddingProvider === 'qwen'">
+          <label for="qwen-embedding-model" class="block mb-1 text-sm"
+            >通义 Embedding 模型</label
+          >
+          <input
+            id="qwen-embedding-model"
+            type="text"
+            v-model="currentSettings.qwenEmbeddingModel"
+            class="input focus:outline-none w-full"
+            placeholder="text-embedding-v4"
+          />
+          <p class="text-xs text-gray-400 mt-1">
+            Defaults to text-embedding-v4 with 1536 dimensions (shares the
+            OpenAI-sized vector index).
           </p>
         </div>
       </div>

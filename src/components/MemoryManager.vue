@@ -164,6 +164,7 @@ async function handleSaveMemory() {
   try {
     let generatedEmbeddingOpenAI: number[] | undefined = undefined
     let generatedEmbeddingLocal: number[] | undefined = undefined
+    let generatedEmbeddingDoubao: number[] | undefined = undefined
     let shouldGenerateEmbedding = false
 
     if (editingMemoryId.value) {
@@ -183,6 +184,9 @@ async function handleSaveMemory() {
         if (embeddings.local && embeddings.local.length > 0) {
           generatedEmbeddingLocal = embeddings.local
         }
+        if (embeddings.doubao && embeddings.doubao.length > 0) {
+          generatedEmbeddingDoubao = embeddings.doubao
+        }
       } catch (embedError: any) {
         console.error(
           '[MemoryManager UI] Error generating embedding:',
@@ -191,6 +195,7 @@ async function handleSaveMemory() {
         formError.value = `Error generating embedding: ${embedError.message}. Memory will be saved without it.`
         generatedEmbeddingOpenAI = undefined
         generatedEmbeddingLocal = undefined
+        generatedEmbeddingDoubao = undefined
       }
     }
 
@@ -205,6 +210,9 @@ async function handleSaveMemory() {
     }
     if (generatedEmbeddingLocal) {
       memoryData.embeddingLocal = generatedEmbeddingLocal
+    }
+    if (generatedEmbeddingDoubao) {
+      memoryData.embeddingDoubao = generatedEmbeddingDoubao
     }
 
     if (editingMemoryId.value) {

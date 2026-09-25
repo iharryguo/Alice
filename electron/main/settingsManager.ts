@@ -27,7 +27,15 @@ export interface AppSettings {
   VITE_DEEPSEEK_API_KEY?: string
   VITE_API_ROUTE_API_KEY?: string
   VITE_GROQ_API_KEY?: string
-  sttProvider?: 'openai' | 'groq' | 'transformers'
+  VITE_DOUBAO_API_KEY?: string
+  VITE_QWEN_API_KEY?: string
+  sttProvider?:
+    | 'openai'
+    | 'groq'
+    | 'google'
+    | 'doubao'
+    | 'qwen'
+    | 'transformers'
   aiProvider?:
     | 'openai'
     | 'openrouter'
@@ -52,6 +60,16 @@ export interface AppSettings {
   zaiBaseUrl?: string
   minimaxBaseUrl?: string
   deepseekBaseUrl?: string
+  doubaoBaseUrl?: string
+  qwenBaseUrl?: string
+  doubaoSttModel?: string
+  qwenSttModel?: string
+  doubaoTtsModel?: string
+  qwenTtsModel?: string
+  doubaoTtsVoice?: string
+  qwenTtsVoice?: string
+  doubaoEmbeddingModel?: string
+  qwenEmbeddingModel?: string
   codexAuthConnected?: boolean
   codexAccountLabel?: string
 
@@ -68,7 +86,7 @@ export interface AppSettings {
   SUMMARIZATION_MESSAGE_COUNT?: number
   SUMMARIZATION_MODEL?: string
   SUMMARIZATION_SYSTEM_PROMPT?: string
-  ttsProvider?: 'openai' | 'local'
+  ttsProvider?: 'openai' | 'google' | 'doubao' | 'qwen' | 'local'
   ttsVoice?:
     | 'alloy'
     | 'ash'
@@ -84,7 +102,7 @@ export interface AppSettings {
     | 'marin'
     | 'cedar'
   localTtsVoice?: string
-  embeddingProvider?: 'openai' | 'local'
+  embeddingProvider?: 'openai' | 'doubao' | 'qwen' | 'local'
   ragEnabled?: boolean
   ragPaths?: string[]
   ragTopK?: number

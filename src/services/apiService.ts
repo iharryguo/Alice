@@ -11,6 +11,9 @@ import {
   getMiniMaxClient,
   getDeepSeekClient,
   getAPIRouteClient,
+  getDoubaoClient,
+  getQwenClient,
+  QWEN_DASHSCOPE_NATIVE_BASE_URL,
 } from './apiClients'
 import {
   createOpenAIResponse as createOpenAIResponseWithOpenAI,
@@ -319,9 +322,119 @@ export const ttsStream = async (
       console.error('Google TTS failed, falling back to OpenAI:', error)
       return fallbackToOpenAITTS(cleanedText, signal)
     }
+  } else if (settings.ttsProvider === 'doubao') {
+    return doubaoTTS(cleanedText, signal)
+  } else if (settings.ttsProvider === 'qwen') {
+    return qwenTTS(cleanedText, signal)
   } else {
     return fallbackToOpenAITTS(cleanedText, signal)
   }
+}
+
+const doubaoTTS = async (
+  text: string,
+  signal: AbortSignal
+): Promise<Response> => {
+  const settings = useSettingsStore().config
+  const model = settings.doubaoTtsModel?.trim()
+  if (!model) {
+    throw new Error(
+      'Doubao TTS model ID is not configured. Set "Doubao TTS Model ID" in Settings (e.g. an Ark endpoint ID like ep-xxx or a model name).'
+    )
+  }
+  const doubao = getDoubaoClient()
+  const response = await doubao.audio.speech.create(
+    {
+      model,
+      voice: settings.doubaoTtsVoice || 'zh_female_cancan_mars_bigtts',
+      input: text,
+      response_format: 'mp3',
+    },
+    { signal }
+  )
+  return response as unknown as Response
+}
+
+const qwenTTS = async (
+  text: string,
+  signal: AbortSignal
+): Promise<Response> => {
+  const settingsStore = useSettingsStore()
+  const apiKey = settingsStore.config.VITE_QWEN_API_KEY
+  if (!apiKey) {
+    throw new Error('Qwen API Key is not configured')
+  }
+  const model = settingsStore.config.qwenTtsModel || 'qwen-tts-latest'
+  const voice = settingsStore.config.qwenTtsVoice || 'Cherry'
+
+  // Bailian exposes different endpoints per model family:
+  // - Qwen-TTS family -> /services/aigc/multimodal-generation/generation
+  // - Qwen-Audio-TTS / CosyVoice -> /services/audio/tts/SpeechSynthesizer
+  // The base host is user-configurable (qwenBaseUrl) because Qwen-Audio-TTS
+  // and CosyVoice require a workspace-specific host. qwenBaseUrl may point at
+  // the OpenAI-compatible base (…/compatible-mode/v1) which STT/embedding
+  // use; convert it to the native /api/v1 base for TTS calls.
+  const rawBase =
+    settingsStore.config.qwenBaseUrl || QWEN_DASHSCOPE_NATIVE_BASE_URL
+  const baseUrl = rawBase.endsWith('/compatible-mode/v1')
+    ? `${rawBase.slice(0, -'/compatible-mode/v1'.length)}/api/v1`
+    : rawBase.replace(/\/compatible-mode\/?$/, '/api/v1')
+  const isSpeechSynthesizerFamily = /^(qwen-audio|cosyvoice)/i.test(model)
+  const endpoint = isSpeechSynthesizerFamily
+    ? `${baseUrl}/services/audio/tts/SpeechSynthesizer`
+    : `${baseUrl}/services/aigc/multimodal-generation/generation`
+
+  const requestBody = isSpeechSynthesizerFamily
+    ? {
+        model,
+        input: { text, voice, format: 'wav', sample_rate: 24000 },
+      }
+    : {
+        model,
+        input: { text, voice },
+      }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    signal,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(requestBody),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => null)
+    throw new Error(
+      `Qwen TTS Error: ${error?.message || response.statusText}`
+    )
+  }
+
+  const data = await response.json()
+  const audioUrl = data?.output?.audio?.url
+  if (audioUrl) {
+    const audioResponse = await fetch(audioUrl, { signal })
+    if (!audioResponse.ok) {
+      throw new Error(
+        `Failed to download Qwen TTS audio: ${audioResponse.status}`
+      )
+    }
+    return audioResponse
+  }
+
+  // Fallback: some responses inline the audio as base64 instead of a URL.
+  const audioBase64 = data?.output?.audio?.data
+  if (audioBase64) {
+    const binaryString = atob(audioBase64)
+    const bytes = new Uint8Array(binaryString.length)
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i)
+    }
+    return new Response(new Blob([bytes.buffer], { type: 'audio/wav' }))
+  }
+
+  throw new Error('Qwen TTS response did not contain an audio URL')
 }
 
 const googleTTS = async (
@@ -388,7 +501,7 @@ const fallbackToOpenAITTS = async (
 
   return openai.audio.speech.create(
     {
-      model: 'gpt-4o-mini-tts',
+      model: settings.openaiTtsModel?.trim() || 'gpt-4o-mini-tts',
       voice: settings.ttsVoice || 'nova',
       input: text,
       response_format: 'mp3',
@@ -600,9 +713,49 @@ export const transcribeWithOpenAI = async (
   const file = await toFile(audioBuffer, 'audio.wav', {
     type: 'audio/wav',
   })
+  const settings = useSettingsStore().config
   const transcription = await openai.audio.transcriptions.create({
     file,
-    model: 'gpt-4o-transcribe',
+    model: settings.openaiSttModel?.trim() || 'gpt-4o-transcribe',
+    response_format: 'json',
+  })
+  return transcription?.text || ''
+}
+
+export const transcribeWithDoubao = async (
+  audioBuffer: ArrayBuffer
+): Promise<string> => {
+  const settings = useSettingsStore().config
+  const model = settings.doubaoSttModel?.trim()
+  if (!model) {
+    throw new Error(
+      'Doubao STT model ID is not configured. Set "Doubao STT Model ID" in Settings (e.g. an Ark endpoint ID like ep-xxx or a model name).'
+    )
+  }
+  const doubao = getDoubaoClient()
+  const file = await toFile(audioBuffer, 'audio.wav', {
+    type: 'audio/wav',
+  })
+  const transcription = await doubao.audio.transcriptions.create({
+    file,
+    model,
+    response_format: 'json',
+  })
+  return transcription?.text || ''
+}
+
+export const transcribeWithQwen = async (
+  audioBuffer: ArrayBuffer
+): Promise<string> => {
+  const settings = useSettingsStore().config
+  const model = settings.qwenSttModel?.trim() || 'qwen3-asr-flash'
+  const qwen = getQwenClient()
+  const file = await toFile(audioBuffer, 'audio.wav', {
+    type: 'audio/wav',
+  })
+  const transcription = await qwen.audio.transcriptions.create({
+    file,
+    model,
     response_format: 'json',
   })
   return transcription?.text || ''
@@ -659,6 +812,13 @@ export const createEmbedding = async (
 
   if (!textToEmbed.trim()) return []
 
+  if (settings.embeddingProvider === 'doubao') {
+    return await doubaoEmbedding(textToEmbed)
+  }
+  if (settings.embeddingProvider === 'qwen') {
+    return await qwenEmbedding(textToEmbed)
+  }
+
   const hasOpenAIKey = !!settings.VITE_OPENAI_API_KEY?.trim()
   const shouldPreferLocal =
     settings.embeddingProvider === 'local' ||
@@ -689,14 +849,14 @@ export const createEmbedding = async (
 
 export const createDualEmbeddings = async (
   textInput: any
-): Promise<{ openai?: number[]; local?: number[] }> => {
+): Promise<{ openai?: number[]; local?: number[]; doubao?: number[] }> => {
   const settings = useSettingsStore().config
   const textToEmbed = extractTextForEmbedding(textInput)
 
   if (!textToEmbed.trim()) return {}
 
   const hasOpenAIKey = !!settings.VITE_OPENAI_API_KEY?.trim()
-  const results: { openai?: number[]; local?: number[] } = {}
+  const results: { openai?: number[]; local?: number[]; doubao?: number[] } = {}
 
   try {
     const localEmbedding = await generateLocalEmbedding(textToEmbed, 'passage')
@@ -718,19 +878,68 @@ export const createDualEmbeddings = async (
     }
   }
 
+  // When Doubao is the selected embedding provider, also generate a
+  // doubao-embedding-large (4096-dim) vector so long-term memories can be
+  // recalled semantically with the same provider.
+  if (settings.embeddingProvider === 'doubao') {
+    try {
+      const doubaoVector = await doubaoEmbedding(textToEmbed)
+      if (doubaoVector && doubaoVector.length > 0) {
+        results.doubao = doubaoVector
+      }
+    } catch (error) {
+      // Ignore doubao embedding failures.
+    }
+  }
+
   return results
 }
 
 const fallbackToOpenAIEmbedding = async (
   textToEmbed: string
 ): Promise<number[]> => {
+  const settings = useSettingsStore().config
   const openai = getOpenAIClient()
   const response = await openai.embeddings.create({
-    model: 'text-embedding-ada-002',
+    model: settings.openaiEmbeddingModel?.trim() || 'text-embedding-ada-002',
     input: textToEmbed,
     encoding_format: 'float',
   })
   return response.data[0]?.embedding || []
+}
+
+// Doubao embedding-large outputs a native 4096-dim vector and does not
+// support the "dimensions" parameter, so it gets its own 4096-dim bucket in
+// the Electron main process. Qwen text-embedding-v4 supports "dimensions" and
+// is requested at 1536 so it can share the OpenAI-sized bucket.
+const doubaoEmbedding = async (textToEmbed: string): Promise<number[]> => {
+  const settings = useSettingsStore().config
+  const model = settings.doubaoEmbeddingModel?.trim()
+  if (!model) {
+    throw new Error(
+      'Doubao embedding model ID is not configured. Set "Doubao Embedding Model ID" in Settings.'
+    )
+  }
+  const doubao = getDoubaoClient()
+  const response = await doubao.embeddings.create({
+    model,
+    input: textToEmbed,
+    encoding_format: 'float',
+  } as any)
+  return (response.data[0]?.embedding as number[]) || []
+}
+
+const qwenEmbedding = async (textToEmbed: string): Promise<number[]> => {
+  const settings = useSettingsStore().config
+  const model = settings.qwenEmbeddingModel?.trim() || 'text-embedding-v4'
+  const qwen = getQwenClient()
+  const response = await qwen.embeddings.create({
+    model,
+    input: textToEmbed,
+    dimensions: 1536,
+    encoding_format: 'float',
+  } as any)
+  return (response.data[0]?.embedding as number[]) || []
 }
 
 export const indexMessageForThoughts = async (

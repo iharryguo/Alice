@@ -9,6 +9,15 @@ import {
   ZAI_CODING_BASE_URL,
 } from './llmProviders/providerCatalog'
 
+// Volcengine Ark (Doubao) OpenAI-compatible endpoint
+export const DOUBAO_OPENAI_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
+// Alibaba DashScope (Qwen) OpenAI-compatible endpoint
+export const QWEN_OPENAI_BASE_URL =
+  'https://dashscope.aliyuncs.com/compatible-mode/v1'
+// Alibaba DashScope native endpoint (used by qwen-tts)
+export const QWEN_DASHSCOPE_NATIVE_BASE_URL =
+  'https://dashscope.aliyuncs.com/api/v1'
+
 let openaiClient: OpenAI | null = null
 let openrouterClient: OpenAI | null = null
 let groqClient: Groq | null = null
@@ -18,6 +27,8 @@ let zaiClient: OpenAI | null = null
 let minimaxClient: OpenAI | null = null
 let deepseekClient: OpenAI | null = null
 let apiRouteClient: OpenAI | null = null
+let doubaoClient: OpenAI | null = null
+let qwenClient: OpenAI | null = null
 
 export function getOpenAIClient(): OpenAI {
   if (!openaiClient) {
@@ -107,6 +118,26 @@ export function getAPIRouteClient(): OpenAI {
     throw new Error('API Route client could not be initialized')
   }
   return apiRouteClient
+}
+
+export function getDoubaoClient(): OpenAI {
+  if (!doubaoClient) {
+    initializeDoubaoClient()
+  }
+  if (!doubaoClient) {
+    throw new Error('Doubao client could not be initialized')
+  }
+  return doubaoClient
+}
+
+export function getQwenClient(): OpenAI {
+  if (!qwenClient) {
+    initializeQwenClient()
+  }
+  if (!qwenClient) {
+    throw new Error('Qwen client could not be initialized')
+  }
+  return qwenClient
 }
 
 function initializeOpenAIClient(): void {
@@ -253,6 +284,38 @@ function initializeAPIRouteClient(): void {
   })
 }
 
+function initializeDoubaoClient(): void {
+  const settings = useSettingsStore().config
+  if (!settings.VITE_DOUBAO_API_KEY) {
+    console.error('Doubao API Key is not configured.')
+    throw new Error('Doubao API Key is not configured.')
+  }
+
+  doubaoClient = new OpenAI({
+    apiKey: settings.VITE_DOUBAO_API_KEY,
+    baseURL: settings.doubaoBaseUrl || DOUBAO_OPENAI_BASE_URL,
+    dangerouslyAllowBrowser: true,
+    timeout: 20 * 1000,
+    maxRetries: 1,
+  })
+}
+
+function initializeQwenClient(): void {
+  const settings = useSettingsStore().config
+  if (!settings.VITE_QWEN_API_KEY) {
+    console.error('Qwen API Key is not configured.')
+    throw new Error('Qwen API Key is not configured.')
+  }
+
+  qwenClient = new OpenAI({
+    apiKey: settings.VITE_QWEN_API_KEY,
+    baseURL: settings.qwenBaseUrl || QWEN_OPENAI_BASE_URL,
+    dangerouslyAllowBrowser: true,
+    timeout: 20 * 1000,
+    maxRetries: 1,
+  })
+}
+
 export function reinitializeClients(): void {
   console.log('Reinitializing API clients with updated settings...')
 
@@ -326,6 +389,22 @@ export function reinitializeClients(): void {
   } catch (error) {
     console.error('Failed to reinitialize API Route client:', error)
     apiRouteClient = null
+  }
+
+  try {
+    initializeDoubaoClient()
+    console.log('Doubao client reinitialized successfully')
+  } catch (error) {
+    console.error('Failed to reinitialize Doubao client:', error)
+    doubaoClient = null
+  }
+
+  try {
+    initializeQwenClient()
+    console.log('Qwen client reinitialized successfully')
+  } catch (error) {
+    console.error('Failed to reinitialize Qwen client:', error)
+    qwenClient = null
   }
 }
 

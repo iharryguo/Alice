@@ -2,6 +2,7 @@
 
 import fs from 'fs'
 import path from 'path'
+import os from 'os'
 import https from 'https'
 import { createHash } from 'crypto'
 import { exec } from 'child_process'
@@ -150,7 +151,20 @@ async function downloadOnnxRuntime() {
   ensureDir(tempDir)
 
   try {
+    // 【本地修改 1/3】原版会把 win32/linux/darwin 四个平台的 ONNX Runtime 全部下载
+    // （合计 200MB+），但本机开发只会用到当前平台的那一份。
+    // 这里改为：默认只下载当前平台，其余直接跳过。
+    // 如需恢复原行为（例如 CI 上给多平台打包），设置环境变量 ONNX_ALL_PLATFORMS=1。
+    // Set ONNX_ALL_PLATFORMS=1 to download every platform (e.g. for CI packaging).
+    const currentPlatform = `${process.platform}-${os.arch()}` // 例如 win32-x64
+    const fetchAll = process.env.ONNX_ALL_PLATFORMS === '1'
+
     for (const [platform, config] of Object.entries(PLATFORMS)) {
+      if (!fetchAll && platform !== currentPlatform) {
+        console.log(`\nSkipping ONNX Runtime for ${platform} (not needed on this machine)`)
+        continue
+      }
+
       console.log(`\nDownloading ONNX Runtime for ${platform}...`)
 
       const platformDir = path.join(LIB_DIR, platform)
@@ -162,7 +176,15 @@ async function downloadOnnxRuntime() {
       fs.rmSync(extractDir, { recursive: true, force: true })
       ensureDir(extractDir)
 
-      await downloadFile(config.url, archivePath)
+      // 【本地修改 2/3】原版无条件联网下载压缩包。国内访问 GitHub release 经常
+      // 被重置(ECONNRESET)，非常慢。这里改为：如果 temp 目录里已经手动放置了
+      // 同名压缩包，就跳过下载直接进入 SHA256 校验（校验保证文件正确性），
+      // 之后照常解压。这样可以从浏览器/镜像手动下载后放进 temp 复用。
+      if (fs.existsSync(archivePath)) {
+        console.log(`Found existing archive, skipping download: ${archivePath}`)
+      } else {
+        await downloadFile(config.url, archivePath)
+      }
       const archiveDigest = await sha256File(archivePath)
       if (archiveDigest !== config.sha256) {
         throw new Error(`Checksum mismatch for ${archiveName}`)
@@ -192,7 +214,13 @@ async function downloadModel({ tokenizerOnly = false } = {}) {
   const modelDir = path.join(MODELS_DIR, 'minilm')
   ensureDir(modelDir)
 
-  const baseUrl = `https://huggingface.co/${MODEL_NAME}/resolve/${MODEL_REVISION}/onnx`
+  // 【本地修改 3/3】原版写死从 huggingface.co 下载模型，国内直连经常超时。
+  // 这里默认改用 hf-mirror.com（HuggingFace 的国内镜像，文件内容与官方
+  // 完全一致，下载后仍会做 SHA256 校验，所以不怕镜像被篡改）。
+  // 如需用回官方源，设置环境变量 HF_OFFICIAL=1。
+  // Set HF_OFFICIAL=1 to use the official huggingface.co instead.
+  const hfHost = process.env.HF_OFFICIAL === '1' ? 'huggingface.co' : 'hf-mirror.com'
+  const baseUrl = `https://${hfHost}/${MODEL_NAME}/resolve/${MODEL_REVISION}/onnx`
   const artifacts = [
     {
       name: 'multilingual-e5-small.onnx',

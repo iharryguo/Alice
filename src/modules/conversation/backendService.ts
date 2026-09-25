@@ -23,6 +23,8 @@ export interface BackendServiceDependencies {
   transcribeWithOpenAI(audio: ArrayBuffer): Promise<string>
   transcribeWithGroq(audio: ArrayBuffer): Promise<string>
   transcribeWithGoogle(audio: ArrayBuffer): Promise<string>
+  transcribeWithDoubao(audio: ArrayBuffer): Promise<string>
+  transcribeWithQwen(audio: ArrayBuffer): Promise<string>
   transcribeWithBackend(audio: ArrayBuffer): Promise<string>
   logInfo(...args: any[]): void
   logError(...args: any[]): void
@@ -47,6 +49,10 @@ export function createBackendService(
         return await deps.transcribeWithGroq(audioArrayBuffer)
       } else if (sttProvider === 'google') {
         return await deps.transcribeWithGoogle(audioArrayBuffer)
+      } else if (sttProvider === 'doubao') {
+        return await deps.transcribeWithDoubao(audioArrayBuffer)
+      } else if (sttProvider === 'qwen') {
+        return await deps.transcribeWithQwen(audioArrayBuffer)
       } else if (sttProvider === 'local') {
         return await deps.transcribeWithBackend(audioArrayBuffer)
       }

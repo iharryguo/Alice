@@ -2,7 +2,11 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { useConversationStore } from './conversationStore'
 import { useGeneralStore } from './generalStore'
-import { reinitializeClients } from '../services/apiClients'
+import {
+  DOUBAO_OPENAI_BASE_URL,
+  QWEN_OPENAI_BASE_URL,
+  reinitializeClients,
+} from '../services/apiClients'
 import { DEFAULT_PERSONA_PROMPT } from '../prompts/defaultPersonaPrompt'
 import {
   DEEPSEEK_OPENAI_BASE_URL,
@@ -37,7 +41,9 @@ export interface AliceSettings {
   VITE_API_ROUTE_API_KEY: string
   VITE_GROQ_API_KEY: string
   VITE_GOOGLE_API_KEY: string
-  sttProvider: 'openai' | 'groq' | 'google' | 'local'
+  VITE_DOUBAO_API_KEY: string
+  VITE_QWEN_API_KEY: string
+  sttProvider: 'openai' | 'groq' | 'google' | 'doubao' | 'qwen' | 'local'
   aiProvider: AIProviderKey
 
   // Local Go Backend STT settings
@@ -51,6 +57,19 @@ export interface AliceSettings {
   zaiBaseUrl: string
   minimaxBaseUrl: string
   deepseekBaseUrl: string
+  doubaoBaseUrl: string
+  qwenBaseUrl: string
+  doubaoSttModel: string
+  qwenSttModel: string
+  doubaoTtsModel: string
+  qwenTtsModel: string
+  doubaoTtsVoice: string
+  qwenTtsVoice: string
+  doubaoEmbeddingModel: string
+  qwenEmbeddingModel: string
+  openaiSttModel: string
+  openaiTtsModel: string
+  openaiEmbeddingModel: string
   codexAuthConnected: boolean
   codexAccountLabel: string
 
@@ -67,7 +86,7 @@ export interface AliceSettings {
   SUMMARIZATION_MESSAGE_COUNT: number
   SUMMARIZATION_MODEL: string
   SUMMARIZATION_SYSTEM_PROMPT: string
-  ttsProvider: 'openai' | 'google' | 'local'
+  ttsProvider: 'openai' | 'google' | 'doubao' | 'qwen' | 'local'
   ttsVoice:
     | 'alloy'
     | 'ash'
@@ -84,7 +103,7 @@ export interface AliceSettings {
     | 'cedar'
   googleTtsVoice: string
   localTtsVoice: string
-  embeddingProvider: 'openai' | 'local'
+  embeddingProvider: 'openai' | 'doubao' | 'qwen' | 'local'
   ragEnabled: boolean
   ragPaths: string[]
   ragTopK: number
@@ -130,6 +149,12 @@ function hasMinimumConfigForOnboarding(config: AliceSettings): boolean {
   if (config.VITE_API_ROUTE_API_KEY?.trim()) {
     return true
   }
+  if (config.VITE_DOUBAO_API_KEY?.trim()) {
+    return true
+  }
+  if (config.VITE_QWEN_API_KEY?.trim()) {
+    return true
+  }
   if (config.codexAuthConnected) {
     return true
   }
@@ -153,6 +178,8 @@ const defaultSettings: AliceSettings = {
   VITE_API_ROUTE_API_KEY: '',
   VITE_GROQ_API_KEY: '',
   VITE_GOOGLE_API_KEY: '',
+  VITE_DOUBAO_API_KEY: '',
+  VITE_QWEN_API_KEY: '',
   sttProvider: 'openai',
   aiProvider: 'openai',
 
@@ -166,6 +193,19 @@ const defaultSettings: AliceSettings = {
   zaiBaseUrl: ZAI_CODING_BASE_URL,
   minimaxBaseUrl: MINIMAX_OPENAI_BASE_URL,
   deepseekBaseUrl: DEEPSEEK_OPENAI_BASE_URL,
+  doubaoBaseUrl: DOUBAO_OPENAI_BASE_URL,
+  qwenBaseUrl: QWEN_OPENAI_BASE_URL,
+  doubaoSttModel: '',
+  qwenSttModel: 'qwen3-asr-flash',
+  doubaoTtsModel: '',
+  qwenTtsModel: 'qwen-tts-latest',
+  doubaoTtsVoice: 'zh_female_cancan_mars_bigtts',
+  qwenTtsVoice: 'Cherry',
+  doubaoEmbeddingModel: 'doubao-embedding-large',
+  qwenEmbeddingModel: 'text-embedding-v4',
+  openaiSttModel: 'gpt-4o-transcribe',
+  openaiTtsModel: 'gpt-4o-mini-tts',
+  openaiEmbeddingModel: 'text-embedding-ada-002',
   codexAuthConnected: false,
   codexAccountLabel: '',
 
@@ -228,6 +268,8 @@ const settingKeyToLabelMap: Record<keyof AliceSettings, string> = {
   VITE_API_ROUTE_API_KEY: 'API Route API Key',
   VITE_GROQ_API_KEY: 'Groq API Key (STT)',
   VITE_GOOGLE_API_KEY: 'Google API Key',
+  VITE_DOUBAO_API_KEY: 'Doubao (Volcengine Ark) API Key',
+  VITE_QWEN_API_KEY: 'Qwen (Alibaba DashScope) API Key',
   sttProvider: 'Speech-to-Text Provider',
   aiProvider: 'AI Provider',
 
@@ -242,6 +284,19 @@ const settingKeyToLabelMap: Record<keyof AliceSettings, string> = {
   zaiBaseUrl: 'Z.ai Base URL',
   minimaxBaseUrl: 'MiniMax Base URL',
   deepseekBaseUrl: 'DeepSeek Base URL',
+  doubaoBaseUrl: 'Doubao Base URL',
+  qwenBaseUrl: 'Qwen Base URL',
+  doubaoSttModel: 'Doubao STT Model ID',
+  qwenSttModel: 'Qwen STT Model',
+  doubaoTtsModel: 'Doubao TTS Model ID',
+  qwenTtsModel: 'Qwen TTS Model',
+  doubaoTtsVoice: 'Doubao TTS Voice',
+  qwenTtsVoice: 'Qwen TTS Voice',
+  doubaoEmbeddingModel: 'Doubao Embedding Model ID',
+  qwenEmbeddingModel: 'Qwen Embedding Model',
+  openaiSttModel: 'OpenAI STT Model',
+  openaiTtsModel: 'OpenAI TTS Model',
+  openaiEmbeddingModel: 'OpenAI Embedding Model',
   codexAuthConnected: 'ChatGPT Codex authorization',
   codexAccountLabel: 'ChatGPT Codex account',
 
@@ -355,7 +410,14 @@ export const useSettingsStore = defineStore('settings', () => {
       console.log('✅ Settings migration completed successfully')
     }
 
-    const validSTTProviders = ['openai', 'groq', 'google', 'local'] as const
+    const validSTTProviders = [
+      'openai',
+      'groq',
+      'google',
+      'doubao',
+      'qwen',
+      'local',
+    ] as const
     if (!validSTTProviders.includes(validated.sttProvider as any)) {
       validated.sttProvider = 'openai'
     }
@@ -397,6 +459,22 @@ export const useSettingsStore = defineStore('settings', () => {
       !validated.VITE_OPENAI_API_KEY?.trim() &&
       validated.aiProvider !== 'openai' &&
       validated.embeddingProvider === 'openai'
+    ) {
+      validated.embeddingProvider = 'local'
+      migrated = true
+    }
+
+    if (
+      validated.embeddingProvider === 'doubao' &&
+      !validated.VITE_DOUBAO_API_KEY?.trim()
+    ) {
+      validated.embeddingProvider = 'local'
+      migrated = true
+    }
+
+    if (
+      validated.embeddingProvider === 'qwen' &&
+      !validated.VITE_QWEN_API_KEY?.trim()
     ) {
       validated.embeddingProvider = 'local'
       migrated = true
@@ -472,6 +550,22 @@ export const useSettingsStore = defineStore('settings', () => {
 
     if (settings.value.sttProvider === 'groq') {
       essentialKeys.push('VITE_GROQ_API_KEY')
+    }
+
+    if (
+      settings.value.sttProvider === 'doubao' ||
+      settings.value.ttsProvider === 'doubao' ||
+      settings.value.embeddingProvider === 'doubao'
+    ) {
+      essentialKeys.push('VITE_DOUBAO_API_KEY')
+    }
+
+    if (
+      settings.value.sttProvider === 'qwen' ||
+      settings.value.ttsProvider === 'qwen' ||
+      settings.value.embeddingProvider === 'qwen'
+    ) {
+      essentialKeys.push('VITE_QWEN_API_KEY')
     }
 
     if (
@@ -770,7 +864,13 @@ export const useSettingsStore = defineStore('settings', () => {
       ;(settings.value as any)[key] = String(value)
     }
     if (key === 'sttProvider') {
-      settings.value[key] = value as 'openai' | 'groq' | 'google' | 'local'
+      settings.value[key] = value as
+        | 'openai'
+        | 'groq'
+        | 'google'
+        | 'doubao'
+        | 'qwen'
+        | 'local'
     }
     if (key === 'aiProvider') {
       settings.value[key] = value as AIProviderKey
@@ -814,7 +914,12 @@ export const useSettingsStore = defineStore('settings', () => {
       settings.value[key] = value as boolean
     }
     if (key === 'ttsProvider') {
-      settings.value[key] = value as 'openai' | 'google' | 'local'
+      settings.value[key] = value as
+        | 'openai'
+        | 'google'
+        | 'doubao'
+        | 'qwen'
+        | 'local'
     }
     if (key === 'localTtsVoice') {
       settings.value[key] = value as string
@@ -823,7 +928,7 @@ export const useSettingsStore = defineStore('settings', () => {
       settings.value[key] = value as string
     }
     if (key === 'embeddingProvider') {
-      settings.value[key] = value as 'openai' | 'local'
+      settings.value[key] = value as 'openai' | 'doubao' | 'qwen' | 'local'
     }
 
     successMessage.value = null
@@ -883,6 +988,8 @@ export const useSettingsStore = defineStore('settings', () => {
         VITE_API_ROUTE_API_KEY: settings.value.VITE_API_ROUTE_API_KEY,
         VITE_GROQ_API_KEY: settings.value.VITE_GROQ_API_KEY,
         VITE_GOOGLE_API_KEY: settings.value.VITE_GOOGLE_API_KEY,
+        VITE_DOUBAO_API_KEY: settings.value.VITE_DOUBAO_API_KEY,
+        VITE_QWEN_API_KEY: settings.value.VITE_QWEN_API_KEY,
         sttProvider: settings.value.sttProvider,
         aiProvider: settings.value.aiProvider,
 
@@ -896,6 +1003,19 @@ export const useSettingsStore = defineStore('settings', () => {
         zaiBaseUrl: settings.value.zaiBaseUrl,
         minimaxBaseUrl: settings.value.minimaxBaseUrl,
         deepseekBaseUrl: settings.value.deepseekBaseUrl,
+        doubaoBaseUrl: settings.value.doubaoBaseUrl,
+        qwenBaseUrl: settings.value.qwenBaseUrl,
+        doubaoSttModel: settings.value.doubaoSttModel,
+        qwenSttModel: settings.value.qwenSttModel,
+        doubaoTtsModel: settings.value.doubaoTtsModel,
+        qwenTtsModel: settings.value.qwenTtsModel,
+        doubaoTtsVoice: settings.value.doubaoTtsVoice,
+        qwenTtsVoice: settings.value.qwenTtsVoice,
+        doubaoEmbeddingModel: settings.value.doubaoEmbeddingModel,
+        qwenEmbeddingModel: settings.value.qwenEmbeddingModel,
+        openaiSttModel: settings.value.openaiSttModel,
+        openaiTtsModel: settings.value.openaiTtsModel,
+        openaiEmbeddingModel: settings.value.openaiEmbeddingModel,
         codexAuthConnected: settings.value.codexAuthConnected,
         codexAccountLabel: settings.value.codexAccountLabel,
         assistantModel: settings.value.assistantModel,
@@ -1079,6 +1199,32 @@ export const useSettingsStore = defineStore('settings', () => {
       return
     }
 
+    if (
+      (currentConfigForTest.sttProvider === 'doubao' ||
+        currentConfigForTest.ttsProvider === 'doubao' ||
+        currentConfigForTest.embeddingProvider === 'doubao') &&
+      !currentConfigForTest.VITE_DOUBAO_API_KEY?.trim()
+    ) {
+      error.value = `Doubao is selected, but '${settingKeyToLabelMap.VITE_DOUBAO_API_KEY}' is missing.`
+      generalStore.statusMessage =
+        'Doubao (Volcengine Ark) API Key is required.'
+      isSaving.value = false
+      return
+    }
+
+    if (
+      (currentConfigForTest.sttProvider === 'qwen' ||
+        currentConfigForTest.ttsProvider === 'qwen' ||
+        currentConfigForTest.embeddingProvider === 'qwen') &&
+      !currentConfigForTest.VITE_QWEN_API_KEY?.trim()
+    ) {
+      error.value = `Qwen is selected, but '${settingKeyToLabelMap.VITE_QWEN_API_KEY}' is missing.`
+      generalStore.statusMessage =
+        'Qwen (Alibaba DashScope) API Key is required.'
+      isSaving.value = false
+      return
+    }
+
     const settingsPersistedInitially = await saveSettingsToFile()
     if (!settingsPersistedInitially) {
       generalStore.statusMessage = 'Error saving settings to file.'
@@ -1161,19 +1307,32 @@ export const useSettingsStore = defineStore('settings', () => {
     VITE_MINIMAX_API_KEY?: string
     VITE_DEEPSEEK_API_KEY?: string
     VITE_API_ROUTE_API_KEY?: string
-    sttProvider: 'openai' | 'groq' | 'google' | 'local'
-    ttsProvider?: 'openai' | 'google' | 'local'
-    embeddingProvider?: 'openai' | 'local'
+    sttProvider: 'openai' | 'groq' | 'google' | 'doubao' | 'qwen' | 'local'
+    ttsProvider?: 'openai' | 'google' | 'doubao' | 'qwen' | 'local'
+    embeddingProvider?: 'openai' | 'doubao' | 'qwen' | 'local'
     aiProvider: AIProviderKey
     assistantModel?: string
     summarizationModel?: string
     VITE_GROQ_API_KEY: string
     VITE_GOOGLE_API_KEY: string
+    VITE_DOUBAO_API_KEY?: string
+    VITE_QWEN_API_KEY?: string
     ollamaBaseUrl?: string
     lmStudioBaseUrl?: string
     zaiBaseUrl?: string
     minimaxBaseUrl?: string
     deepseekBaseUrl?: string
+    doubaoBaseUrl?: string
+    qwenBaseUrl?: string
+    doubaoSttModel?: string
+    doubaoTtsModel?: string
+    doubaoEmbeddingModel?: string
+    qwenSttModel?: string
+    qwenTtsModel?: string
+    qwenEmbeddingModel?: string
+    openaiSttModel?: string
+    openaiTtsModel?: string
+    openaiEmbeddingModel?: string
     useLocalModels?: boolean
     localSttLanguage?: string
   }) {
@@ -1191,6 +1350,9 @@ export const useSettingsStore = defineStore('settings', () => {
     settings.value.aiProvider = onboardingData.aiProvider
     settings.value.VITE_GROQ_API_KEY = onboardingData.VITE_GROQ_API_KEY
     settings.value.VITE_GOOGLE_API_KEY = onboardingData.VITE_GOOGLE_API_KEY
+    settings.value.VITE_DOUBAO_API_KEY =
+      onboardingData.VITE_DOUBAO_API_KEY || ''
+    settings.value.VITE_QWEN_API_KEY = onboardingData.VITE_QWEN_API_KEY || ''
 
     // Set models if provided
     if (onboardingData.assistantModel) {
@@ -1229,6 +1391,40 @@ export const useSettingsStore = defineStore('settings', () => {
     }
     if (onboardingData.deepseekBaseUrl) {
       settings.value.deepseekBaseUrl = onboardingData.deepseekBaseUrl
+    }
+    if (onboardingData.doubaoBaseUrl) {
+      settings.value.doubaoBaseUrl = onboardingData.doubaoBaseUrl
+    }
+    if (onboardingData.qwenBaseUrl) {
+      settings.value.qwenBaseUrl = onboardingData.qwenBaseUrl
+    }
+    if (onboardingData.doubaoSttModel !== undefined) {
+      settings.value.doubaoSttModel = onboardingData.doubaoSttModel
+    }
+    if (onboardingData.doubaoTtsModel !== undefined) {
+      settings.value.doubaoTtsModel = onboardingData.doubaoTtsModel
+    }
+    if (onboardingData.doubaoEmbeddingModel !== undefined) {
+      settings.value.doubaoEmbeddingModel = onboardingData.doubaoEmbeddingModel
+    }
+    if (onboardingData.qwenSttModel !== undefined) {
+      settings.value.qwenSttModel = onboardingData.qwenSttModel
+    }
+    if (onboardingData.qwenTtsModel !== undefined) {
+      settings.value.qwenTtsModel = onboardingData.qwenTtsModel
+    }
+    if (onboardingData.qwenEmbeddingModel !== undefined) {
+      settings.value.qwenEmbeddingModel = onboardingData.qwenEmbeddingModel
+    }
+    if (onboardingData.openaiSttModel !== undefined) {
+      settings.value.openaiSttModel = onboardingData.openaiSttModel
+    }
+    if (onboardingData.openaiTtsModel !== undefined) {
+      settings.value.openaiTtsModel = onboardingData.openaiTtsModel
+    }
+    if (onboardingData.openaiEmbeddingModel !== undefined) {
+      settings.value.openaiEmbeddingModel =
+        onboardingData.openaiEmbeddingModel
     }
 
     settings.value.onboardingCompleted = true

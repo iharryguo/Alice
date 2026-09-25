@@ -5,6 +5,7 @@ import { buildMemoryFtsQuery } from './memorySearch'
 
 const OPENAI_VECTOR_DIMENSION = 1536
 const LOCAL_VECTOR_DIMENSION = 384 // multilingual-e5-small embedding dimension
+const DOUBAO_VECTOR_DIMENSION = 4096 // doubao-embedding-large dimension
 
 function cosineSimilarity(vecA: number[], vecB: number[]): number {
   if (!vecA || !vecB || vecA.length !== vecB.length || vecA.length === 0) {
@@ -46,13 +47,19 @@ function normalizeEmbeddings(payload: {
   embedding?: number[]
   embeddingOpenAI?: number[]
   embeddingLocal?: number[]
+  embeddingDoubao?: number[]
 }): {
   openai?: number[]
   local?: number[]
+  doubao?: number[]
   legacy?: number[]
 } {
-  const normalized: { openai?: number[]; local?: number[]; legacy?: number[] } =
-    {}
+  const normalized: {
+    openai?: number[]
+    local?: number[]
+    doubao?: number[]
+    legacy?: number[]
+  } = {}
 
   if (payload.embeddingOpenAI && payload.embeddingOpenAI.length > 0) {
     normalized.openai = payload.embeddingOpenAI
@@ -63,12 +70,23 @@ function normalizeEmbeddings(payload: {
     normalized.local = payload.embeddingLocal
   }
 
-  if (!normalized.openai && !normalized.local && payload.embedding) {
+  if (payload.embeddingDoubao && payload.embeddingDoubao.length > 0) {
+    normalized.doubao = payload.embeddingDoubao
+  }
+
+  if (
+    !normalized.openai &&
+    !normalized.local &&
+    !normalized.doubao &&
+    payload.embedding
+  ) {
     if (payload.embedding.length === OPENAI_VECTOR_DIMENSION) {
       normalized.openai = payload.embedding
       normalized.legacy = payload.embedding
     } else if (payload.embedding.length === LOCAL_VECTOR_DIMENSION) {
       normalized.local = payload.embedding
+    } else if (payload.embedding.length === DOUBAO_VECTOR_DIMENSION) {
+      normalized.doubao = payload.embedding
     }
   }
 
@@ -77,9 +95,10 @@ function normalizeEmbeddings(payload: {
 
 function getProviderForEmbedding(
   embedding: number[]
-): 'openai' | 'local' | null {
+): 'openai' | 'local' | 'doubao' | null {
   if (embedding.length === OPENAI_VECTOR_DIMENSION) return 'openai'
   if (embedding.length === LOCAL_VECTOR_DIMENSION) return 'local'
+  if (embedding.length === DOUBAO_VECTOR_DIMENSION) return 'doubao'
   return null
 }
 
@@ -123,7 +142,8 @@ export async function saveMemoryLocal(
   memoryType: string = 'general',
   embedding?: number[],
   embeddingOpenAI?: number[],
-  embeddingLocal?: number[]
+  embeddingLocal?: number[],
+  embeddingDoubao?: number[]
 ): Promise<MemoryRecord> {
   const db = getDBInstance()
   const id = randomUUID()
@@ -132,14 +152,16 @@ export async function saveMemoryLocal(
     embedding,
     embeddingOpenAI,
     embeddingLocal,
+    embeddingDoubao,
   })
   const legacyEmbeddingBuffer = convertEmbeddingToBuffer(normalized.legacy)
   const openAIEmbeddingBuffer = convertEmbeddingToBuffer(normalized.openai)
   const localEmbeddingBuffer = convertEmbeddingToBuffer(normalized.local)
+  const doubaoEmbeddingBuffer = convertEmbeddingToBuffer(normalized.doubao)
 
   try {
     const stmt = db.prepare(
-      'INSERT INTO long_term_memories (id, content, memory_type, created_at, embedding, embedding_openai, embedding_local) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO long_term_memories (id, content, memory_type, created_at, embedding, embedding_openai, embedding_local, embedding_doubao) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
     )
     stmt.run(
       id,
@@ -148,7 +170,8 @@ export async function saveMemoryLocal(
       createdAt,
       legacyEmbeddingBuffer,
       openAIEmbeddingBuffer,
-      localEmbeddingBuffer
+      localEmbeddingBuffer,
+      doubaoEmbeddingBuffer
     )
     console.log('Memory saved to SQLite:', id)
     return {
@@ -156,7 +179,7 @@ export async function saveMemoryLocal(
       content,
       memoryType,
       createdAt,
-      embedding: normalized.openai || normalized.local,
+      embedding: normalized.openai || normalized.local || normalized.doubao,
     }
   } catch (error) {
     console.error('Failed to save memory to SQLite:', error)
@@ -192,7 +215,9 @@ export async function getRecentMemoriesLocal(
       let sql =
         provider === 'local'
           ? 'SELECT id, content, memory_type, created_at, embedding_local as embedding FROM long_term_memories WHERE embedding_local IS NOT NULL'
-          : 'SELECT id, content, memory_type, created_at, COALESCE(embedding_openai, embedding) as embedding FROM long_term_memories WHERE embedding_openai IS NOT NULL OR embedding IS NOT NULL'
+          : provider === 'doubao'
+            ? 'SELECT id, content, memory_type, created_at, embedding_doubao as embedding FROM long_term_memories WHERE embedding_doubao IS NOT NULL'
+            : 'SELECT id, content, memory_type, created_at, COALESCE(embedding_openai, embedding) as embedding FROM long_term_memories WHERE embedding_openai IS NOT NULL OR embedding IS NOT NULL'
       const params: any[] = []
       if (memoryType) {
         sql += ' AND memory_type = ?'
@@ -313,13 +338,15 @@ export async function updateMemoryLocal(
   updatedMemoryType: string,
   updatedEmbedding?: number[],
   updatedEmbeddingOpenAI?: number[],
-  updatedEmbeddingLocal?: number[]
+  updatedEmbeddingLocal?: number[],
+  updatedEmbeddingDoubao?: number[]
 ): Promise<MemoryRecord | null> {
   const db = getDBInstance()
   const normalized = normalizeEmbeddings({
     embedding: updatedEmbedding,
     embeddingOpenAI: updatedEmbeddingOpenAI,
     embeddingLocal: updatedEmbeddingLocal,
+    embeddingDoubao: updatedEmbeddingDoubao,
   })
   try {
     const fields = ['content = ?', 'memory_type = ?']
@@ -336,6 +363,10 @@ export async function updateMemoryLocal(
     if (normalized.local) {
       fields.push('embedding_local = ?')
       params.push(convertEmbeddingToBuffer(normalized.local))
+    }
+    if (normalized.doubao) {
+      fields.push('embedding_doubao = ?')
+      params.push(convertEmbeddingToBuffer(normalized.doubao))
     }
 
     params.push(id)

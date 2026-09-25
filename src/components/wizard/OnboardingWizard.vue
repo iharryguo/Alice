@@ -90,6 +90,10 @@ import { listMiniMaxModelsForConfig } from '../../services/llmProviders/minimax'
 import { listOpenAIModelsForConfig } from '../../services/llmProviders/openai'
 import { listOpenRouterModelsForConfig } from '../../services/llmProviders/openrouter'
 import { listZAIModelsForConfig } from '../../services/llmProviders/zai'
+import {
+  DOUBAO_OPENAI_BASE_URL,
+  QWEN_OPENAI_BASE_URL,
+} from '../../services/apiClients'
 
 const step = ref(1)
 const settingsStore = useSettingsStore()
@@ -133,16 +137,40 @@ const formData = reactive({
   aiProvider: 'openai' as AIProviderKey,
   assistantModel: openaiDefaults.assistantModel as string,
   summarizationModel: openaiDefaults.summarizationModel as string,
-  sttProvider: 'openai' as 'openai' | 'groq' | 'google' | 'local',
-  ttsProvider: 'openai' as 'openai' | 'google' | 'local',
-  embeddingProvider: 'openai' as 'openai' | 'local',
+  sttProvider: 'openai' as
+    | 'openai'
+    | 'groq'
+    | 'google'
+    | 'doubao'
+    | 'qwen'
+    | 'local',
+  ttsProvider: 'openai' as
+    | 'openai'
+    | 'google'
+    | 'doubao'
+    | 'qwen'
+    | 'local',
+  embeddingProvider: 'openai' as 'openai' | 'doubao' | 'qwen' | 'local',
   VITE_GROQ_API_KEY: '',
   VITE_GOOGLE_API_KEY: '',
+  VITE_DOUBAO_API_KEY: '',
+  VITE_QWEN_API_KEY: '',
   ollamaBaseUrl: 'http://localhost:11434',
   lmStudioBaseUrl: 'http://localhost:1234',
   zaiBaseUrl: ZAI_CODING_BASE_URL,
   minimaxBaseUrl: MINIMAX_OPENAI_BASE_URL,
   deepseekBaseUrl: DEEPSEEK_OPENAI_BASE_URL,
+  doubaoBaseUrl: DOUBAO_OPENAI_BASE_URL,
+  qwenBaseUrl: QWEN_OPENAI_BASE_URL,
+  doubaoSttModel: '',
+  doubaoTtsModel: '',
+  doubaoEmbeddingModel: 'doubao-embedding-large',
+  qwenSttModel: 'qwen3-asr-flash',
+  qwenTtsModel: 'qwen-tts-latest',
+  qwenEmbeddingModel: 'text-embedding-v4',
+  openaiSttModel: 'gpt-4o-transcribe',
+  openaiTtsModel: 'gpt-4o-mini-tts',
+  openaiEmbeddingModel: 'text-embedding-ada-002',
   useLocalModels: false,
   availableModels: [] as string[],
   localSttLanguage: 'auto',
@@ -190,39 +218,57 @@ const canContinue = computed(() => {
       return true
     case 2:
       return isCurrentProviderTested()
-    case 3:
+    case 3: {
       if (formData.useLocalModels) return true
 
-      // Check OpenAI Key requirement for non-OpenAI providers (for voice features)
-      if (
-        (formData.aiProvider === 'ollama' ||
-          formData.aiProvider === 'lm-studio' ||
-          formData.aiProvider === 'openrouter' ||
-          formData.aiProvider === 'zai' ||
-          formData.aiProvider === 'minimax' ||
-          formData.aiProvider === 'deepseek' ||
-          formData.aiProvider === 'api-route' ||
-          formData.aiProvider === 'codex') &&
-        !formData.VITE_OPENAI_API_KEY.trim()
-      ) {
-        return false
+      // 三个能力（STT/TTS/Embedding）完全并列：按各自所选提供商校验 API Key 与模型 ID
+      const providerKeyField: Record<string, string> = {
+        openai: 'VITE_OPENAI_API_KEY',
+        groq: 'VITE_GROQ_API_KEY',
+        google: 'VITE_GOOGLE_API_KEY',
+        doubao: 'VITE_DOUBAO_API_KEY',
+        qwen: 'VITE_QWEN_API_KEY',
+      }
+      const modelFieldByProvider: Record<string, Record<string, string>> = {
+        Stt: {
+          openai: 'openaiSttModel',
+          doubao: 'doubaoSttModel',
+          qwen: 'qwenSttModel',
+        },
+        Tts: {
+          openai: 'openaiTtsModel',
+          doubao: 'doubaoTtsModel',
+          qwen: 'qwenTtsModel',
+        },
+        Embedding: {
+          openai: 'openaiEmbeddingModel',
+          doubao: 'doubaoEmbeddingModel',
+          qwen: 'qwenEmbeddingModel',
+        },
       }
 
-      // Check specific STT provider requirements
-      if (
-        formData.sttProvider === 'groq' &&
-        !formData.VITE_GROQ_API_KEY.trim()
-      ) {
-        return false
-      }
-      if (
-        formData.sttProvider === 'google' &&
-        !formData.VITE_GOOGLE_API_KEY.trim()
-      ) {
-        return false
+      const capabilities = [
+        { provider: formData.sttProvider, prefix: 'Stt' },
+        { provider: formData.ttsProvider, prefix: 'Tts' },
+        { provider: formData.embeddingProvider, prefix: 'Embedding' },
+      ]
+
+      for (const { provider, prefix } of capabilities) {
+        const keyField = providerKeyField[provider]
+        if (keyField && !String((formData as any)[keyField] || '').trim()) {
+          return false
+        }
+        const modelField = modelFieldByProvider[prefix]?.[provider]
+        if (
+          modelField &&
+          !String((formData as any)[modelField] || '').trim()
+        ) {
+          return false
+        }
       }
 
       return true
+    }
     case 4:
       return true
     default:
