@@ -28,6 +28,22 @@
             <option value="lm-studio">LM Studio (Local)</option>
           </select>
         </div>
+        <div>
+          <label for="assistant-model-id" class="block mb-1 text-sm"
+            >模型 ID (Model ID)</label
+          >
+          <input
+            id="assistant-model-id"
+            type="text"
+            v-model="currentSettings.assistantModel"
+            class="input focus:outline-none w-full"
+            placeholder="例如 deepseek-v4-flash / deepseek-flash"
+          />
+          <p class="text-xs text-gray-400 mt-1">
+            自由填写当前提供商的模型 ID（会原样发送给服务商）。DeepSeek
+            支持图像理解的模型：deepseek-v4-flash / deepseek-flash。
+          </p>
+        </div>
         <div v-if="currentSettings.aiProvider === 'openai'">
           <label for="openai-key" class="block mb-1 text-sm"
             >OpenAI API Key *</label

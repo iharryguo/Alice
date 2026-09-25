@@ -105,6 +105,10 @@ export function createApiInputBuilder(
                     (currentApiRole === 'user' ||
                       currentApiRole === 'developer')
                   ) {
+                    console.log(
+                      '[ApiInputBuilder] Including image part in latest user message:',
+                      appPart.uri.slice(0, 30)
+                    )
                     return {
                       type: 'input_image',
                       image_url: appPart.uri,

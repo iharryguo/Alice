@@ -15,7 +15,7 @@ type OpenAICompatibleProviderKey = 'zai' | 'minimax' | 'deepseek' | 'api-route'
 function convertResponsesInputToChatMessages(
   input: OpenAI.Responses.Request.InputItemLike[]
 ): OpenAI.Chat.ChatCompletionMessageParam[] {
-  return input
+  const converted = input
     .map((item: any) => {
       if (item.role === 'user') {
         if (Array.isArray(item.content)) {
@@ -135,8 +135,29 @@ function convertResponsesInputToChatMessages(
       if (message.role === 'assistant' && message.tool_calls?.length) {
         return true
       }
-      return typeof message.content === 'string' && message.content.trim()
+      // Multimodal messages carry array content (text + image parts) — keep
+      // them as long as they have at least one part.
+      if (Array.isArray(message.content)) {
+        return message.content.length > 0
+      }
+      return typeof message.content === 'string' && !!message.content.trim()
     })
+
+  console.log(
+    '[ChatMessages] Converted input:',
+    input.length,
+    'items →',
+    converted.length,
+    'messages:',
+    converted.map((message: any) => ({
+      role: message.role,
+      contentTypes: Array.isArray(message.content)
+        ? message.content.map((part: any) => part.type)
+        : 'text',
+    }))
+  )
+
+  return converted
 }
 
 function addCustomInstructions(
@@ -408,6 +429,20 @@ export async function createOpenAICompatibleResponse(
   )
 
   const model = getSafeProviderModel(provider, settings.assistantModel)
+
+  // 紧凑摘要：避免巨型 base64 把控制台刷屏，导致看不清消息结构
+  console.log(
+    `[${provider}] Request summary: model=${model}, messages=`,
+    messages.map(message => ({
+      role: message.role,
+      contentTypes: Array.isArray((message as any).content)
+        ? ((message as any).content as any[]).map((part: any) => part.type)
+        : 'text',
+      toolCalls: (message as any).tool_calls
+        ? (message as any).tool_calls.map((call: any) => call.function?.name)
+        : undefined,
+    }))
+  )
   const params: OpenAI.Chat.ChatCompletionCreateParams = {
     model,
     messages,

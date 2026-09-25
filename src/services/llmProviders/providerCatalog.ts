@@ -153,6 +153,15 @@ export function isKnownProviderModel(provider: string, model: string): boolean {
       model.startsWith('gpt-5')
     )
   }
+  // DeepSeek publishes snapshot/alias model ids (e.g. deepseek-flash,
+  // deepseek-v4-flash-20260101) faster than this catalog updates, so any
+  // 'deepseek' prefixed id is accepted as-is.
+  if (provider === 'deepseek') {
+    return (
+      staticModels.some(staticModel => staticModel.id === model) ||
+      model.startsWith('deepseek')
+    )
+  }
   return staticModels.some(staticModel => staticModel.id === model)
 }
 

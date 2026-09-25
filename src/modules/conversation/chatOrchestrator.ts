@@ -461,6 +461,18 @@ export function createChatOrchestrator(
       const contextMessages = await buildContextMessages()
       const constructedApiInput = await dependencies.buildApiInput(true)
       finalApiInput = [...contextMessages, ...constructedApiInput]
+      // 诊断：确认组装后的请求输入包含哪些内容
+      console.log(
+        '[ChatOrchestrator] finalApiInput summary:',
+        JSON.stringify(
+          finalApiInput.map(item => ({
+            role: item.role,
+            parts: Array.isArray(item.content)
+              ? item.content.map((part: any) => part.type)
+              : 'text',
+          }))
+        )
+      )
     } else {
       finalApiInput = await buildContinuationInput()
     }

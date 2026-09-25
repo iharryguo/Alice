@@ -265,6 +265,23 @@ const processRequest = async (
     screenShot.value = ''
   }
 
+  // 诊断日志：确认截图是否真的被附加到了本次请求（只打印类型与 URI 前缀，
+  // 避免刷屏 base64）
+  console.log(
+    '[Main.vue processRequest] Content parts:',
+    JSON.stringify(
+      appContentParts.map(part => ({
+        type: part.type,
+        textPreview:
+          part.type === 'app_text' ? part.text?.slice(0, 40) : undefined,
+        uriPrefix:
+          part.type === 'app_image_uri'
+            ? part.uri?.slice(0, 30)
+            : undefined,
+      }))
+    )
+  )
+
   if (appContentParts.length === 0) {
     generalStore.statusMessage = 'Nothing to send.'
     isProcessingRequest = false
