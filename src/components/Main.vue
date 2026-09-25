@@ -378,4 +378,38 @@ const processRequest = async (
 .avatar-ring {
   transition: ring-color 0.3s ease-in-out;
 }
+
+/* 整个头像区域都可以拖动窗口（无边框窗口依赖 -webkit-app-region）。
+   注意该属性不会被子元素继承，所以视频和圆环也要显式声明。 */
+.avatar-wrapper,
+.avatar-wrapper :deep(.avatar-ring),
+.avatar-wrapper :deep(video) {
+  -webkit-app-region: drag;
+}
+
+/* 交互元素必须排除在拖动区域之外，否则点击会被窗口拖动吞掉 */
+.avatar-wrapper :deep(.indicator) {
+  -webkit-app-region: no-drag;
+}
+
+/* 顶部汉堡菜单：dropdown-hover 依赖 :hover 维持展开，但从按钮移动到菜单
+   要经过的间隙落在视频的 drag 区域上，hover 事件会被窗口拖动系统吞掉导致
+   菜单闪没。这里把整个 dropdown 标为 no-drag，并用伪元素桥接间隙。 */
+.avatar-wrapper :deep(.dropdown) {
+  -webkit-app-region: no-drag;
+}
+.avatar-wrapper :deep(.dropdown::after) {
+  content: '';
+  position: absolute;
+  left: -8px;
+  right: -8px;
+  top: 100%;
+  height: 16px;
+  -webkit-app-region: no-drag;
+}
+
+/* 聊天侧栏整体不可拖动，保证输入框/滚动条/按钮正常工作 */
+.avatar-wrapper :deep(.sidebar-wrapper) {
+  -webkit-app-region: no-drag;
+}
 </style>

@@ -990,10 +990,10 @@
               type="text"
               v-model="currentSettings.doubaoEmbeddingModel"
               class="input focus:outline-none w-full"
-              placeholder="doubao-embedding-large"
+              placeholder="doubao-embedding-vision-251215"
             />
             <p class="text-xs text-gray-400 mt-1">
-              Uses the model's native dimension (4096).
+              走 /embeddings/multimodal 端点，使用模型原生维度。
             </p>
           </div>
           <div class="md:col-span-2">

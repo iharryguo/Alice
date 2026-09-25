@@ -24,11 +24,34 @@ function convertResponsesInputToChatMessages(
               (part: any) => part.type === 'input_text' && part.text?.trim()
             )
             .map((part: any) => part.text)
-            .join(' ')
+
+          // Preserve image parts (screenshots etc.) so vision-capable models
+          // (e.g. deepseek-v4-flash) can actually see them. apiInputBuilder
+          // already keeps real image URIs only for the latest user message.
+          const imageParts = item.content
+            .filter(
+              (part: any) => part.type === 'input_image' && part.image_url
+            )
+            .map((part: any) => ({
+              type: 'image_url',
+              image_url: { url: part.image_url },
+            }))
+
+          if (imageParts.length > 0) {
+            const content: Array<
+              | { type: 'text'; text: string }
+              | { type: 'image_url'; image_url: { url: string } }
+            > = textParts.map((text: string) => ({ type: 'text', text }))
+            content.push(...imageParts)
+            return {
+              role: 'user',
+              content,
+            }
+          }
 
           return {
             role: 'user',
-            content: textParts || 'Hello',
+            content: textParts.join(' ') || 'Hello',
           }
         }
 
@@ -300,6 +323,67 @@ export async function createChatCompletionForProvider(
   return getClient().chat.completions.create(params as any, { signal })
 }
 
+// DeepSeek/OpenAI-strict endpoints reject a 'tool' message that does not
+// directly follow an assistant message carrying the matching 'tool_calls'
+// (and vice versa). Interrupted turns (barge-in) or history trimming can
+// leave such orphans in the conversation history, so sanitize before
+// sending: drop tool results without a matching tool_calls entry, and strip
+// tool_calls entries whose results are missing.
+function sanitizeToolMessageSequence<
+  T extends {
+    role: string
+    tool_calls?: { id?: string }[]
+    tool_call_id?: string
+  },
+>(messages: T[]): T[] {
+  const toolResultIds = new Set<string>()
+  for (const message of messages) {
+    if (message.role === 'tool' && message.tool_call_id) {
+      toolResultIds.add(message.tool_call_id)
+    }
+  }
+
+  const sanitized: T[] = []
+  const validToolCallIds = new Set<string>()
+  for (const message of messages) {
+    if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
+      const usableCalls = message.tool_calls.filter(
+        call => call?.id && toolResultIds.has(call.id)
+      )
+      for (const call of usableCalls) {
+        validToolCallIds.add(call.id as string)
+      }
+      if (usableCalls.length === message.tool_calls.length) {
+        sanitized.push(message)
+      } else if (usableCalls.length > 0) {
+        sanitized.push({ ...message, tool_calls: usableCalls })
+      } else {
+        // No results for any of the calls (turn was interrupted): strip the
+        // tool_calls entirely so the assistant message stays valid on its own.
+        const { tool_calls: _dropped, ...rest } = message
+        const fallbackContent =
+          typeof (rest as any).content === 'string' &&
+          (rest as any).content.trim()
+            ? (rest as any).content
+            : '(上一轮操作被用户中断)'
+        sanitized.push({ ...(rest as any), content: fallbackContent } as T)
+      }
+      continue
+    }
+
+    if (message.role === 'tool') {
+      if (message.tool_call_id && validToolCallIds.has(message.tool_call_id)) {
+        sanitized.push(message)
+      }
+      continue
+    }
+
+    sanitized.push(message)
+  }
+
+  return sanitized
+}
+
 export async function createOpenAICompatibleResponse(
   provider: OpenAICompatibleProviderKey,
   getClient: OpenAIClientGetter,
@@ -310,10 +394,12 @@ export async function createOpenAICompatibleResponse(
 ): Promise<any> {
   const settings = useSettingsStore().config
   const finalToolsForApi = await buildToolsForProvider()
-  const messages = prepareChatMessagesForProvider(
-    provider,
-    convertResponsesInputToChatMessages(input),
-    customInstructions
+  const messages = sanitizeToolMessageSequence(
+    prepareChatMessagesForProvider(
+      provider,
+      convertResponsesInputToChatMessages(input),
+      customInstructions
+    )
   )
 
   console.log(

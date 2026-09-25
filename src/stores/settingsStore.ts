@@ -203,7 +203,7 @@ const defaultSettings: AliceSettings = {
   qwenTtsModel: 'qwen-tts-latest',
   doubaoTtsVoice: 'zh_female_cancan_mars_bigtts',
   qwenTtsVoice: 'Cherry',
-  doubaoEmbeddingModel: 'doubao-embedding-large',
+  doubaoEmbeddingModel: 'doubao-embedding-vision-251215',
   qwenEmbeddingModel: 'text-embedding-v4',
   openaiSttModel: 'gpt-4o-transcribe',
   openaiTtsModel: 'gpt-4o-mini-tts',

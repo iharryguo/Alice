@@ -164,7 +164,7 @@ const formData = reactive({
   qwenBaseUrl: QWEN_OPENAI_BASE_URL,
   doubaoSttModel: '',
   doubaoTtsModel: '',
-  doubaoEmbeddingModel: 'doubao-embedding-large',
+  doubaoEmbeddingModel: 'doubao-embedding-vision-251215',
   qwenSttModel: 'qwen3-asr-flash',
   qwenTtsModel: 'qwen-tts-latest',
   qwenEmbeddingModel: 'text-embedding-v4',

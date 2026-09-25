@@ -467,11 +467,26 @@ const qwenTTS = async (
   }
 
   if (base64Chunks.length > 0) {
-    const base64 = base64Chunks.join('')
-    const binaryString = atob(base64)
-    const pcm = new Uint8Array(binaryString.length)
-    for (let i = 0; i < binaryString.length; i++) {
-      pcm[i] = binaryString.charCodeAt(i)
+    // Each SSE chunk is independently padded base64 ('=' terminated), so they
+    // must be decoded individually and merged as binary — concatenating the
+    // base64 strings themselves would break atob on the inner padding.
+    const pcmParts: Uint8Array[] = []
+    let totalLength = 0
+    for (const chunk of base64Chunks) {
+      if (!chunk) continue
+      const binaryString = atob(chunk)
+      const part = new Uint8Array(binaryString.length)
+      for (let i = 0; i < binaryString.length; i++) {
+        part[i] = binaryString.charCodeAt(i)
+      }
+      pcmParts.push(part)
+      totalLength += part.length
+    }
+    const pcm = new Uint8Array(totalLength)
+    let offset = 0
+    for (const part of pcmParts) {
+      pcm.set(part, offset)
+      offset += part.length
     }
     return new Response(
       new Blob([pcmToWav(pcm, 24000).buffer as ArrayBuffer], {
@@ -1132,10 +1147,13 @@ const fallbackToOpenAIEmbedding = async (
   return response.data[0]?.embedding || []
 }
 
-// Doubao embedding-large outputs a native 4096-dim vector and does not
-// support the "dimensions" parameter, so it gets its own 4096-dim bucket in
-// the Electron main process. Qwen text-embedding-v4 supports "dimensions" and
-// is requested at 1536 so it can share the OpenAI-sized bucket.
+// Doubao multimodal embedding (doubao-embedding-vision-*) uses the
+// /embeddings/multimodal endpoint with an array-style input and returns
+// data as a dict ({ embedding: [...] }), unlike the standard /embeddings
+// shape (data as an array). It outputs a native vector with no
+// "dimensions" parameter, so it gets its own bucket in the main process.
+// Qwen text-embedding-v4 supports "dimensions" and is requested at 1536 so
+// it can share the OpenAI-sized bucket.
 // Both are proxied through the main-process bridge (no CORS in the renderer).
 const doubaoEmbedding = async (textToEmbed: string): Promise<number[]> => {
   const settings = useSettingsStore().config
@@ -1151,13 +1169,16 @@ const doubaoEmbedding = async (textToEmbed: string): Promise<number[]> => {
   }
   const base = trimTrailingSlash(settings.doubaoBaseUrl || DOUBAO_OPENAI_BASE_URL)
   const { status, data } = await bridgeRequest({
-    url: `${base}/embeddings`,
+    url: `${base}/embeddings/multimodal`,
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    data: { model, input: textToEmbed, encoding_format: 'float' },
+    data: {
+      model,
+      input: [{ type: 'text', text: textToEmbed }],
+    },
     timeout: 30000,
     responseType: 'json',
   })
@@ -1166,7 +1187,10 @@ const doubaoEmbedding = async (textToEmbed: string): Promise<number[]> => {
       `Doubao Embedding Error ${status}: ${JSON.stringify(data).slice(0, 300)}`
     )
   }
-  return (data?.data?.[0]?.embedding as number[]) || []
+  const embedding =
+    (data?.data?.embedding as number[] | undefined) ??
+    (data?.data?.[0]?.embedding as number[] | undefined)
+  return embedding || []
 }
 
 const qwenEmbedding = async (textToEmbed: string): Promise<number[]> => {

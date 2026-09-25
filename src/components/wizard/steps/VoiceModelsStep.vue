@@ -502,7 +502,7 @@
             <input
               type="text"
               v-model="formData.doubaoEmbeddingModel"
-              placeholder="doubao-embedding-large"
+              placeholder="doubao-embedding-vision-251215"
               class="input input-bordered w-full focus:input-primary"
             />
             <label class="label mt-2">
