@@ -1231,7 +1231,12 @@ export const indexMessageForThoughts = async (
   message: any
 ): Promise<void> => {
   const embedding = await createEmbedding(message, 'passage')
-  if (embedding.length === 0) return
+  if (embedding.length === 0) {
+    console.warn(
+      '[ThoughtIndex] Skipping message indexing: embedding is empty (embedding provider may be misconfigured or failing).'
+    )
+    return
+  }
 
   let textContentForMetadata = 'No textual content'
   if (message.content && Array.isArray(message.content)) {
@@ -1245,12 +1250,18 @@ export const indexMessageForThoughts = async (
     textContentForMetadata = message.content
   }
 
-  await window.aliceIPC.invoke('thoughtVector:add', {
+  const ipcResult = await window.aliceIPC.invoke('thoughtVector:add', {
     conversationId,
     role,
     textContent: textContentForMetadata,
     embedding,
   })
+  if (!ipcResult?.success) {
+    console.error(
+      '[ThoughtIndex] Failed to store thought vector:',
+      ipcResult?.error || 'unknown IPC error'
+    )
+  }
 }
 
 export type RetrievedThought =

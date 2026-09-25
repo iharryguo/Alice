@@ -204,9 +204,9 @@ export function registerIPCHandlers(): void {
         const provider: 'openai' | 'local' | 'doubao' =
           embedding.length === 384
             ? 'local'
-            : embedding.length === 4096
-              ? 'doubao'
-              : 'openai'
+            : embedding.length === 1536
+              ? 'openai'
+              : 'doubao'
 
         await addThoughtVector(
           conversationId,

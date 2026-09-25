@@ -16,6 +16,48 @@ const OPENAI_VECTOR_DIMENSION = 1536 // OpenAI embedding dimension
 const LOCAL_VECTOR_DIMENSION = 384 // multilingual-e5-small embedding dimension (Go backend)
 const DOUBAO_VECTOR_DIMENSION = 4096 // doubao-embedding-large dimension (火山方舟, native size)
 
+// doubao-embedding-vision models return their own native dimension (e.g. 3072),
+// which differs from doubao-embedding-large (4096). The doubao bucket adapts to
+// whatever dimension the configured model actually returns and persists the
+// dimension in migration_flags so the HNSW index is recreated with the same
+// dimension on the next launch.
+let doubaoVectorDimension = DOUBAO_VECTOR_DIMENSION
+const DOUBAO_DIMENSION_FLAG = 'doubao_vector_dimension'
+
+function loadPersistedDoubaoDimension(): void {
+  if (!db) return
+  try {
+    const row = db
+      .prepare(
+        'SELECT completed FROM migration_flags WHERE flag_name = ?'
+      )
+      .get(DOUBAO_DIMENSION_FLAG) as { completed?: number } | undefined
+    if (row?.completed && row.completed > 0) {
+      doubaoVectorDimension = row.completed
+    }
+  } catch {
+    // Table may not exist yet during first init; keep the default.
+  }
+}
+
+function persistDoubaoDimension(): void {
+  if (!db) return
+  try {
+    db.prepare(
+      'INSERT OR REPLACE INTO migration_flags (flag_name, completed) VALUES (?, ?)'
+    ).run(DOUBAO_DIMENSION_FLAG, doubaoVectorDimension)
+  } catch (error) {
+    console.error(
+      '[ThoughtVectorStore] Failed to persist doubao vector dimension:',
+      error
+    )
+  }
+}
+
+export function getDoubaoVectorDimension(): number {
+  return doubaoVectorDimension
+}
+
 // Three embedding providers are kept in separate HNSW buckets because each
 // has its own vector dimension: openai (1536), local (384), doubao (4096).
 type EmbeddingProvider = 'openai' | 'local' | 'doubao'
@@ -135,7 +177,7 @@ function getDimensionForProvider(provider: EmbeddingProvider): number {
   return provider === 'local'
     ? LOCAL_VECTOR_DIMENSION
     : provider === 'doubao'
-      ? DOUBAO_VECTOR_DIMENSION
+      ? doubaoVectorDimension
       : OPENAI_VECTOR_DIMENSION
 }
 
@@ -763,9 +805,10 @@ async function loadIndexAndSyncWithDB() {
     throw new Error('Failed to initialize database for loading HNSW index.')
 
   // Initialize all three provider indices
+  loadPersistedDoubaoDimension()
   hnswOpenAIIndex = new HierarchicalNSW('cosine', OPENAI_VECTOR_DIMENSION)
   hnswLocalIndex = new HierarchicalNSW('cosine', LOCAL_VECTOR_DIMENSION)
-  hnswDoubaoIndex = new HierarchicalNSW('cosine', DOUBAO_VECTOR_DIMENSION)
+  hnswDoubaoIndex = new HierarchicalNSW('cosine', doubaoVectorDimension)
 
   let numPointsInDB = 0
   let numOpenAIEmbeddings = 0
@@ -908,7 +951,20 @@ async function rebuildHnswIndexFromDB(provider: EmbeddingProvider) {
     return
   }
 
-  for (const item of allEmbeddings) {
+  const expectedDim = getDimensionForProvider(provider)
+  const compatibleEmbeddings = allEmbeddings.filter(
+    item => item.embedding.length === expectedDim
+  )
+  if (compatibleEmbeddings.length !== allEmbeddings.length) {
+    console.warn(
+      `[ThoughtVectorStore REBUILD] Skipped ${allEmbeddings.length - compatibleEmbeddings.length} ${provider} embeddings with stale dimension (expected ${expectedDim}).`
+    )
+  }
+  if (compatibleEmbeddings.length === 0) {
+    return
+  }
+
+  for (const item of compatibleEmbeddings) {
     if (item.label >= index.getMaxElements()) {
       index.resizeIndex(item.label + 1000)
     }
@@ -985,9 +1041,23 @@ export async function addThoughtVector(
   }
 
   if (embedding.length !== expectedDimension) {
-    throw new Error(
-      `[ThoughtVectorStore ADD] Embedding dimension mismatch for ${provider}. Expected ${expectedDimension}, got ${embedding.length}`
-    )
+    if (provider === 'doubao' && embedding.length > 0) {
+      // The configured doubao model changed its native output dimension.
+      // Recreate the doubao HNSW bucket instead of rejecting the vector.
+      console.warn(
+        `[ThoughtVectorStore ADD] Doubao embedding dimension changed: ${doubaoVectorDimension} -> ${embedding.length}. Recreating doubao HNSW index.`
+      )
+      hnswDoubaoIndex = new HierarchicalNSW('cosine', embedding.length)
+      hnswDoubaoIndex.initIndex(MAX_ELEMENTS_HNSW)
+      doubaoLabelToThoughtId.clear()
+      doubaoVectorDimension = embedding.length
+      persistDoubaoDimension()
+      hnswIndex = hnswDoubaoIndex
+    } else {
+      throw new Error(
+        `[ThoughtVectorStore ADD] Embedding dimension mismatch for ${provider}. Expected ${expectedDimension}, got ${embedding.length}`
+      )
+    }
   }
 
   // Generate a unique thought ID
@@ -1144,7 +1214,7 @@ export async function deleteAllThoughtVectors(): Promise<void> {
     localLabelToThoughtId.clear()
   }
   if (hnswDoubaoIndex) {
-    hnswDoubaoIndex = new HierarchicalNSW('cosine', DOUBAO_VECTOR_DIMENSION)
+    hnswDoubaoIndex = new HierarchicalNSW('cosine', doubaoVectorDimension)
     hnswDoubaoIndex.initIndex(MAX_ELEMENTS_HNSW)
     doubaoLabelToThoughtId.clear()
   }

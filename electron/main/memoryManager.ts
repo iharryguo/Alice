@@ -85,7 +85,9 @@ function normalizeEmbeddings(payload: {
       normalized.legacy = payload.embedding
     } else if (payload.embedding.length === LOCAL_VECTOR_DIMENSION) {
       normalized.local = payload.embedding
-    } else if (payload.embedding.length === DOUBAO_VECTOR_DIMENSION) {
+    } else if (payload.embedding.length > 0) {
+      // doubao-embedding-vision models use their own native dimension, so any
+      // unrecognized non-empty vector is treated as a doubao embedding.
       normalized.doubao = payload.embedding
     }
   }
@@ -98,7 +100,9 @@ function getProviderForEmbedding(
 ): 'openai' | 'local' | 'doubao' | null {
   if (embedding.length === OPENAI_VECTOR_DIMENSION) return 'openai'
   if (embedding.length === LOCAL_VECTOR_DIMENSION) return 'local'
-  if (embedding.length === DOUBAO_VECTOR_DIMENSION) return 'doubao'
+  // doubao-embedding-vision models use their own native dimension; treat any
+  // other non-empty vector as a doubao embedding.
+  if (embedding.length > 0) return 'doubao'
   return null
 }
 
