@@ -86,8 +86,8 @@ function normalizeEmbeddings(payload: {
     } else if (payload.embedding.length === LOCAL_VECTOR_DIMENSION) {
       normalized.local = payload.embedding
     } else if (payload.embedding.length > 0) {
-      // doubao-embedding-vision models use their own native dimension, so any
-      // unrecognized non-empty vector is treated as a doubao embedding.
+      // doubao-embedding-vision 系列模型使用自己的原生维度，
+      // 因此任何未识别的非空向量都按 doubao 向量归类。
       normalized.doubao = payload.embedding
     }
   }
@@ -100,8 +100,8 @@ function getProviderForEmbedding(
 ): 'openai' | 'local' | 'doubao' | null {
   if (embedding.length === OPENAI_VECTOR_DIMENSION) return 'openai'
   if (embedding.length === LOCAL_VECTOR_DIMENSION) return 'local'
-  // doubao-embedding-vision models use their own native dimension; treat any
-  // other non-empty vector as a doubao embedding.
+  // doubao-embedding-vision 系列模型使用自己的原生维度，
+  // 其他任意非空向量都按 doubao 向量处理。
   if (embedding.length > 0) return 'doubao'
   return null
 }

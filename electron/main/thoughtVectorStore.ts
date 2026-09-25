@@ -16,11 +16,10 @@ const OPENAI_VECTOR_DIMENSION = 1536 // OpenAI embedding dimension
 const LOCAL_VECTOR_DIMENSION = 384 // multilingual-e5-small embedding dimension (Go backend)
 const DOUBAO_VECTOR_DIMENSION = 4096 // doubao-embedding-large dimension (火山方舟, native size)
 
-// doubao-embedding-vision models return their own native dimension (e.g. 3072),
-// which differs from doubao-embedding-large (4096). The doubao bucket adapts to
-// whatever dimension the configured model actually returns and persists the
-// dimension in migration_flags so the HNSW index is recreated with the same
-// dimension on the next launch.
+// doubao-embedding-vision 系列模型返回自己的原生维度（如 3072），
+// 与 doubao-embedding-large（4096）不同。doubao 向量桶会自适应配置模型
+// 实际返回的维度，并把该维度持久化到 migration_flags，
+// 以便下次启动时按相同维度重建 HNSW 索引。
 let doubaoVectorDimension = DOUBAO_VECTOR_DIMENSION
 const DOUBAO_DIMENSION_FLAG = 'doubao_vector_dimension'
 
@@ -36,7 +35,7 @@ function loadPersistedDoubaoDimension(): void {
       doubaoVectorDimension = row.completed
     }
   } catch {
-    // Table may not exist yet during first init; keep the default.
+    // 首次初始化时表可能尚不存在，保持默认维度即可。
   }
 }
 
@@ -957,7 +956,7 @@ async function rebuildHnswIndexFromDB(provider: EmbeddingProvider) {
   )
   if (compatibleEmbeddings.length !== allEmbeddings.length) {
     console.warn(
-      `[ThoughtVectorStore REBUILD] Skipped ${allEmbeddings.length - compatibleEmbeddings.length} ${provider} embeddings with stale dimension (expected ${expectedDim}).`
+      `[ThoughtVectorStore REBUILD] 跳过 ${allEmbeddings.length - compatibleEmbeddings.length} 条维度已过期的 ${provider} 向量（当前期望维度 ${expectedDim}）。`
     )
   }
   if (compatibleEmbeddings.length === 0) {
@@ -1042,8 +1041,8 @@ export async function addThoughtVector(
 
   if (embedding.length !== expectedDimension) {
     if (provider === 'doubao' && embedding.length > 0) {
-      // The configured doubao model changed its native output dimension.
-      // Recreate the doubao HNSW bucket instead of rejecting the vector.
+      // 配置的 doubao 模型的原生输出维度发生了变化，
+      // 此时重建 doubao HNSW 桶，而不是直接拒收该向量。
       console.warn(
         `[ThoughtVectorStore ADD] Doubao embedding dimension changed: ${doubaoVectorDimension} -> ${embedding.length}. Recreating doubao HNSW index.`
       )
