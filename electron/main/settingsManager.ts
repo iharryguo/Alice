@@ -112,6 +112,8 @@ export interface AppSettings {
   mutePlaybackHotkey?: string
   takeScreenshotHotkey?: string
 
+  alwaysOnTop?: boolean
+
   VITE_JACKETT_API_KEY?: string
   VITE_JACKETT_URL?: string
   VITE_QB_URL?: string

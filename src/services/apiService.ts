@@ -11,8 +11,8 @@ import {
   getMiniMaxClient,
   getDeepSeekClient,
   getAPIRouteClient,
-  getDoubaoClient,
-  getQwenClient,
+  DOUBAO_OPENAI_BASE_URL,
+  QWEN_OPENAI_BASE_URL,
   QWEN_DASHSCOPE_NATIVE_BASE_URL,
 } from './apiClients'
 import {
@@ -342,17 +342,48 @@ const doubaoTTS = async (
       'Doubao TTS model ID is not configured. Set "Doubao TTS Model ID" in Settings (e.g. an Ark endpoint ID like ep-xxx or a model name).'
     )
   }
-  const doubao = getDoubaoClient()
-  const response = await doubao.audio.speech.create(
-    {
+  const apiKey = settings.VITE_DOUBAO_API_KEY?.trim()
+  if (!apiKey) {
+    throw new Error('Doubao API Key is not configured.')
+  }
+  if (signal.aborted) {
+    throw new Error('Aborted before requesting Doubao TTS')
+  }
+  const base = trimTrailingSlash(settings.doubaoBaseUrl || DOUBAO_OPENAI_BASE_URL)
+
+  // Routed through the main-process bridge: Ark does not send CORS headers.
+  const { status, data } = await bridgeRequest({
+    url: `${base}/audio/speech`,
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    data: {
       model,
       voice: settings.doubaoTtsVoice || 'zh_female_cancan_mars_bigtts',
       input: text,
       response_format: 'mp3',
     },
-    { signal }
+    timeout: 60000,
+    responseType: 'arraybuffer',
+  })
+
+  if (status >= 400) {
+    const detail =
+      typeof data === 'string'
+        ? data
+        : new TextDecoder().decode(
+            data instanceof Uint8Array ? data : new Uint8Array()
+          )
+    throw new Error(`Doubao TTS Error ${status}: ${detail.slice(0, 300)}`)
+  }
+  const audioBytes =
+    data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer)
+  const audioCopy = new Uint8Array(audioBytes)
+  return new Response(
+    new Blob([audioCopy.buffer as ArrayBuffer], { type: 'audio/mp3' })
   )
-  return response as unknown as Response
 }
 
 const qwenTTS = async (
@@ -360,12 +391,15 @@ const qwenTTS = async (
   signal: AbortSignal
 ): Promise<Response> => {
   const settingsStore = useSettingsStore()
-  const apiKey = settingsStore.config.VITE_QWEN_API_KEY
+  const apiKey = settingsStore.config.VITE_QWEN_API_KEY?.trim()
   if (!apiKey) {
     throw new Error('Qwen API Key is not configured')
   }
   const model = settingsStore.config.qwenTtsModel || 'qwen-tts-latest'
   const voice = settingsStore.config.qwenTtsVoice || 'Cherry'
+  if (signal.aborted) {
+    throw new Error('Aborted before requesting Qwen TTS')
+  }
 
   // Bailian exposes different endpoints per model family:
   // - Qwen-TTS family -> /services/aigc/multimodal-generation/generation
@@ -384,35 +418,77 @@ const qwenTTS = async (
     ? `${baseUrl}/services/audio/tts/SpeechSynthesizer`
     : `${baseUrl}/services/aigc/multimodal-generation/generation`
 
-  const requestBody = isSpeechSynthesizerFamily
-    ? {
-        model,
-        input: { text, voice, format: 'wav', sample_rate: 24000 },
-      }
-    : {
-        model,
-        input: { text, voice },
-      }
-
-  const response = await fetch(endpoint, {
+  // Streaming (SSE) mode returns base64 PCM chunks inline, so we never need to
+  // download a temporary audio URL from the renderer (that fetch would hit
+  // CORS again). Routed through the main-process bridge like all Qwen calls.
+  const { status, data } = await bridgeRequest({
+    url: endpoint,
     method: 'POST',
-    signal,
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
+      'X-DashScope-SSE': 'enable',
     },
-    body: JSON.stringify(requestBody),
+    data: isSpeechSynthesizerFamily
+      ? {
+          model,
+          input: { text, voice, format: 'wav', sample_rate: 24000 },
+        }
+      : {
+          model,
+          input: { text, voice },
+        },
+    timeout: 60000,
+    responseType: 'text',
   })
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => null)
-    throw new Error(
-      `Qwen TTS Error: ${error?.message || response.statusText}`
+  if (status >= 400) {
+    throw new Error(`Qwen TTS Error ${status}: ${String(data).slice(0, 300)}`)
+  }
+
+  const responseText = String(data)
+
+  // Parse the SSE stream: each "data:" line is a JSON event whose
+  // output.audio.data holds a base64-encoded PCM chunk.
+  const base64Chunks: string[] = []
+  let audioUrl: string | null = null
+  for (const line of responseText.split('\n')) {
+    if (!line.startsWith('data:')) continue
+    const payload = line.slice(5).trim()
+    if (!payload || payload === '[DONE]') continue
+    try {
+      const event = JSON.parse(payload)
+      const audio = event?.output?.audio
+      if (audio?.data) base64Chunks.push(audio.data)
+      if (audio?.url) audioUrl = audio.url
+    } catch {
+      // Non-JSON keep-alive lines are ignored.
+    }
+  }
+
+  if (base64Chunks.length > 0) {
+    const base64 = base64Chunks.join('')
+    const binaryString = atob(base64)
+    const pcm = new Uint8Array(binaryString.length)
+    for (let i = 0; i < binaryString.length; i++) {
+      pcm[i] = binaryString.charCodeAt(i)
+    }
+    return new Response(
+      new Blob([pcmToWav(pcm, 24000).buffer as ArrayBuffer], {
+        type: 'audio/wav',
+      })
     )
   }
 
-  const data = await response.json()
-  const audioUrl = data?.output?.audio?.url
+  // Fallback: buffered (non-SSE) responses contain an audio URL instead.
+  if (!audioUrl && !responseText.trim().startsWith('data:')) {
+    try {
+      const parsed = JSON.parse(responseText)
+      audioUrl = parsed?.output?.audio?.url ?? null
+    } catch {
+      // Not JSON either.
+    }
+  }
   if (audioUrl) {
     const audioResponse = await fetch(audioUrl, { signal })
     if (!audioResponse.ok) {
@@ -423,18 +499,7 @@ const qwenTTS = async (
     return audioResponse
   }
 
-  // Fallback: some responses inline the audio as base64 instead of a URL.
-  const audioBase64 = data?.output?.audio?.data
-  if (audioBase64) {
-    const binaryString = atob(audioBase64)
-    const bytes = new Uint8Array(binaryString.length)
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i)
-    }
-    return new Response(new Blob([bytes.buffer], { type: 'audio/wav' }))
-  }
-
-  throw new Error('Qwen TTS response did not contain an audio URL')
+  throw new Error('Qwen TTS response did not contain audio data')
 }
 
 const googleTTS = async (
@@ -722,6 +787,95 @@ export const transcribeWithOpenAI = async (
   return transcription?.text || ''
 }
 
+// Volcengine Ark and DashScope do not send CORS headers, so renderer-side
+// fetch/OpenAI-SDK calls are blocked by the browser. All doubao/qwen audio and
+// embedding calls are therefore proxied through the main-process HTTP bridge
+// ('http:request' IPC), which is not subject to browser CORS rules.
+async function bridgeRequest(args: {
+  url: string
+  method?: string
+  headers?: Record<string, string>
+  data?: any
+  timeout?: number
+  responseType?: 'json' | 'arraybuffer' | 'text'
+}): Promise<{ status: number; data: any }> {
+  const result = await window.aliceIPC.invoke('http:request', args)
+  if (!result || !result.success) {
+    throw new Error(result?.error || 'HTTP bridge request failed')
+  }
+  return { status: result.status as number, data: result.data }
+}
+
+function trimTrailingSlash(url: string): string {
+  return url.replace(/\/+$/, '')
+}
+
+function buildMultipartBody(
+  fields: Record<string, string>,
+  file: { filename: string; contentType: string; data: Uint8Array },
+  boundary: string
+): Uint8Array {
+  const encoder = new TextEncoder()
+  const parts: Uint8Array[] = []
+  for (const [name, value] of Object.entries(fields)) {
+    parts.push(encoder.encode(`--${boundary}\r\n`))
+    parts.push(
+      encoder.encode(`Content-Disposition: form-data; name="${name}"\r\n\r\n`)
+    )
+    parts.push(encoder.encode(`${value}\r\n`))
+  }
+  parts.push(encoder.encode(`--${boundary}\r\n`))
+  parts.push(
+    encoder.encode(
+      `Content-Disposition: form-data; name="file"; filename="${file.filename}"\r\n`
+    )
+  )
+  parts.push(encoder.encode(`Content-Type: ${file.contentType}\r\n\r\n`))
+  parts.push(file.data)
+  parts.push(encoder.encode(`\r\n--${boundary}--\r\n`))
+
+  const total = parts.reduce((sum, part) => sum + part.length, 0)
+  const body = new Uint8Array(total)
+  let offset = 0
+  for (const part of parts) {
+    body.set(part, offset)
+    offset += part.length
+  }
+  return body
+}
+
+// Wraps raw 16-bit mono PCM samples in a WAV container so the audio player
+// can treat the result like any other audio file.
+function pcmToWav(pcm: Uint8Array, sampleRate = 24000): Uint8Array {
+  const channels = 1
+  const bitsPerSample = 16
+  const header = new ArrayBuffer(44)
+  const view = new DataView(header)
+  const writeStr = (offset: number, text: string) => {
+    for (let i = 0; i < text.length; i++) {
+      view.setUint8(offset + i, text.charCodeAt(i))
+    }
+  }
+  writeStr(0, 'RIFF')
+  view.setUint32(4, 36 + pcm.length, true)
+  writeStr(8, 'WAVE')
+  writeStr(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true) // PCM
+  view.setUint16(22, channels, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, (sampleRate * channels * bitsPerSample) / 8, true)
+  view.setUint16(32, (channels * bitsPerSample) / 8, true)
+  view.setUint16(34, bitsPerSample, true)
+  writeStr(36, 'data')
+  view.setUint32(40, pcm.length, true)
+
+  const out = new Uint8Array(44 + pcm.length)
+  out.set(new Uint8Array(header), 0)
+  out.set(pcm, 44)
+  return out
+}
+
 export const transcribeWithDoubao = async (
   audioBuffer: ArrayBuffer
 ): Promise<string> => {
@@ -732,33 +886,103 @@ export const transcribeWithDoubao = async (
       'Doubao STT model ID is not configured. Set "Doubao STT Model ID" in Settings (e.g. an Ark endpoint ID like ep-xxx or a model name).'
     )
   }
-  const doubao = getDoubaoClient()
-  const file = await toFile(audioBuffer, 'audio.wav', {
-    type: 'audio/wav',
+  const apiKey = settings.VITE_DOUBAO_API_KEY?.trim()
+  if (!apiKey) {
+    throw new Error('Doubao API Key is not configured.')
+  }
+  const base = trimTrailingSlash(settings.doubaoBaseUrl || DOUBAO_OPENAI_BASE_URL)
+  const boundary = `----alice${Date.now()}${Math.floor(Math.random() * 1e6)}`
+  const body = buildMultipartBody(
+    { model, response_format: 'json' },
+    {
+      filename: 'audio.wav',
+      contentType: 'audio/wav',
+      data: new Uint8Array(audioBuffer),
+    },
+    boundary
+  )
+
+  const { status, data } = await bridgeRequest({
+    url: `${base}/audio/transcriptions`,
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+    },
+    data: body,
+    timeout: 60000,
+    responseType: 'json',
   })
-  const transcription = await doubao.audio.transcriptions.create({
-    file,
-    model,
-    response_format: 'json',
-  })
-  return transcription?.text || ''
+
+  if (status >= 400) {
+    throw new Error(
+      `Doubao STT Error ${status}: ${JSON.stringify(data).slice(0, 300)}`
+    )
+  }
+  return data?.text || ''
 }
 
+// Qwen3-ASR-Flash is called through the OpenAI-compatible chat.completions
+// endpoint with the audio inlined as a base64 Data URL (DashScope does not
+// expose an /audio/transcriptions endpoint, and the Filetrans models are
+// async jobs that only accept public audio URLs — neither fits short mic
+// recordings). Local WAV clips are well under the 10MB / 5-minute limits.
 export const transcribeWithQwen = async (
   audioBuffer: ArrayBuffer
 ): Promise<string> => {
   const settings = useSettingsStore().config
   const model = settings.qwenSttModel?.trim() || 'qwen3-asr-flash'
-  const qwen = getQwenClient()
-  const file = await toFile(audioBuffer, 'audio.wav', {
-    type: 'audio/wav',
+  const apiKey = settings.VITE_QWEN_API_KEY?.trim()
+  if (!apiKey) {
+    throw new Error('Qwen API Key is not configured.')
+  }
+  const base = trimTrailingSlash(settings.qwenBaseUrl || QWEN_OPENAI_BASE_URL)
+
+  const audioBytes = new Uint8Array(audioBuffer)
+  let binary = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < audioBytes.length; i += CHUNK) {
+    binary += String.fromCharCode(
+      ...audioBytes.subarray(i, i + CHUNK)
+    )
+  }
+  const dataUri = `data:audio/wav;base64,${btoa(binary)}`
+
+  const { status, data } = await bridgeRequest({
+    url: `${base}/chat/completions`,
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    data: {
+      model,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_audio',
+              input_audio: { data: dataUri },
+            },
+          ],
+        },
+      ],
+      asr_options: {
+        enable_itn: true,
+      },
+    },
+    timeout: 60000,
+    responseType: 'json',
   })
-  const transcription = await qwen.audio.transcriptions.create({
-    file,
-    model,
-    response_format: 'json',
-  })
-  return transcription?.text || ''
+
+  if (status >= 400) {
+    throw new Error(
+      `Qwen STT Error ${status}: ${JSON.stringify(data).slice(0, 300)}`
+    )
+  }
+  const content = data?.choices?.[0]?.message?.content
+  return typeof content === 'string' ? content.trim() : ''
 }
 
 function extractTextForEmbedding(textInput: any): string {
@@ -912,6 +1136,7 @@ const fallbackToOpenAIEmbedding = async (
 // support the "dimensions" parameter, so it gets its own 4096-dim bucket in
 // the Electron main process. Qwen text-embedding-v4 supports "dimensions" and
 // is requested at 1536 so it can share the OpenAI-sized bucket.
+// Both are proxied through the main-process bridge (no CORS in the renderer).
 const doubaoEmbedding = async (textToEmbed: string): Promise<number[]> => {
   const settings = useSettingsStore().config
   const model = settings.doubaoEmbeddingModel?.trim()
@@ -920,26 +1145,60 @@ const doubaoEmbedding = async (textToEmbed: string): Promise<number[]> => {
       'Doubao embedding model ID is not configured. Set "Doubao Embedding Model ID" in Settings.'
     )
   }
-  const doubao = getDoubaoClient()
-  const response = await doubao.embeddings.create({
-    model,
-    input: textToEmbed,
-    encoding_format: 'float',
-  } as any)
-  return (response.data[0]?.embedding as number[]) || []
+  const apiKey = settings.VITE_DOUBAO_API_KEY?.trim()
+  if (!apiKey) {
+    throw new Error('Doubao API Key is not configured.')
+  }
+  const base = trimTrailingSlash(settings.doubaoBaseUrl || DOUBAO_OPENAI_BASE_URL)
+  const { status, data } = await bridgeRequest({
+    url: `${base}/embeddings`,
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    data: { model, input: textToEmbed, encoding_format: 'float' },
+    timeout: 30000,
+    responseType: 'json',
+  })
+  if (status >= 400) {
+    throw new Error(
+      `Doubao Embedding Error ${status}: ${JSON.stringify(data).slice(0, 300)}`
+    )
+  }
+  return (data?.data?.[0]?.embedding as number[]) || []
 }
 
 const qwenEmbedding = async (textToEmbed: string): Promise<number[]> => {
   const settings = useSettingsStore().config
   const model = settings.qwenEmbeddingModel?.trim() || 'text-embedding-v4'
-  const qwen = getQwenClient()
-  const response = await qwen.embeddings.create({
-    model,
-    input: textToEmbed,
-    dimensions: 1536,
-    encoding_format: 'float',
-  } as any)
-  return (response.data[0]?.embedding as number[]) || []
+  const apiKey = settings.VITE_QWEN_API_KEY?.trim()
+  if (!apiKey) {
+    throw new Error('Qwen API Key is not configured.')
+  }
+  const base = trimTrailingSlash(settings.qwenBaseUrl || QWEN_OPENAI_BASE_URL)
+  const { status, data } = await bridgeRequest({
+    url: `${base}/embeddings`,
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    data: {
+      model,
+      input: textToEmbed,
+      dimensions: 1536,
+      encoding_format: 'float',
+    },
+    timeout: 30000,
+    responseType: 'json',
+  })
+  if (status >= 400) {
+    throw new Error(
+      `Qwen Embedding Error ${status}: ${JSON.stringify(data).slice(0, 300)}`
+    )
+  }
+  return (data?.data?.[0]?.embedding as number[]) || []
 }
 
 export const indexMessageForThoughts = async (

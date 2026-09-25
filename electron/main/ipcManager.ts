@@ -724,6 +724,12 @@ export function registerIPCHandlers(): void {
           getAllowedHttpOrigins(settingsToSave)
         )
 
+        // Apply always-on-top immediately without waiting for a restart.
+        const mainWindow = getMainWindow()
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.setAlwaysOnTop(!!settingsToSave.alwaysOnTop)
+        }
+
         // Handle hotkey changes
         if (
           oldSettings?.microphoneToggleHotkey !==
@@ -1241,6 +1247,7 @@ export function registerIPCHandlers(): void {
         params?: Record<string, any>
         data?: any
         timeout?: number
+        responseType?: 'json' | 'arraybuffer' | 'text'
       }
     ) => {
       try {
@@ -1251,6 +1258,7 @@ export function registerIPCHandlers(): void {
           params,
           data,
           timeout = 15000,
+          responseType = 'json',
         } = args
 
         const validatedUrl = validateHttpBridgeUrl(
@@ -1263,13 +1271,23 @@ export function registerIPCHandlers(): void {
           validatedUrl
         )
 
+        // Binary payloads (e.g. multipart audio uploads) arrive over IPC as
+        // typed arrays; axios in Node expects Buffer.
+        let payload: any = data
+        if (data instanceof Uint8Array) {
+          payload = Buffer.from(data)
+        } else if (data instanceof ArrayBuffer) {
+          payload = Buffer.from(new Uint8Array(data))
+        }
+
         const response = await axios({
           url: validatedUrl,
           method,
           headers,
           params,
-          data,
+          data: payload,
           timeout,
+          responseType,
           maxRedirects: 0,
           validateStatus: () => true, // Don't throw on HTTP error status codes
         })

@@ -335,8 +335,21 @@ export function createChatOrchestrator(
     const retrievalSeed = buildRetrievalSeed(latestUserText, previousUserText)
 
     if (retrievalSeed) {
-      const thoughts =
-        await dependencies.retrieveThoughtsForPrompt(retrievalSeed)
+      // Memory/RAG retrieval is an enhancement, not a prerequisite: if the
+      // embedding provider fails (bad key, missing model, network), degrade
+      // gracefully to a conversation without retrieved context instead of
+      // aborting the whole chat turn.
+      let thoughts: Awaited<
+        ReturnType<typeof dependencies.retrieveThoughtsForPrompt>
+      > = []
+      try {
+        thoughts = await dependencies.retrieveThoughtsForPrompt(retrievalSeed)
+      } catch (retrievalError) {
+        console.warn(
+          '[ChatOrchestrator] Thought retrieval failed, continuing without it:',
+          retrievalError
+        )
+      }
       if (thoughts.length > 0) {
         const thoughtLines = thoughts.map(formatThoughtLine).filter(Boolean)
         const thoughtsBlock = buildThoughtsBlock(thoughtLines)
@@ -351,10 +364,20 @@ export function createChatOrchestrator(
       const ragConfig = dependencies.getRagConfig()
       if (ragConfig.enabled) {
         const adjustedConfig = adjustRagConfig(retrievalSeed, ragConfig)
-        const ragResultsRaw = await dependencies.retrieveDocumentsForPrompt(
-          retrievalSeed,
-          adjustedConfig.topK
-        )
+        let ragResultsRaw: Awaited<
+          ReturnType<typeof dependencies.retrieveDocumentsForPrompt>
+        > = []
+        try {
+          ragResultsRaw = await dependencies.retrieveDocumentsForPrompt(
+            retrievalSeed,
+            adjustedConfig.topK
+          )
+        } catch (ragError) {
+          console.warn(
+            '[ChatOrchestrator] RAG retrieval failed, continuing without it:',
+            ragError
+          )
+        }
         const ragResults = rerankRagResults(ragResultsRaw, retrievalSeed)
         if (ragResults.length > 0) {
           contextMessages.push({

@@ -113,6 +113,8 @@ export interface AliceSettings {
   mutePlaybackHotkey: string
   takeScreenshotHotkey: string
 
+  alwaysOnTop: boolean
+
   VITE_JACKETT_API_KEY: string
   VITE_JACKETT_URL: string
   VITE_QB_URL: string
@@ -242,6 +244,8 @@ const defaultSettings: AliceSettings = {
   mutePlaybackHotkey: 'Alt+S',
   takeScreenshotHotkey: 'Alt+C',
 
+  alwaysOnTop: false,
+
   VITE_JACKETT_API_KEY: '',
   VITE_JACKETT_URL: '',
   VITE_QB_URL: '',
@@ -324,6 +328,8 @@ const settingKeyToLabelMap: Record<keyof AliceSettings, string> = {
   microphoneToggleHotkey: 'Microphone Toggle Hotkey',
   mutePlaybackHotkey: 'Mute Playback Hotkey',
   takeScreenshotHotkey: 'Take Screenshot Hotkey',
+
+  alwaysOnTop: 'Window Always on Top',
 
   VITE_JACKETT_API_KEY: 'Jackett API Key (Torrents)',
   VITE_JACKETT_URL: 'Jackett URL (Torrents)',
@@ -910,6 +916,9 @@ export const useSettingsStore = defineStore('settings', () => {
     if (key === 'localSttEnabled') {
       settings.value[key] = value as boolean
     }
+    if (key === 'alwaysOnTop') {
+      settings.value[key] = value as boolean
+    }
     if (key === 'ragEnabled') {
       settings.value[key] = value as boolean
     }
@@ -1044,6 +1053,8 @@ export const useSettingsStore = defineStore('settings', () => {
         microphoneToggleHotkey: settings.value.microphoneToggleHotkey,
         mutePlaybackHotkey: settings.value.mutePlaybackHotkey,
         takeScreenshotHotkey: settings.value.takeScreenshotHotkey,
+
+        alwaysOnTop: settings.value.alwaysOnTop,
         VITE_JACKETT_API_KEY: settings.value.VITE_JACKETT_API_KEY,
         VITE_JACKETT_URL: settings.value.VITE_JACKETT_URL,
         VITE_QB_URL: settings.value.VITE_QB_URL,

@@ -6,7 +6,7 @@
     <fieldset
       class="fieldset bg-gray-900/90 border-blue-500/50 rounded-box w-full border p-4"
     >
-      <legend class="fieldset-legend">API Keys & Providers</legend>
+      <legend class="fieldset-legend">① 对话模型 (AI Provider)</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-2">
         <div>
           <label for="ai-provider" class="block mb-1 text-sm"
@@ -28,74 +28,7 @@
             <option value="lm-studio">LM Studio (Local)</option>
           </select>
         </div>
-        <div>
-          <label for="stt-provider" class="block mb-1 text-sm"
-            >Speech-to-Text Provider *</label
-          >
-          <select
-            id="stt-provider"
-            v-model="currentSettings.sttProvider"
-            class="select select-bordered w-full focus:select-primary"
-            @change="
-              e => $emit('update:setting', 'sttProvider', getTargetValue(e))
-            "
-          >
-            <option value="openai">OpenAI (gpt-4o-transcribe)</option>
-            <option value="groq">Groq (whisper-large-v3)</option>
-            <option value="google">Google (Cloud)</option>
-            <option value="doubao">豆包 Doubao (火山方舟)</option>
-            <option value="qwen">通义 Qwen ASR (阿里百炼)</option>
-            <option value="local">Local (Go Backend)</option>
-          </select>
-        </div>
-        <div
-          v-if="
-            currentSettings.sttProvider === 'google' ||
-            currentSettings.sttProvider === 'local'
-          "
-        >
-          <label for="stt-language" class="block mb-1 text-sm"
-            >Language *</label
-          >
-          <select
-            id="stt-language"
-            v-model="currentSettings.localSttLanguage"
-            class="select select-bordered w-full focus:select-primary"
-            @change="
-              e =>
-                $emit('update:setting', 'localSttLanguage', getTargetValue(e))
-            "
-          >
-            <option value="auto">Auto-detect</option>
-            <option value="en">English</option>
-            <option value="es">Spanish</option>
-            <option value="fr">French</option>
-            <option value="de">German</option>
-            <option value="it">Italian</option>
-            <option value="pt">Portuguese</option>
-            <option value="ru">Russian</option>
-            <option value="ja">Japanese</option>
-            <option value="ko">Korean</option>
-            <option value="zh">Chinese</option>
-            <option value="ar">Arabic</option>
-            <option value="hi">Hindi</option>
-            <option value="tr">Turkish</option>
-            <option value="pl">Polish</option>
-            <option value="nl">Dutch</option>
-            <option value="sv">Swedish</option>
-            <option value="da">Danish</option>
-            <option value="no">Norwegian</option>
-            <option value="fi">Finnish</option>
-          </select>
-          <p class="text-xs text-gray-400 mt-1">
-            {{
-              currentSettings.sttProvider === 'google'
-                ? 'Select your language for better accuracy.'
-                : 'Auto-detect works for most languages. Select a specific language for better accuracy.'
-            }}
-          </p>
-        </div>
-        <div>
+        <div v-if="currentSettings.aiProvider === 'openai'">
           <label for="openai-key" class="block mb-1 text-sm"
             >OpenAI API Key *</label
           >
@@ -108,44 +41,9 @@
             placeholder="sk-..."
           />
           <p class="text-xs text-gray-400 mt-1">
-            Required for TTS/STT/embeddings regardless of AI provider.
+            Required for OpenAI chat models. STT/TTS/Embedding 各自独立配置，
+            在对应卡片中填写。
           </p>
-        </div>
-        <div v-if="currentSettings.sttProvider === 'openai'">
-          <label for="openai-stt-model" class="block mb-1 text-sm"
-            >OpenAI STT 模型</label
-          >
-          <input
-            id="openai-stt-model"
-            type="text"
-            v-model="currentSettings.openaiSttModel"
-            class="input focus:outline-none w-full"
-            placeholder="gpt-4o-transcribe"
-          />
-        </div>
-        <div v-if="currentSettings.ttsProvider === 'openai'">
-          <label for="openai-tts-model" class="block mb-1 text-sm"
-            >OpenAI TTS 模型</label
-          >
-          <input
-            id="openai-tts-model"
-            type="text"
-            v-model="currentSettings.openaiTtsModel"
-            class="input focus:outline-none w-full"
-            placeholder="gpt-4o-mini-tts"
-          />
-        </div>
-        <div v-if="currentSettings.embeddingProvider === 'openai'">
-          <label for="openai-embedding-model" class="block mb-1 text-sm"
-            >OpenAI Embedding 模型</label
-          >
-          <input
-            id="openai-embedding-model"
-            type="text"
-            v-model="currentSettings.openaiEmbeddingModel"
-            class="input focus:outline-none w-full"
-            placeholder="text-embedding-ada-002"
-          />
         </div>
         <div v-if="currentSettings.aiProvider === 'openrouter'">
           <label for="openrouter-key" class="block mb-1 text-sm"
@@ -374,159 +272,219 @@
             URL where your LM Studio server is running.
           </p>
         </div>
-        <div v-if="currentSettings.sttProvider === 'groq'">
-          <label for="groq-key" class="block mb-1 text-sm"
-            >Groq API Key (for STT) *</label
+      </div>
+    </fieldset>
+
+    <!-- STT (Speech-to-Text) Configuration Section -->
+    <fieldset
+      class="fieldset bg-gray-900/90 border-blue-500/50 rounded-box w-full border p-4"
+    >
+      <legend class="fieldset-legend">
+        ② 语音转文字 (STT)
+        <span
+          class="w-2 h-2 rounded-full inline-block"
+          :class="getServiceStatusClass('stt')"
+          :title="getServiceStatusText('stt')"
+        ></span>
+      </legend>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-2">
+        <div class="md:col-span-2">
+          <label for="stt-provider" class="block mb-1 text-sm"
+            >提供商 *</label
           >
-          <input
-            id="groq-key"
-            type="password"
-            v-model="currentSettings.VITE_GROQ_API_KEY"
-            class="input focus:outline-none w-full"
-            autocomplete="new-password"
-            placeholder="gsk_..."
-          />
-          <p class="text-xs text-gray-400 mt-1">
-            Required only if Groq STT is selected above.
-          </p>
-        </div>
-        <div
-          v-if="
-            currentSettings.sttProvider === 'google' ||
-            currentSettings.ttsProvider === 'google'
-          "
-        >
-          <label for="google-key" class="block mb-1 text-sm"
-            >Google API Key *</label
+          <select
+            id="stt-provider"
+            v-model="currentSettings.sttProvider"
+            class="select select-bordered w-full focus:select-primary"
+            @change="
+              e => $emit('update:setting', 'sttProvider', getTargetValue(e))
+            "
           >
-          <input
-            id="google-key"
-            type="password"
-            v-model="currentSettings.VITE_GOOGLE_API_KEY"
-            class="input focus:outline-none w-full"
-            autocomplete="new-password"
-            placeholder="AIza..."
-          />
-          <p class="text-xs text-gray-400 mt-1">
-            Required for Google STT or TTS services.
-          </p>
+            <option value="openai">OpenAI</option>
+            <option value="groq">Groq</option>
+            <option value="google">Google</option>
+            <option value="doubao">豆包 Doubao (火山方舟)</option>
+            <option value="qwen">通义 Qwen (阿里百炼)</option>
+            <option value="local">本地 (Go 后端 Whisper)</option>
+          </select>
         </div>
-        <div
-          v-if="
-            currentSettings.sttProvider === 'doubao' ||
-            currentSettings.ttsProvider === 'doubao' ||
-            currentSettings.embeddingProvider === 'doubao'
-          "
-        >
-          <label for="doubao-key" class="block mb-1 text-sm"
-            >豆包 Doubao API Key (火山方舟) *</label
-          >
-          <input
-            id="doubao-key"
-            type="password"
-            v-model="currentSettings.VITE_DOUBAO_API_KEY"
-            class="input focus:outline-none w-full"
-            autocomplete="new-password"
-            placeholder="火山方舟 API Key"
-          />
-          <p class="text-xs text-gray-400 mt-1">
-            From the Volcengine Ark console (火山方舟控制台 → API Key 管理).
-          </p>
-        </div>
-        <div
-          v-if="
-            currentSettings.sttProvider === 'doubao' ||
-            currentSettings.ttsProvider === 'doubao' ||
-            currentSettings.embeddingProvider === 'doubao'
-          "
-        >
-          <label for="doubao-url" class="block mb-1 text-sm"
-            >豆包 Doubao Base URL</label
-          >
-          <input
-            id="doubao-url"
-            type="text"
-            v-model="currentSettings.doubaoBaseUrl"
-            class="input focus:outline-none w-full"
-            placeholder="https://ark.cn-beijing.volces.com/api/v3"
-          />
-          <p class="text-xs text-gray-400 mt-1">
-            OpenAI-compatible endpoint for Volcengine Ark.
-          </p>
-        </div>
-        <div v-if="currentSettings.sttProvider === 'doubao'">
-          <label for="doubao-stt-model" class="block mb-1 text-sm"
-            >豆包 STT 模型 ID *</label
-          >
-          <input
-            id="doubao-stt-model"
-            type="text"
-            v-model="currentSettings.doubaoSttModel"
-            class="input focus:outline-none w-full"
-            placeholder="例如 ep-2024xxxxxx 或模型名称"
-          />
-          <p class="text-xs text-gray-400 mt-1">
-            Ark endpoint ID (ep-xxx) or model name from the Ark console.
-          </p>
-        </div>
-        <div
-          v-if="
-            currentSettings.sttProvider === 'qwen' ||
-            currentSettings.ttsProvider === 'qwen' ||
-            currentSettings.embeddingProvider === 'qwen'
-          "
-        >
-          <label for="qwen-key" class="block mb-1 text-sm"
-            >通义 Qwen API Key (阿里百炼) *</label
-          >
-          <input
-            id="qwen-key"
-            type="password"
-            v-model="currentSettings.VITE_QWEN_API_KEY"
-            class="input focus:outline-none w-full"
-            autocomplete="new-password"
-            placeholder="sk-..."
-          />
-          <p class="text-xs text-gray-400 mt-1">
-            From the Alibaba Bailian (百炼) console → API-KEY 管理.
-          </p>
-        </div>
-        <div
-          v-if="
-            currentSettings.sttProvider === 'qwen' ||
-            currentSettings.ttsProvider === 'qwen' ||
-            currentSettings.embeddingProvider === 'qwen'
-          "
-        >
-          <label for="qwen-url" class="block mb-1 text-sm"
-            >通义 Qwen Base URL</label
-          >
-          <input
-            id="qwen-url"
-            type="text"
-            v-model="currentSettings.qwenBaseUrl"
-            class="input focus:outline-none w-full"
-            placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
-          />
-          <p class="text-xs text-gray-400 mt-1">
-            OpenAI-compatible endpoint for Alibaba DashScope.
-          </p>
-        </div>
-        <div v-if="currentSettings.sttProvider === 'qwen'">
-          <label for="qwen-stt-model" class="block mb-1 text-sm"
-            >通义 STT 模型</label
-          >
-          <input
-            id="qwen-stt-model"
-            type="text"
-            v-model="currentSettings.qwenSttModel"
-            class="input focus:outline-none w-full"
-            placeholder="qwen3-asr-flash"
-          />
-          <p class="text-xs text-gray-400 mt-1">
-            Defaults to qwen3-asr-flash.
-          </p>
-        </div>
+
+        <!-- OpenAI -->
+        <template v-if="currentSettings.sttProvider === 'openai'">
+          <div>
+            <label for="stt-openai-key" class="block mb-1 text-sm"
+              >API Key *</label
+            >
+            <input
+              id="stt-openai-key"
+              type="password"
+              v-model="currentSettings.VITE_OPENAI_API_KEY"
+              class="input focus:outline-none w-full"
+              autocomplete="new-password"
+              placeholder="sk-..."
+            />
+          </div>
+          <div>
+            <label for="openai-stt-model" class="block mb-1 text-sm"
+              >模型 ID</label
+            >
+            <input
+              id="openai-stt-model"
+              type="text"
+              v-model="currentSettings.openaiSttModel"
+              class="input focus:outline-none w-full"
+              placeholder="gpt-4o-transcribe"
+            />
+          </div>
+        </template>
+
+        <!-- Groq -->
+        <template v-if="currentSettings.sttProvider === 'groq'">
+          <div>
+            <label for="groq-key" class="block mb-1 text-sm"
+              >API Key *</label
+            >
+            <input
+              id="groq-key"
+              type="password"
+              v-model="currentSettings.VITE_GROQ_API_KEY"
+              class="input focus:outline-none w-full"
+              autocomplete="new-password"
+              placeholder="gsk_..."
+            />
+            <p class="text-xs text-gray-400 mt-1">
+              使用内置模型 whisper-large-v3。
+            </p>
+          </div>
+        </template>
+
+        <!-- Google -->
+        <template v-if="currentSettings.sttProvider === 'google'">
+          <div>
+            <label for="stt-google-key" class="block mb-1 text-sm"
+              >API Key *</label
+            >
+            <input
+              id="stt-google-key"
+              type="password"
+              v-model="currentSettings.VITE_GOOGLE_API_KEY"
+              class="input focus:outline-none w-full"
+              autocomplete="new-password"
+              placeholder="AIza..."
+            />
+          </div>
+          <div>
+            <label for="stt-language" class="block mb-1 text-sm"
+              >Language</label
+            >
+            <select
+              id="stt-language"
+              v-model="currentSettings.localSttLanguage"
+              class="select select-bordered w-full focus:select-primary"
+              @change="
+                e =>
+                  $emit('update:setting', 'localSttLanguage', getTargetValue(e))
+              "
+            >
+              <option value="auto">Auto-detect</option>
+              <option value="en">English</option>
+              <option value="zh">Chinese</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+            </select>
+          </div>
+        </template>
+
+        <!-- Doubao -->
+        <template v-if="currentSettings.sttProvider === 'doubao'">
+          <div>
+            <label for="stt-doubao-key" class="block mb-1 text-sm"
+              >API Key *</label
+            >
+            <input
+              id="stt-doubao-key"
+              type="password"
+              v-model="currentSettings.VITE_DOUBAO_API_KEY"
+              class="input focus:outline-none w-full"
+              autocomplete="new-password"
+              placeholder="火山方舟 API Key"
+            />
+          </div>
+          <div>
+            <label for="doubao-stt-model" class="block mb-1 text-sm"
+              >模型 ID *</label
+            >
+            <input
+              id="doubao-stt-model"
+              type="text"
+              v-model="currentSettings.doubaoSttModel"
+              class="input focus:outline-none w-full"
+              placeholder="例如 ep-2024xxxxxx 或模型名称"
+            />
+          </div>
+          <div class="md:col-span-2">
+            <label for="doubao-stt-url" class="block mb-1 text-sm"
+              >请求地址 (Base URL)</label
+            >
+            <input
+              id="doubao-stt-url"
+              type="text"
+              v-model="currentSettings.doubaoBaseUrl"
+              class="input focus:outline-none w-full"
+              placeholder="https://ark.cn-beijing.volces.com/api/v3"
+            />
+          </div>
+        </template>
+
+        <!-- Qwen -->
+        <template v-if="currentSettings.sttProvider === 'qwen'">
+          <div>
+            <label for="stt-qwen-key" class="block mb-1 text-sm"
+              >API Key *</label
+            >
+            <input
+              id="stt-qwen-key"
+              type="password"
+              v-model="currentSettings.VITE_QWEN_API_KEY"
+              class="input focus:outline-none w-full"
+              autocomplete="new-password"
+              placeholder="sk-..."
+            />
+          </div>
+          <div>
+            <label for="qwen-stt-model" class="block mb-1 text-sm"
+              >模型 ID</label
+            >
+            <input
+              id="qwen-stt-model"
+              type="text"
+              v-model="currentSettings.qwenSttModel"
+              class="input focus:outline-none w-full"
+              placeholder="qwen3-asr-flash"
+            />
+          </div>
+          <div class="md:col-span-2">
+            <label for="qwen-stt-url" class="block mb-1 text-sm"
+              >请求地址 (Base URL)</label
+            >
+            <input
+              id="qwen-stt-url"
+              type="text"
+              v-model="currentSettings.qwenBaseUrl"
+              class="input focus:outline-none w-full"
+              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+            />
+          </div>
+        </template>
+
+        <!-- Local -->
+        <p v-if="currentSettings.sttProvider === 'local'" class="md:col-span-2 text-xs text-gray-400">
+          使用本地 Go 后端的 Whisper 模型，模型规格与唤醒词在下方
+          "Local Speech-to-Text Configuration" 区域配置。
+        </p>
       </div>
     </fieldset>
 
@@ -619,7 +577,7 @@
       class="fieldset bg-gray-900/90 border-blue-500/50 rounded-box w-full border p-4"
     >
       <legend class="fieldset-legend">
-        Text-to-Speech Configuration
+        ③ 文字转语音 (TTS)
         <span
           class="w-2 h-2 rounded-full inline-block"
           :class="getServiceStatusClass('tts')"
@@ -627,138 +585,237 @@
         ></span>
       </legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-2">
-        <div>
+        <div class="md:col-span-2">
           <label for="tts-provider" class="block mb-1 text-sm"
-            >TTS Provider *</label
+            >提供商 *</label
           >
           <select
             id="tts-provider"
             v-model="currentSettings.ttsProvider"
             class="select select-bordered w-full focus:select-primary"
           >
-            <option value="openai">OpenAI (Cloud)</option>
-            <option value="google">Google (Cloud)</option>
+            <option value="openai">OpenAI</option>
+            <option value="google">Google</option>
             <option value="doubao">豆包 Doubao (火山方舟)</option>
-            <option value="qwen">通义 Qwen TTS (阿里百炼)</option>
-            <option value="local">Local (Piper)</option>
-          </select>
-          <p class="text-xs text-gray-400 mt-1">
-            Choose between cloud TTS providers or local Piper TTS.
-          </p>
-        </div>
-        <div v-if="currentSettings.ttsProvider === 'doubao'">
-          <label for="doubao-tts-model" class="block mb-1 text-sm"
-            >豆包 TTS 模型 ID *</label
-          >
-          <input
-            id="doubao-tts-model"
-            type="text"
-            v-model="currentSettings.doubaoTtsModel"
-            class="input focus:outline-none w-full"
-            placeholder="例如 ep-2024xxxxxx 或模型名称"
-          />
-          <p class="text-xs text-gray-400 mt-1">
-            Ark endpoint ID (ep-xxx) or model name from the Ark console.
-          </p>
-        </div>
-        <div v-if="currentSettings.ttsProvider === 'doubao'">
-          <label for="doubao-tts-voice" class="block mb-1 text-sm"
-            >豆包 TTS 音色</label
-          >
-          <input
-            id="doubao-tts-voice"
-            type="text"
-            v-model="currentSettings.doubaoTtsVoice"
-            class="input focus:outline-none w-full"
-            placeholder="zh_female_cancan_mars_bigtts"
-          />
-          <p class="text-xs text-gray-400 mt-1">
-            Voice ID from the Volcengine voice list.
-          </p>
-        </div>
-        <div v-if="currentSettings.ttsProvider === 'qwen'">
-          <label for="qwen-tts-model" class="block mb-1 text-sm"
-            >通义 TTS 模型</label
-          >
-          <input
-            id="qwen-tts-model"
-            type="text"
-            v-model="currentSettings.qwenTtsModel"
-            class="input focus:outline-none w-full"
-            placeholder="qwen-tts-latest"
-          />
-        </div>
-        <div v-if="currentSettings.ttsProvider === 'qwen'">
-          <label for="qwen-tts-voice" class="block mb-1 text-sm"
-            >通义 TTS 音色</label
-          >
-          <select
-            id="qwen-tts-voice"
-            v-model="currentSettings.qwenTtsVoice"
-            class="select select-bordered w-full focus:select-primary"
-          >
-            <option value="Cherry">Cherry (女声，温柔)</option>
-            <option value="Ethan">Ethan (男声)</option>
-            <option value="Nofish">Nofish (男声，可爱)</option>
-            <option value="Jennifer">Jennifer (女声，静夜深思)</option>
-            <option value="Ryan">Ryan (男声， journalism)</option>
-            <option value="Katerina">Katerina (女声)</option>
-            <option value="Elias">Elias (男声)</option>
-            <option value="Jada">Jada (女声)</option>
-            <option value="Dylan">Dylan (男声)</option>
-            <option value="Sunny">Sunny (女声，快乐)</option>
-          </select>
-          <p class="text-xs text-gray-400 mt-1">
-            Voice for qwen-tts. Defaults to Cherry.
-          </p>
-        </div>
-        <div v-if="currentSettings.ttsProvider === 'openai'">
-          <label for="tts-voice" class="block mb-1 text-sm"
-            >OpenAI TTS Voice</label
-          >
-          <select
-            id="tts-voice"
-            v-model="currentSettings.ttsVoice"
-            class="select select-bordered w-full focus:select-primary"
-          >
-            <option value="alloy">Alloy</option>
-            <option value="ash">Ash</option>
-            <option value="ballad">Ballad</option>
-            <option value="coral">Coral</option>
-            <option value="echo">Echo</option>
-            <option value="fable">Fable</option>
-            <option value="nova">Nova</option>
-            <option value="onyx">Onyx</option>
-            <option value="sage">Sage</option>
-            <option value="shimmer">Shimmer</option>
-            <option value="verse">Verse</option>
-            <option value="marin">Marin (Recommended)</option>
-            <option value="cedar">Cedar (Recommended)</option>
+            <option value="qwen">通义 Qwen (阿里百炼)</option>
+            <option value="local">本地 (Piper)</option>
           </select>
         </div>
-        <div v-if="currentSettings.ttsProvider === 'google'">
-          <label for="google-tts-voice" class="block mb-1 text-sm"
-            >Google TTS Voice</label
-          >
-          <select
-            id="google-tts-voice"
-            v-model="currentSettings.googleTtsVoice"
-            class="select select-bordered w-full focus:select-primary"
-            @change="
-              e => $emit('update:setting', 'googleTtsVoice', getTargetValue(e))
-            "
-          >
-            <option value="en-US-Journey-F">Journey F (Fem)</option>
-            <option value="en-US-Journey-O">Journey O (Fem)</option>
-            <option value="en-US-Neural2-C">Neural2 C (Fem)</option>
-            <option value="en-US-Neural2-F">Neural2 F (Fem)</option>
-            <option value="en-US-Neural2-H">Neural2 H (Fem)</option>
-            <option value="en-US-Standard-C">Standard C (Fem)</option>
-            <option value="en-US-Standard-E">Standard E (Fem)</option>
-            <option value="en-US-Wavenet-C">Wavenet C (Fem)</option>
-            <option value="en-US-Wavenet-F">Wavenet F (Fem)</option>
-          </select>
-        </div>
+
+        <!-- Doubao -->
+        <template v-if="currentSettings.ttsProvider === 'doubao'">
+          <div>
+            <label for="tts-doubao-key" class="block mb-1 text-sm"
+              >API Key *</label
+            >
+            <input
+              id="tts-doubao-key"
+              type="password"
+              v-model="currentSettings.VITE_DOUBAO_API_KEY"
+              class="input focus:outline-none w-full"
+              autocomplete="new-password"
+              placeholder="火山方舟 API Key"
+            />
+          </div>
+          <div>
+            <label for="doubao-tts-model" class="block mb-1 text-sm"
+              >模型 ID *</label
+            >
+            <input
+              id="doubao-tts-model"
+              type="text"
+              v-model="currentSettings.doubaoTtsModel"
+              class="input focus:outline-none w-full"
+              placeholder="例如 ep-2024xxxxxx 或模型名称"
+            />
+          </div>
+          <div class="md:col-span-2">
+            <label for="doubao-tts-url" class="block mb-1 text-sm"
+              >请求地址 (Base URL)</label
+            >
+            <input
+              id="doubao-tts-url"
+              type="text"
+              v-model="currentSettings.doubaoBaseUrl"
+              class="input focus:outline-none w-full"
+              placeholder="https://ark.cn-beijing.volces.com/api/v3"
+            />
+          </div>
+          <div class="md:col-span-2">
+            <label for="doubao-tts-voice" class="block mb-1 text-sm"
+              >音色</label
+            >
+            <input
+              id="doubao-tts-voice"
+              type="text"
+              v-model="currentSettings.doubaoTtsVoice"
+              class="input focus:outline-none w-full"
+              placeholder="zh_female_cancan_mars_bigtts"
+            />
+            <p class="text-xs text-gray-400 mt-1">
+              Voice ID from the Volcengine voice list.
+            </p>
+          </div>
+        </template>
+
+        <!-- Qwen -->
+        <template v-if="currentSettings.ttsProvider === 'qwen'">
+          <div>
+            <label for="tts-qwen-key" class="block mb-1 text-sm"
+              >API Key *</label
+            >
+            <input
+              id="tts-qwen-key"
+              type="password"
+              v-model="currentSettings.VITE_QWEN_API_KEY"
+              class="input focus:outline-none w-full"
+              autocomplete="new-password"
+              placeholder="sk-..."
+            />
+          </div>
+          <div>
+            <label for="qwen-tts-model" class="block mb-1 text-sm"
+              >模型 ID</label
+            >
+            <input
+              id="qwen-tts-model"
+              type="text"
+              v-model="currentSettings.qwenTtsModel"
+              class="input focus:outline-none w-full"
+              placeholder="qwen-tts-latest / qwen3-tts-flash / qwen-audio-3.0-tts-flash"
+            />
+          </div>
+          <div class="md:col-span-2">
+            <label for="qwen-tts-url" class="block mb-1 text-sm"
+              >请求地址 (Base URL)</label
+            >
+            <input
+              id="qwen-tts-url"
+              type="text"
+              v-model="currentSettings.qwenBaseUrl"
+              class="input focus:outline-none w-full"
+              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+            />
+            <p class="text-xs text-gray-400 mt-1">
+              Qwen-Audio-TTS / CosyVoice 系列模型需填写工作空间专属地址，例如
+              https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api/v1
+            </p>
+          </div>
+          <div class="md:col-span-2">
+            <label for="qwen-tts-voice" class="block mb-1 text-sm"
+              >音色</label
+            >
+            <select
+              id="qwen-tts-voice"
+              v-model="currentSettings.qwenTtsVoice"
+              class="select select-bordered w-full focus:select-primary"
+            >
+              <option value="Cherry">Cherry (女声，温柔)</option>
+              <option value="Ethan">Ethan (男声)</option>
+              <option value="Nofish">Nofish (男声，可爱)</option>
+              <option value="Jennifer">Jennifer (女声，静夜深思)</option>
+              <option value="Ryan">Ryan (男声)</option>
+              <option value="Katerina">Katerina (女声)</option>
+              <option value="Elias">Elias (男声)</option>
+              <option value="Jada">Jada (女声)</option>
+              <option value="Dylan">Dylan (男声)</option>
+              <option value="Sunny">Sunny (女声，快乐)</option>
+            </select>
+          </div>
+        </template>
+
+        <!-- OpenAI -->
+        <template v-if="currentSettings.ttsProvider === 'openai'">
+          <div>
+            <label for="tts-openai-key" class="block mb-1 text-sm"
+              >API Key *</label
+            >
+            <input
+              id="tts-openai-key"
+              type="password"
+              v-model="currentSettings.VITE_OPENAI_API_KEY"
+              class="input focus:outline-none w-full"
+              autocomplete="new-password"
+              placeholder="sk-..."
+            />
+          </div>
+          <div>
+            <label for="openai-tts-model" class="block mb-1 text-sm"
+              >模型 ID</label
+            >
+            <input
+              id="openai-tts-model"
+              type="text"
+              v-model="currentSettings.openaiTtsModel"
+              class="input focus:outline-none w-full"
+              placeholder="gpt-4o-mini-tts"
+            />
+          </div>
+          <div class="md:col-span-2">
+            <label for="tts-voice" class="block mb-1 text-sm"
+              >音色</label
+            >
+            <select
+              id="tts-voice"
+              v-model="currentSettings.ttsVoice"
+              class="select select-bordered w-full focus:select-primary"
+            >
+              <option value="alloy">Alloy</option>
+              <option value="ash">Ash</option>
+              <option value="ballad">Ballad</option>
+              <option value="coral">Coral</option>
+              <option value="echo">Echo</option>
+              <option value="fable">Fable</option>
+              <option value="nova">Nova</option>
+              <option value="onyx">Onyx</option>
+              <option value="sage">Sage</option>
+              <option value="shimmer">Shimmer</option>
+              <option value="verse">Verse</option>
+              <option value="marin">Marin (Recommended)</option>
+              <option value="cedar">Cedar (Recommended)</option>
+            </select>
+          </div>
+        </template>
+
+        <!-- Google -->
+        <template v-if="currentSettings.ttsProvider === 'google'">
+          <div class="md:col-span-2">
+            <label for="tts-google-key" class="block mb-1 text-sm"
+              >API Key *</label
+            >
+            <input
+              id="tts-google-key"
+              type="password"
+              v-model="currentSettings.VITE_GOOGLE_API_KEY"
+              class="input focus:outline-none w-full"
+              autocomplete="new-password"
+              placeholder="AIza..."
+            />
+          </div>
+          <div class="md:col-span-2">
+            <label for="google-tts-voice" class="block mb-1 text-sm"
+              >音色</label
+            >
+            <select
+              id="google-tts-voice"
+              v-model="currentSettings.googleTtsVoice"
+              class="select select-bordered w-full focus:select-primary"
+              @change="
+                e => $emit('update:setting', 'googleTtsVoice', getTargetValue(e))
+              "
+            >
+              <option value="en-US-Journey-F">Journey F (Fem)</option>
+              <option value="en-US-Journey-O">Journey O (Fem)</option>
+              <option value="en-US-Neural2-C">Neural2 C (Fem)</option>
+              <option value="en-US-Neural2-F">Neural2 F (Fem)</option>
+              <option value="en-US-Neural2-H">Neural2 H (Fem)</option>
+              <option value="en-US-Standard-C">Standard C (Fem)</option>
+              <option value="en-US-Standard-E">Standard E (Fem)</option>
+              <option value="en-US-Wavenet-C">Wavenet C (Fem)</option>
+              <option value="en-US-Wavenet-F">Wavenet F (Fem)</option>
+            </select>
+          </div>
+        </template>
         <div v-if="currentSettings.ttsProvider === 'local'">
           <label for="local-tts-voice" class="block mb-1 text-sm"
             >Local TTS Voice</label
@@ -881,66 +938,155 @@
       class="fieldset bg-gray-900/90 border-blue-500/50 rounded-box w-full border p-4"
     >
       <legend class="fieldset-legend">
-        Embedding Configuration
+        ④ Embedding (记忆向量化)
         <span
           class="w-2 h-2 rounded-full inline-block"
           :class="getServiceStatusClass('embeddings')"
           :title="getServiceStatusText('embeddings')"
         ></span>
       </legend>
-      <div class="grid grid-cols-1 gap-4 p-2">
-        <div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-2">
+        <div class="md:col-span-2">
           <label for="embedding-provider" class="block mb-1 text-sm"
-            >Embedding Provider *</label
+            >提供商 *</label
           >
           <select
             id="embedding-provider"
             v-model="currentSettings.embeddingProvider"
             class="select select-bordered w-full focus:select-primary"
           >
-            <option value="openai">OpenAI (Cloud)</option>
-            <option value="doubao">豆包 Doubao Embedding (火山方舟)</option>
-            <option value="qwen">通义 Qwen Embedding (阿里百炼)</option>
-            <option value="local">Local (multi-lang E5)</option>
+            <option value="openai">OpenAI</option>
+            <option value="doubao">豆包 Doubao (火山方舟)</option>
+            <option value="qwen">通义 Qwen (阿里百炼)</option>
+            <option value="local">本地 (Go 后端 E5)</option>
           </select>
           <p class="text-xs text-gray-400 mt-1">
-            Choose between cloud-based or local multi-lang E5 embeddings.
-            Doubao uses its native 4096 dimensions; Qwen uses 1536 dimensions.
-            Each provider gets its own vector index. Existing text is
-            preserved; local vectors are rebuilt when the model changes.
+            豆包使用原生 4096 维独立索引；通义固定 1536 维（与 OpenAI
+            向量共用索引）；本地使用多语言 E5 模型。
           </p>
         </div>
-        <div v-if="currentSettings.embeddingProvider === 'doubao'">
-          <label for="doubao-embedding-model" class="block mb-1 text-sm"
-            >豆包 Embedding 模型 ID</label
-          >
-          <input
-            id="doubao-embedding-model"
-            type="text"
-            v-model="currentSettings.doubaoEmbeddingModel"
-            class="input focus:outline-none w-full"
-            placeholder="doubao-embedding-large-text-240915"
-          />
-          <p class="text-xs text-gray-400 mt-1">
-            Uses the model's native dimension (doubao-embedding-large: 4096).
-          </p>
-        </div>
-        <div v-if="currentSettings.embeddingProvider === 'qwen'">
-          <label for="qwen-embedding-model" class="block mb-1 text-sm"
-            >通义 Embedding 模型</label
-          >
-          <input
-            id="qwen-embedding-model"
-            type="text"
-            v-model="currentSettings.qwenEmbeddingModel"
-            class="input focus:outline-none w-full"
-            placeholder="text-embedding-v4"
-          />
-          <p class="text-xs text-gray-400 mt-1">
-            Defaults to text-embedding-v4 with 1536 dimensions (shares the
-            OpenAI-sized vector index).
-          </p>
-        </div>
+
+        <!-- Doubao -->
+        <template v-if="currentSettings.embeddingProvider === 'doubao'">
+          <div>
+            <label for="emb-doubao-key" class="block mb-1 text-sm"
+              >API Key *</label
+            >
+            <input
+              id="emb-doubao-key"
+              type="password"
+              v-model="currentSettings.VITE_DOUBAO_API_KEY"
+              class="input focus:outline-none w-full"
+              autocomplete="new-password"
+              placeholder="火山方舟 API Key"
+            />
+          </div>
+          <div>
+            <label for="doubao-embedding-model" class="block mb-1 text-sm"
+              >模型 ID</label
+            >
+            <input
+              id="doubao-embedding-model"
+              type="text"
+              v-model="currentSettings.doubaoEmbeddingModel"
+              class="input focus:outline-none w-full"
+              placeholder="doubao-embedding-large"
+            />
+            <p class="text-xs text-gray-400 mt-1">
+              Uses the model's native dimension (4096).
+            </p>
+          </div>
+          <div class="md:col-span-2">
+            <label for="emb-doubao-url" class="block mb-1 text-sm"
+              >请求地址 (Base URL)</label
+            >
+            <input
+              id="emb-doubao-url"
+              type="text"
+              v-model="currentSettings.doubaoBaseUrl"
+              class="input focus:outline-none w-full"
+              placeholder="https://ark.cn-beijing.volces.com/api/v3"
+            />
+          </div>
+        </template>
+
+        <!-- Qwen -->
+        <template v-if="currentSettings.embeddingProvider === 'qwen'">
+          <div>
+            <label for="emb-qwen-key" class="block mb-1 text-sm"
+              >API Key *</label
+            >
+            <input
+              id="emb-qwen-key"
+              type="password"
+              v-model="currentSettings.VITE_QWEN_API_KEY"
+              class="input focus:outline-none w-full"
+              autocomplete="new-password"
+              placeholder="sk-..."
+            />
+          </div>
+          <div>
+            <label for="qwen-embedding-model" class="block mb-1 text-sm"
+              >模型 ID</label
+            >
+            <input
+              id="qwen-embedding-model"
+              type="text"
+              v-model="currentSettings.qwenEmbeddingModel"
+              class="input focus:outline-none w-full"
+              placeholder="text-embedding-v4"
+            />
+            <p class="text-xs text-gray-400 mt-1">
+              Defaults to 1536 dimensions.
+            </p>
+          </div>
+          <div class="md:col-span-2">
+            <label for="emb-qwen-url" class="block mb-1 text-sm"
+              >请求地址 (Base URL)</label
+            >
+            <input
+              id="emb-qwen-url"
+              type="text"
+              v-model="currentSettings.qwenBaseUrl"
+              class="input focus:outline-none w-full"
+              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+            />
+          </div>
+        </template>
+
+        <!-- OpenAI -->
+        <template v-if="currentSettings.embeddingProvider === 'openai'">
+          <div>
+            <label for="emb-openai-key" class="block mb-1 text-sm"
+              >API Key *</label
+            >
+            <input
+              id="emb-openai-key"
+              type="password"
+              v-model="currentSettings.VITE_OPENAI_API_KEY"
+              class="input focus:outline-none w-full"
+              autocomplete="new-password"
+              placeholder="sk-..."
+            />
+          </div>
+          <div>
+            <label for="openai-embedding-model" class="block mb-1 text-sm"
+              >模型 ID</label
+            >
+            <input
+              id="openai-embedding-model"
+              type="text"
+              v-model="currentSettings.openaiEmbeddingModel"
+              class="input focus:outline-none w-full"
+              placeholder="text-embedding-ada-002"
+            />
+          </div>
+        </template>
+
+        <!-- Local -->
+        <p v-if="currentSettings.embeddingProvider === 'local'" class="md:col-span-2 text-xs text-gray-400">
+          使用本地 Go 后端的 multilingual-e5-small 模型，无需任何 API Key。
+        </p>
       </div>
     </fieldset>
 
@@ -1044,6 +1190,39 @@
               </button>
             </div>
           </div>
+        </div>
+      </div>
+    </fieldset>
+
+    <!-- Window Behavior Section -->
+    <fieldset
+      class="fieldset bg-gray-900/90 border-blue-500/50 rounded-box w-full border p-4"
+    >
+      <legend class="fieldset-legend">窗口行为 (Window Behavior)</legend>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-2">
+        <div>
+          <label for="always-on-top" class="block mb-1 text-sm"
+            >窗口置顶 (Always on Top)</label
+          >
+          <select
+            id="always-on-top"
+            v-model="currentSettings.alwaysOnTop"
+            class="select select-bordered w-full focus:select-primary"
+            @change="
+              e =>
+                $emit(
+                  'update:setting',
+                  'alwaysOnTop',
+                  getTargetValue(e) === 'true'
+                )
+            "
+          >
+            <option value="false">关闭 (不遮挡其他程序)</option>
+            <option value="true">开启 (始终保持在最前)</option>
+          </select>
+          <p class="text-xs text-gray-400 mt-1">
+            保存后立即生效，无需重启。
+          </p>
         </div>
       </div>
     </fieldset>

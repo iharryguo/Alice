@@ -9,6 +9,12 @@ const BUILT_IN_HTTP_BASE_URLS = [
   'https://global.api-route.com',
   'http://localhost:11434',
   'http://localhost:1234',
+  // Volcengine Ark (Doubao) and Alibaba DashScope (Qwen) do not send CORS
+  // headers, so their STT/TTS/embedding calls must go through the main-process
+  // HTTP bridge instead of being fetched from the renderer directly.
+  'https://ark.cn-beijing.volces.com',
+  'https://dashscope.aliyuncs.com',
+  'https://dashscope-intl.aliyuncs.com',
 ]
 
 const CONFIGURED_HTTP_BASE_URL_KEYS = [
@@ -17,6 +23,8 @@ const CONFIGURED_HTTP_BASE_URL_KEYS = [
   'zaiBaseUrl',
   'minimaxBaseUrl',
   'deepseekBaseUrl',
+  'doubaoBaseUrl',
+  'qwenBaseUrl',
   'VITE_SEARXNG_URL',
 ] as const
 

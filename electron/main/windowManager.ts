@@ -5,6 +5,7 @@ import {
   resolvePathWithinRoot,
   validateExternalOpenUrl,
 } from './securityBoundaries'
+import { loadSettings } from './settingsManager'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -92,6 +93,16 @@ export function getSettingsWindow(): BrowserWindow | null {
 }
 
 export async function createMainWindow(): Promise<BrowserWindow> {
+  // Always-on-top is user-configurable (default: off) so the companion window
+  // does not permanently cover other applications.
+  let shouldAlwaysBeOnTop = false
+  try {
+    const appSettings = await loadSettings()
+    shouldAlwaysBeOnTop = !!appSettings?.alwaysOnTop
+  } catch {
+    // Fall back to the default (off) when settings cannot be read.
+  }
+
   win = new BrowserWindow({
     title: 'Alice',
     icon: path.join(getVitePublic(), 'app_logo.png'),
@@ -100,7 +111,7 @@ export async function createMainWindow(): Promise<BrowserWindow> {
     width: 500,
     height: 500,
     resizable: true,
-    alwaysOnTop: true,
+    alwaysOnTop: shouldAlwaysBeOnTop,
     hasShadow: false,
     webPreferences: {
       preload: getPreloadPath(),
@@ -117,6 +128,12 @@ export async function createMainWindow(): Promise<BrowserWindow> {
 
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL)
+    // 开发模式下自动打开 DevTools（独立窗口模式）。
+    // Alice 主窗口只有 500x500 且无边框，停靠(dock)模式会把界面挤坏，
+    // 所以用 detach 独立窗口。打包发布版本不会打开。
+    win.webContents.once('did-finish-load', () => {
+      win?.webContents.openDevTools({ mode: 'detach' })
+    })
   } else {
     win.loadFile(getIndexHtmlPath())
   }
