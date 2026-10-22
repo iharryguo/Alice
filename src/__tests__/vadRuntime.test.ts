@@ -33,6 +33,7 @@ describe('VAD initialization options', () => {
     const options = createVadOptions('./', {
       onSpeechStart: vi.fn(),
       onSpeechEnd: vi.fn(),
+      onSpeechRealStart: vi.fn(),
     })
 
     expect(options.baseAssetPath).toBe('http://localhost:3344/')
@@ -44,10 +45,12 @@ describe('VAD initialization options', () => {
   it('uses local assets and leaves startup under application control', () => {
     const onSpeechStart = vi.fn()
     const onSpeechEnd = vi.fn()
+    const onSpeechRealStart = vi.fn()
 
     const options = createVadOptions('file:///app/dist/', {
       onSpeechStart,
       onSpeechEnd,
+      onSpeechRealStart,
     })
 
     expect(options).toMatchObject({
@@ -57,6 +60,7 @@ describe('VAD initialization options', () => {
       startOnLoad: false,
       onSpeechStart,
       onSpeechEnd,
+      onSpeechRealStart,
     })
 
     const ort = { env: { logLevel: 'warning', wasm: {} } }
@@ -73,5 +77,34 @@ describe('VAD initialization options', () => {
         },
       },
     })
+  })
+
+  it('raises speech thresholds and disables auto gain control', async () => {
+    const getUserMedia = vi.fn(async () => ({}))
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } })
+
+    const options = createVadOptions('./', {
+      onSpeechStart: vi.fn(),
+      onSpeechEnd: vi.fn(),
+      onSpeechRealStart: vi.fn(),
+    })
+
+    expect(options.positiveSpeechThreshold).toBe(0.65)
+    expect(options.negativeSpeechThreshold).toBe(0.5)
+
+    await options.getStream?.()
+
+    expect(getUserMedia).toHaveBeenCalledWith({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        // 关闭自动增益，避免把环境噪音和回声残余放大后触发误打断；
+        // 真实语音的拾取由更低的播放期阈值 + ducking 方案补偿。
+        autoGainControl: false,
+        noiseSuppression: true,
+      },
+    })
+
+    vi.unstubAllGlobals()
   })
 })

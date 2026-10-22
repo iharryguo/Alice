@@ -6,6 +6,7 @@ export interface SpeechQueueDependencies {
   setTtsAbortController(controller: AbortController | null): void
   ttsStream(text: string, signal: AbortSignal): Promise<Response>
   queueAudioForPlayback(response: Response): boolean
+  getPlaybackEpoch(): number
   getAudioState(): AudioState
   setAudioState(state: AudioState): void
   logError(...args: any[]): void
@@ -22,6 +23,7 @@ export function createSpeechQueueManager(
     async enqueueSpeech(text: string): Promise<void> {
       if (!text.trim()) return
 
+      const epochAtRequestStart = dependencies.getPlaybackEpoch()
       const abortController = dependencies.createAbortController()
       dependencies.setTtsAbortController(abortController)
 
@@ -35,6 +37,12 @@ export function createSpeechQueueManager(
         // been called. Never let that stale response restart playback after a
         // barge-in or an explicit TTS cancellation.
         if (abortController.signal.aborted) {
+          return
+        }
+
+        // 请求期间若发生过真正的停止（代次变化），该响应已过期，直接丢弃，
+        // 防止它在被打断后"复活"并重新开始播放。
+        if (dependencies.getPlaybackEpoch() !== epochAtRequestStart) {
           return
         }
 

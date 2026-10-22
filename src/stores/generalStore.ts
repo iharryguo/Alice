@@ -50,6 +50,10 @@ export const useGeneralStore = defineStore('general', () => {
     customAvatarsStore.builtInAvatar.stateVideos.standby
   )
   const audioQueue = ref<Response[]>([])
+  // 播放代次计数：每次真正停止/清空播放时自增。
+  // 在途的 TTS 响应与已预约的播放回调通过比对代次识别自己已过期，从而
+  // 修复"被打断后，在途 chunk 复活播放"的竞态问题。
+  const playbackEpoch = ref(0)
   const sideBarView = ref<string>('chat')
   const attachedFile = ref<File | null>(null)
   const awaitingWakeWord = ref<boolean>(false)
@@ -206,6 +210,7 @@ export const useGeneralStore = defineStore('general', () => {
   }
 
   const stopPlaybackAndClearQueue = () => {
+    playbackEpoch.value++
     eventBus.emit('cancel-tts')
     if (audioPlayer.value) {
       audioPlayer.value.pause()
@@ -221,6 +226,7 @@ export const useGeneralStore = defineStore('general', () => {
 
   return {
     audioState,
+    playbackEpoch,
     isRecordingRequested,
     isTTSEnabled,
     recognizedText,

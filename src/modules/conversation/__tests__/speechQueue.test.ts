@@ -15,6 +15,7 @@ function buildDependencies(
     setTtsAbortController: vi.fn(),
     ttsStream: vi.fn(async () => new Response('audio')),
     queueAudioForPlayback: vi.fn(() => true),
+    getPlaybackEpoch: vi.fn(() => 0),
     getAudioState: vi.fn(() => audioState as any),
     setAudioState: vi.fn(state => {
       audioState = state
@@ -81,6 +82,33 @@ describe('createSpeechQueueManager', () => {
       expect(deps.logError).not.toHaveBeenCalled()
     }
   )
+
+  it('does not enqueue a response whose playback epoch advanced during the request', async () => {
+    let resolveTts: ((response: Response) => void) | undefined
+    let epoch = 0
+    const ttsStream = vi.fn(
+      () =>
+        new Promise<Response>(resolve => {
+          resolveTts = resolve
+        })
+    )
+    const deps = buildDependencies({
+      ttsStream,
+      getPlaybackEpoch: vi.fn(() => epoch),
+    })
+    const manager = createSpeechQueueManager(deps)
+
+    const pending = manager.enqueueSpeech('Hello')
+
+    // 模拟请求期间发生了一次真正的停止（如打断后清空播放）
+    epoch = 1
+    resolveTts?.(new Response('audio'))
+
+    await pending
+
+    expect(deps.queueAudioForPlayback).not.toHaveBeenCalled()
+    expect(deps.setAudioState).not.toHaveBeenCalled()
+  })
 
   it('does not enqueue a response that resolves after cancellation', async () => {
     let resolveTts: ((response: Response) => void) | undefined

@@ -484,6 +484,7 @@ export const useConversationStore = defineStore('conversation', () => {
       setTtsAbortController: controller => {
         ttsAbortController.value = controller
       },
+      getPlaybackEpoch: () => generalStore.playbackEpoch,
       ttsStream: (text, signal) => api.ttsStream(text, signal),
       queueAudioForPlayback: response => queueAudioForPlayback(response),
       getAudioState: () => audioState.value as AudioState,

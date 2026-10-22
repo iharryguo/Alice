@@ -7,6 +7,11 @@ import { useConversationStore } from '../stores/conversationStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { storeToRefs } from 'pinia'
 import eventBus from '../utils/eventBus'
+import {
+  isLikelyMeaningfulSpeech,
+  isMeaninglessFiller,
+} from '../utils/bargeInHeuristics'
+import type { ChatMessage } from '../types/chat'
 
 let ipcListenersRegistered = false
 
@@ -27,7 +32,131 @@ export function useAudioProcessing() {
   const isVadInitializing = ref(false)
   const isSpeechDetected = ref(false)
   const vadAssetBasePath = ref<string>('./')
+  // 播放期间听到持续语音后进入“待判定”状态：先压低音量继续播放，
+  // 等转写结果出来再决定是恢复音量还是真正接管。
+  const isBargeInPending = ref(false)
   let ownsIpcListeners = false
+
+  // 打断灵敏度与回声保护相关常量（可按真机体感微调）
+  const LISTENING_SPEECH_THRESHOLD = 0.65 // 平时（未播放时）的语音判定阈值
+  const SPEAKING_SPEECH_THRESHOLD = 0.78 // 播放期间：比平时更严格，但仍要能听到真人
+  const TURN_START_ECHO_GUARD_MS = 700 // 新一轮播放开始后的回声保护窗口
+  const FIRST_PLAYBACK_ECHO_GUARD_MS = 1500 // 应用启动后首次播放：AEC 尚未收敛
+  const DUCKED_VOLUME = 0.35 // 待判定期间把 TTS 音量压低到 35%
+  let playbackStartedAt = 0
+  let isFirstPlaybackAfterStart = true
+  let volumeBeforeDuck = 1
+
+  // 播放期间提高 VAD 阈值，防止被自己的声音打断
+  const applyVadThresholdForState = (state: string) => {
+    if (!myvad.value) return
+    myvad.value.setOptions({
+      positiveSpeechThreshold:
+        state === 'SPEAKING'
+          ? SPEAKING_SPEECH_THRESHOLD
+          : LISTENING_SPEECH_THRESHOLD,
+    })
+  }
+
+  // 是否处于回声保护窗口内（播放刚开始时，回声消除尚未收敛，忽略打断）
+  const isWithinEchoGuard = (): boolean => {
+    if (audioState.value !== 'SPEAKING') return false
+    const guardMs = isFirstPlaybackAfterStart
+      ? FIRST_PLAYBACK_ECHO_GUARD_MS
+      : TURN_START_ECHO_GUARD_MS
+    return Date.now() - playbackStartedAt < guardMs
+  }
+
+  // 提取消息里的纯文本（用于和 TTS 文本做回声比对）
+  const extractTextFromChatMessage = (message: ChatMessage): string => {
+    if (typeof message.content === 'string') return message.content
+    if (Array.isArray(message.content)) {
+      return message.content
+        .filter(part => part.type === 'app_text' && part.text)
+        .map(part => part.text as string)
+        .join(' ')
+    }
+    return ''
+  }
+
+  // 最近一条助手回复的文本：TTS 正在朗读的通常就是它
+  const getLastAssistantText = (): string => {
+    for (let i = generalStore.chatHistory.length - 1; i >= 0; i -= 1) {
+      const message = generalStore.chatHistory[i] as ChatMessage
+      if (message.role !== 'assistant') continue
+      const text = extractTextFromChatMessage(message).trim()
+      if (text) return text
+    }
+    return ''
+  }
+
+  // 压低 TTS 音量（不暂停、不丢队列），让“打断判定”期间仍有自然感
+  const duckPlayback = () => {
+    const player = generalStore.audioPlayer
+    if (!player) return
+    volumeBeforeDuck = player.volume
+    player.volume = Math.min(volumeBeforeDuck, DUCKED_VOLUME)
+  }
+
+  const restorePlaybackVolume = () => {
+    const player = generalStore.audioPlayer
+    if (player) player.volume = volumeBeforeDuck
+  }
+
+  /**
+   * 播放期间收到一段语音后的处理：
+   * - 语气词 / 自声回声 / 空转写 → 恢复音量，继续播放
+   * - 明确指令或真实用户语音 → 停止原回答，接管对话
+   */
+  const handleBargeInUtterance = async (audio: Float32Array) => {
+    const spokenText = getLastAssistantText()
+    try {
+      if (!audio || audio.length === 0) {
+        restorePlaybackVolume()
+        isBargeInPending.value = false
+        isSpeechDetected.value = false
+        return
+      }
+
+      const wavBuffer = float32ArrayToWav(audio, 16000)
+      const rawTranscription =
+        await conversationStore.transcribeAudioMessage(wavBuffer)
+      const transcription = (rawTranscription || '').trim()
+
+      if (!isLikelyMeaningfulSpeech(transcription, spokenText)) {
+        console.log(
+          `[Barge-In] Ignoring noise/echo after ducking: "${transcription.slice(0, 60)}"`
+        )
+        if (isMeaninglessFiller(transcription)) {
+          console.log('[Barge-In] Utterance classified as filler.')
+        }
+        restorePlaybackVolume()
+        isBargeInPending.value = false
+        isSpeechDetected.value = false
+        return
+      }
+
+      console.log(
+        `[Barge-In] Real user speech detected, taking over: "${transcription.slice(0, 80)}"`
+      )
+      isBargeInPending.value = false
+      isSpeechDetected.value = false
+      restorePlaybackVolume()
+      eventBus.emit('cancel-llm-stream')
+      generalStore.stopPlaybackAndClearQueue()
+      setAudioState('PROCESSING_AUDIO')
+      generalStore.recognizedText = transcription
+      eventBus.emit('processing-complete', transcription)
+    } catch (error) {
+      console.error(
+        '[Barge-In] Failed to process interruption; restoring playback:',
+        error
+      )
+      restorePlaybackVolume()
+      isBargeInPending.value = false
+      isSpeechDetected.value = false
+    }
+  }
 
   const handleGlobalMicToggle = () => {
     toggleRecordingRequest()
@@ -133,24 +262,50 @@ export function useAudioProcessing() {
       const vadInstance = await vad.MicVAD.new(
         createVadOptions(assetPath, {
           onSpeechStart: () => {
-            if (
-              audioState.value === 'SPEAKING' ||
-              audioState.value === 'WAITING_FOR_RESPONSE'
-            ) {
-              console.log(
-                `[VAD Barge-In] User interrupted Alice during ${audioState.value}. Stopping processes.`
-              )
-              eventBus.emit('cancel-llm-stream')
-              generalStore.stopPlaybackAndClearQueue()
-              setAudioState(isRecordingRequested.value ? 'LISTENING' : 'IDLE')
-            }
             isSpeechDetected.value = true
             console.log('[VAD Callback] Speech started.')
+          },
+          // 只在“持续语音”达到 minSpeechMs 后才认定为打断：
+          // 咳嗽、键盘声、短促噪音等不会走到这里。
+          onSpeechRealStart: () => {
+            if (isBargeInPending.value) return
+
+            // 正在等待模型回复（还没有 TTS 可打断）：取消思考，让用户重新说
+            if (audioState.value === 'WAITING_FOR_RESPONSE') {
+              console.log(
+                '[Barge-In] User speech while waiting for response; cancelling LLM stream.'
+              )
+              eventBus.emit('cancel-llm-stream')
+              setAudioState(
+                isRecordingRequested.value ? 'LISTENING' : 'IDLE'
+              )
+              return
+            }
+
+            if (audioState.value !== 'SPEAKING') return
+            if (isWithinEchoGuard()) {
+              console.log(
+                '[Barge-In] Ignored utterance within echo guard window (self voice).'
+              )
+              return
+            }
+
+            // 先压低 TTS 音量继续播放，避免“突然暂停”的机器人感；
+            // 等转写结果出来再决定恢复音量还是接管。
+            isBargeInPending.value = true
+            duckPlayback()
+            console.log(
+              '[Barge-In] Speech during playback detected; ducking TTS for judgement.'
+            )
           },
           onSpeechEnd: (audio: Float32Array) => {
             console.log(
               `[VAD Callback] Speech ended. Audio length: ${audio?.length}. Current state: ${audioState.value}`
             )
+            if (isBargeInPending.value) {
+              void handleBargeInUtterance(audio)
+              return
+            }
             if (audioState.value === 'LISTENING' && isSpeechDetected.value) {
               processAudioRecording(audio)
             } else {
@@ -173,6 +328,9 @@ export function useAudioProcessing() {
 
       myvad.value = vadInstance
       await myvad.value.start()
+      // 新建的麦克风流意味着回声消除又要重新收敛，首次播放需要更长的保护窗口
+      isFirstPlaybackAfterStart = true
+      applyVadThresholdForState(audioState.value)
       console.log('[VAD Manager] VAD initialized and started successfully.')
     } catch (error) {
       console.error('[VAD Manager] VAD initialization failed:', error)
@@ -277,16 +435,34 @@ export function useAudioProcessing() {
           eventBus.emit('processing-complete', transcription)
         }
       } else {
+        if (isBargeInPending.value) {
+          restorePlaybackVolume()
+          isBargeInPending.value = false
+        }
         setAudioState(isRecordingRequested.value ? 'LISTENING' : 'IDLE')
         isSpeechDetected.value = false
       }
     } catch (error) {
       console.error('[Audio Processing] Error during transcription:', error)
       generalStore.statusMessage = 'Error: Transcription failed'
+      if (isBargeInPending.value) {
+        restorePlaybackVolume()
+        isBargeInPending.value = false
+      }
       setAudioState(isRecordingRequested.value ? 'LISTENING' : 'IDLE')
       isSpeechDetected.value = false
     }
   }
+
+  // 播放状态变化时：动态调整 VAD 阈值并记录本轮播放的起始时间（回声保护用）
+  watch(audioState, (newState, oldState) => {
+    if (newState === 'SPEAKING') {
+      playbackStartedAt = Date.now()
+    } else if (oldState === 'SPEAKING') {
+      isFirstPlaybackAfterStart = false
+    }
+    applyVadThresholdForState(newState)
+  })
 
   watch(isRecordingRequested, isRequested => {
     console.log(
@@ -328,6 +504,10 @@ export function useAudioProcessing() {
   }
 
   onUnmounted(() => {
+    if (isBargeInPending.value) {
+      restorePlaybackVolume()
+      isBargeInPending.value = false
+    }
     destroyVAD()
     if (window.aliceIPC && ownsIpcListeners) {
       window.aliceIPC.off('global-hotkey-mic-toggle', handleGlobalMicToggle)
