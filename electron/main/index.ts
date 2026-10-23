@@ -33,6 +33,7 @@ import {
   getMainWindow,
 } from './windowManager'
 import { getCustomAvatarsRootPath } from './customAvatarsManager'
+import { createTray, destroyTray } from './trayManager'
 import { registerIPCHandlers, registerGoogleIPCHandlers } from './ipcManager'
 import {
   registerMicrophoneToggleHotkey,
@@ -438,6 +439,8 @@ app.whenReady().then(async () => {
 
   await createMainWindow()
   await createOverlayWindow()
+  // 关闭窗口时收进托盘，托盘点一下就能唤回来
+  createTray()
   checkForUpdates()
 
   try {
@@ -507,6 +510,7 @@ app.on('before-quit', async event => {
   stopCodexAppServer()
   shutdownScheduler()
   stopWebSocketServer()
+  destroyTray()
   console.log('[Main Index] Before quit: Performing cleanup...')
   event.preventDefault()
 

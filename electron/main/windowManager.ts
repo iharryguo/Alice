@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, shell, protocol } from 'electron'
+import { app, BrowserWindow, screen, shell, protocol } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import {
@@ -119,6 +119,27 @@ export type WindowMode = 'ball' | 'window'
 
 let windowMode: WindowMode = 'ball'
 
+// 点右上角关闭 = 收到托盘，不退出程序；只有真正 quit 时才放行关闭
+let appQuitting = false
+// 托盘没建起来时不能隐藏窗口，否则应用会变成"看不见也找不回"
+let trayAvailable = false
+
+export function markAppQuitting(): void {
+  appQuitting = true
+}
+
+export function setTrayAvailable(available: boolean): void {
+  trayAvailable = available
+}
+
+export function isAppQuitting(): boolean {
+  return appQuitting
+}
+
+app.once('before-quit', () => {
+  appQuitting = true
+})
+
 export function getWindowMode(): WindowMode {
   return windowMode
 }
@@ -199,6 +220,13 @@ export async function createMainWindow(
       win = null
       clearCustomMaximized()
     }
+  })
+
+  // 点右上角关闭 → 收进系统托盘（而不是退出程序）
+  created.on('close', event => {
+    if (appQuitting || !trayAvailable) return
+    event.preventDefault()
+    created.hide()
   })
 
   created.on('maximize', notifyMaximizedState)

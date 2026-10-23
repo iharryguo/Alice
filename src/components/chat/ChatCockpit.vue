@@ -101,6 +101,7 @@ import { useConversationStore } from '../../stores/conversationStore'
 import { useConversationLogStore } from '../../stores/conversationLogStore'
 import { useApprovalStore } from '../../stores/approvalStore'
 import eventBus from '../../utils/eventBus'
+import { collapseToAvatar } from '../../utils/windowModeActions'
 import {
   buildChatDisplayItems,
   type MessageDisplayItem,
@@ -128,20 +129,9 @@ const applyMaximized = (maximized: boolean) => {
   generalStore.setWindowMaximized(maximized)
 }
 
-/**
- * 收起按钮：把当前会话落库，然后让主进程把窗口切回"只露圆形头像"。
- * 下次点聊天按钮重新展开时，会从这个会话继续。
- */
-const collapseToBall = async () => {
-  try {
-    await logStore.flush()
-    window.localStorage.setItem('alice:restore-session', logStore.sessionId)
-  } catch (error) {
-    console.warn('[ChatCockpit] 收起前保存会话失败:', error)
-  }
-  window.aliceIPC
-    ?.invoke('window:set-mode', { mode: 'ball' })
-    .catch(error => console.warn('[ChatCockpit] 收起窗口失败:', error))
+/** 收起：落库会话后让主进程把窗口切回"只露圆形头像" */
+const collapseToBall = () => {
+  void collapseToAvatar()
 }
 
 const refreshMaximizedState = async () => {

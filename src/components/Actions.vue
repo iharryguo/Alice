@@ -119,6 +119,10 @@
 <script setup lang="ts">
 import { computed, defineProps, nextTick, ref, watch, onMounted } from 'vue'
 import { useGeneralStore, AudioState } from '../stores/generalStore'
+import {
+  collapseToAvatar,
+  expandToChatWindow,
+} from '../utils/windowModeActions'
 import { storeToRefs } from 'pinia'
 import {
   micIcon,
@@ -239,12 +243,16 @@ const openSettingsWindow = async () => {
 }
 
 const changeSidebarView = (view: 'chat' | 'settings') => {
-  // ball 形态（只有圆形头像）点聊天 → 让主进程重建为原生带框窗口
-  if (view === 'chat' && props.isElectron && generalStore.windowMode === 'ball') {
-    window.aliceIPC
-      ?.invoke('window:set-mode', { mode: 'window' })
-      .catch(error => console.warn('[Actions] 切换窗口形态失败:', error))
-    return
+  // 两种窗口形态之间切换：头像球点聊天 → 变成正常窗口；正常窗口里再点聊天 → 收回头像球
+  if (view === 'chat' && props.isElectron) {
+    if (generalStore.windowMode === 'ball') {
+      void expandToChatWindow()
+      return
+    }
+    if (openSidebar.value && sideBarView.value === 'chat') {
+      void collapseToAvatar()
+      return
+    }
   }
 
   if (sideBarView.value === view && openSidebar.value) {
