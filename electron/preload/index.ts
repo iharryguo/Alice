@@ -101,8 +101,6 @@ contextBridge.exposeInMainWorld('electron', {
   setWindowMode: (mode: 'ball' | 'window') =>
     aliceIPC.invoke('window:set-mode', { mode }),
   getWindowMode: () => aliceIPC.invoke('window:get-mode'),
-  setIgnoreMouseEvents: (ignore: boolean) =>
-    aliceIPC.invoke('window:set-ignore-mouse', { ignore }),
   minimize: () => aliceIPC.invoke('window:minimize'),
   toggleMaximize: () => aliceIPC.invoke('window:toggle-maximize'),
   isMaximized: () => aliceIPC.invoke('window:is-maximized'),

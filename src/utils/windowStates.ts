@@ -20,8 +20,11 @@
  * 注意：
  * - ball 与 window 之间必须"重建窗口"，Electron 不能运行时改 frame
  * - mini 只是 ball 的尺寸/位置变体，靠 win.setSize/ setPosition 完成
- * - ball / mini 的窗口矩形会比圆形大一圈，所以圆形之外要开鼠标穿透
- *   （window:set-ignore-mouse）
+ * - ball / mini 的窗口矩形比圆形大一圈（500/480、210/200），那圈 5~10px
+ *   会吃掉点击。不做鼠标穿透（试过 setIgnoreMouseEvents，一旦开启就再也收不到
+ *   真实点击，整窗变成穿透），保持窗口矩形 = 可点击区域
+ * - 真正的窗口最小化是 window:minimize → minimizeMainWindowToTaskbar()，
+ *   和迷你球（mini）是两回事
  */
 
 export type WindowState = 'ball' | 'mini' | 'window'

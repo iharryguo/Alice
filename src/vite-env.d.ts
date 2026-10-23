@@ -32,7 +32,6 @@ declare global {
       closeApp: () => void
       setWindowMode: (mode: 'ball' | 'window') => Promise<unknown>
       getWindowMode: () => Promise<{ mode: 'ball' | 'window' }>
-      setIgnoreMouseEvents: (ignore: boolean) => Promise<unknown>
       minimize: () => Promise<unknown>
       toggleMaximize: () => Promise<{ maximized: boolean }>
       isMaximized: () => Promise<{ maximized: boolean }>

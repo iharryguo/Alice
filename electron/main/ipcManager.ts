@@ -95,7 +95,6 @@ import {
   closeMainWindow,
   switchWindowMode,
   getWindowMode,
-  setMainWindowIgnoreMouseEvents,
   showOverlay,
   hideOverlay,
   focusMainWindow,
@@ -201,12 +200,6 @@ export function registerIPCHandlers(): void {
   })
 
   ipcMain.handle('window:get-mode', () => ({ mode: getWindowMode() }))
-
-  // 圆形以外区域鼠标穿透（只在头像球/迷你球形态下由渲染进程触发）
-  ipcMain.handle('window:set-ignore-mouse', (_event, payload) => {
-    setMainWindowIgnoreMouseEvents(!!payload?.ignore)
-    return { success: true }
-  })
 
   // 聊天面板右上角的 Windows 三键
   ipcMain.handle('window:minimize', () => minimizeMainWindowToTaskbar())

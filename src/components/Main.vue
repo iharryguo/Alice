@@ -1,8 +1,5 @@
 <template>
-  <div
-    class="h-screen flex w-full items-center justify-start relative"
-    @mousemove="handlePointerMove"
-  >
+  <div class="h-screen flex w-full items-center justify-start relative">
     <!-- 最大化 / 原生窗口形态下铺一层不透明底色：头像浮在这层之上，
          不再让桌面从左侧透出来 -->
     <div
@@ -63,13 +60,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-  computed,
-  onMounted,
-  onUnmounted,
-  ref as vueRef,
-  watch,
-} from 'vue'
+import { computed, onMounted, onUnmounted, ref as vueRef } from 'vue'
 import type { CSSProperties } from 'vue'
 import { storeToRefs } from 'pinia'
 import Actions from './Actions.vue'
@@ -143,40 +134,6 @@ const avatarSizeStyle = computed<CSSProperties>(() => ({
 const avatarVideoStyle = computed<CSSProperties>(() => ({
   height: `${avatarPixelSize.value}px`,
 }))
-
-// 头像球/迷你球：圆形之外的窗口矩形区域要让鼠标穿透，否则会挡住下面的窗口
-let mouseIgnored = false
-
-const setMouseIgnored = (ignore: boolean) => {
-  if (mouseIgnored === ignore) return
-  mouseIgnored = ignore
-  const pending = window.electron?.setIgnoreMouseEvents?.(ignore)
-  if (pending) void pending.catch(() => undefined)
-}
-
-const handlePointerMove = (event: MouseEvent) => {
-  // 聊天窗口形态下整窗都是内容，不需要穿透
-  if (generalStore.windowMode !== 'ball') {
-    setMouseIgnored(false)
-    return
-  }
-
-  const ring = document.querySelector('.avatar-ring') as HTMLElement | null
-  if (!ring) return
-  const rect = ring.getBoundingClientRect()
-  const centerX = rect.left + rect.width / 2
-  const centerY = rect.top + rect.height / 2
-  const radius = rect.width / 2 + 6
-  const inside =
-    Math.hypot(event.clientX - centerX, event.clientY - centerY) <= radius
-
-  setMouseIgnored(!inside)
-}
-
-watch(
-  () => generalStore.windowMode,
-  () => setMouseIgnored(false)
-)
 
 // Action 层按 480 的设计尺寸排版，再整体缩放到当前头像大小
 const ACTIONS_DESIGN_SIZE = 480

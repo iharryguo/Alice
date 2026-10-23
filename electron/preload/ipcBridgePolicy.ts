@@ -46,7 +46,6 @@ export const INVOKE_CHANNELS = new Set([
   'websocket:status',
   'window:set-mode',
   'window:get-mode',
-  'window:set-ignore-mouse',
   'window:minimize',
   'window:toggle-maximize',
   'window:is-maximized',

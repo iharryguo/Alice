@@ -521,14 +521,7 @@ export function closeMainWindow(): void {
   }
 }
 
-/**
- * 圆形头像形态下，窗口矩形比圆形大一圈，那圈空白会把鼠标事件吃掉。
- * 渲染进程根据指针是否在圆内调用这个开关，圆外直接穿透到下面的窗口。
- */
-export function setMainWindowIgnoreMouseEvents(ignore: boolean): void {
-  if (!win || win.isDestroyed()) return
-  win.setIgnoreMouseEvents(ignore, { forward: true })
-}
+
 
 export function focusMainWindow(): boolean {
   if (win && !win.isDestroyed()) {
