@@ -6,21 +6,30 @@
  * ├──────────────┼──────────┼──────────────────────┼────────────────────────────────────┤
  * │ avatar_ball  │ 头像球    │ 无边框 + 透明，500×500 │ 只露圆形头像 + 悬浮按钮，默认形态      │
  * │ mini_ball    │ 迷你球    │ 无边框 + 透明，210×210 │ 贴屏幕右下角常驻，可一键扩大回头像球    │
- * │ window       │ 聊天窗口  │ 原生带框，1200×760    │ 头像缩到左侧 320 + 聊天面板，系统标题栏 │
+ * │ window       │ 聊天窗口  │ 无边框 + 透明，1200×760│ 头像缩到左侧 320 + 聊天面板 +         │
+ * │              │          │                      │ 自绘标题栏（TitleBar.vue）           │
  * └──────────────┴──────────┴──────────────────────┴────────────────────────────────────┘
  *
- * 状态迁移规则（实现见 windowManager.ts 的 switchWindowMode / setMiniBallMode）：
+ * 实现方式（见 windowManager.ts 的 applyWindowMode / setMiniBallMode）：
+ * 整个应用只有一个 BrowserWindow 外壳（永久无边框 + 透明），三种形态
+ * 全部靠就地改窗口尺寸 + 通知渲染层换布局完成，永远不重建窗口、
+ * 不重载渲染进程 —— 所以任意两种形态之间的切换都是"行云流水"级。
+ * Electron 的 frame/transparent 是创建期一次性属性，别想运行时改它们；
+ * 也不要在这里引入"重建窗口"的逻辑，会退回到旧方案的重载卡顿。
  *
- *   avatar_ball ──点聊天按钮 / 头像上的聊天图标──▶ window        （重建窗口，frame:true）
- *   window      ──点「⌄ 收起」/ 再点聊天按钮 ────▶ avatar_ball   （重建窗口，frame:false）
- *   avatar_ball ──点头像上的迷你按钮────────────▶ mini_ball     （同一个窗口改尺寸，不重建）
- *   mini_ball   ──点顶部的扩大按钮──────────────▶ avatar_ball   （同一个窗口改尺寸，不重建）
- *   window      ──点头像上的迷你按钮────────────▶ mini_ball     （重建为透明窗口，且直接是迷你尺寸）
+ * 状态迁移规则：
+ *
+ *   avatar_ball ──点聊天按钮 / 头像上的聊天图标──▶ window        （就地切换）
+ *   window      ──点「⌄ 收起」/ 再点聊天按钮 ────▶ avatar_ball   （就地切换）
+ *   avatar_ball ──点头像上的迷你按钮────────────▶ mini_ball     （同一个窗口改尺寸）
+ *   mini_ball   ──点顶部的扩大按钮──────────────▶ avatar_ball   （同一个窗口改尺寸）
+ *   window      ──点头像上的迷你按钮────────────▶ mini_ball     （就地切换，直接迷你尺寸）
  *
  * 注意：
- * - avatar_ball 与 window 之间必须"重建窗口"，Electron 不能运行时改 frame
- * - mini_ball 是 avatar_ball 的尺寸/位置变体（210×210 贴右下角），靠
- *   win.setSize / setPosition 完成，不重建窗口
+ * - window 形态的标题栏由渲染层自绘（TitleBar.vue，32px 拖拽区 + 三键），
+ *   最小化/最大化/关闭走 window:minimize / window:toggle-maximize / window:hide-to-tray
+ * - 形态切换时主进程通过 setMinimumSize 动态放宽/收紧尺寸下限
+ *   （window 900×560，ball 180×180），顺序是"先放宽再 setBounds"
  * - 三种形态的窗口矩形都比圆形大一圈（500/480、210/200），那圈 5~10px 会吃掉
  *   点击。不做鼠标穿透（试过 setIgnoreMouseEvents，一旦开启就再也收不到真实点击，
  *   整窗变成穿透），保持窗口矩形 = 可点击区域

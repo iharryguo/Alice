@@ -308,7 +308,7 @@ const toggleSidebar = async () => {
  * 注意：这不是 Windows 的窗口最小化，那个走 window:minimize → win.minimize()。
  */
 const toggleMiniBall = async () => {
-  // 聊天窗口里按它 = 重建为透明窗口，并且直接落在迷你球尺寸上
+  // 聊天窗口里按它 = 就地切成透明窗口，直接落在迷你球尺寸上
   if (generalStore.windowMode === 'window') {
     await shrinkToMiniBall()
     return

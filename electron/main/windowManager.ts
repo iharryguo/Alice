@@ -45,7 +45,10 @@ let settingsWindow: BrowserWindow | null = null
 
 // 透明无边框窗口不能靠系统标题栏最大化（没有标题栏，系统菜单里也是灰的），
 // 所以最大化仍然由主进程按工作区 setBounds 实现，并记录还原用的 bounds。
+// 贴靠（Aero Snap 半屏）同理：无边框窗口拿不到系统的 HTCAPTION 贴靠，
+// 由 TitleBar 的手动拖拽在松手时调用 endWindowDrag 就地贴半屏。
 let customMaximized = false
+let snapZone: 'left' | 'right' | null = null
 let restoreBounds: Electron.Rectangle | null = null
 let expectedMaxBounds: Electron.Rectangle | null = null
 let maximizeAppliedAt = 0
@@ -58,6 +61,7 @@ function notifyMaximizedState(): void {
 
 function clearCustomMaximized(): void {
   customMaximized = false
+  snapZone = null
   restoreBounds = null
   expectedMaxBounds = null
   if (driftTimer) {
@@ -115,8 +119,9 @@ export function getSettingsWindow(): BrowserWindow | null {
   return settingsWindow
 }
 
-// 窗口 frame 只有两种：透明无边框（avatar_ball / mini_ball）与原生带框（window）。
-// 三种状态的完整定义见 src/utils/windowStates.ts。
+// 三种窗口形态共用同一个"无边框 + 透明"的窗口外壳，只换尺寸和渲染层布局，
+// 永远不重建窗口（切换性能与 mini_ball 同级）。三种状态的完整定义见
+// src/utils/windowStates.ts。window 形态的标题栏由渲染层自绘（TitleBar.vue）。
 export type WindowMode = 'avatar_ball' | 'window'
 
 let windowMode: WindowMode = 'avatar_ball'
@@ -147,9 +152,10 @@ export function getWindowMode(): WindowMode {
 }
 
 /**
- * 主窗口有两种形态，靠重建窗口切换（Electron 不能运行时改 frame）：
- * - ball：无边框 + 透明，只露出圆形头像
- * - window：原生带框窗口，标题栏/最大化/贴边全部交给系统
+ * 主窗口只有一种外壳：无边框 + 透明，创建后终身不重建。
+ * - ball（avatar_ball / mini_ball）：透出圆形头像
+ * - window：渲染层自绘标题栏（TitleBar.vue）+ 不透明底色，系统标题栏不存在
+ * 形态切换走 applyWindowMode（就地改尺寸/布局，不重建窗口）。
  */
 export async function createMainWindow(
   mode: WindowMode = windowMode,
@@ -171,21 +177,24 @@ export async function createMainWindow(
   const created = new BrowserWindow({
     title: 'Alice',
     icon: path.join(getVitePublic(), 'app_logo.png'),
-    // ball：无边框透明，只露圆形头像；window：原生带框，系统标题栏负责一切
-    transparent: !isFramed,
-    frame: isFramed,
-    backgroundColor: isFramed ? '#070c17' : '#00000000',
+    // 始终无边框 + 透明：ball 直接透出圆形头像；window 模式由渲染层铺不透明底色。
+    // transparent/frame 是创建期一次性属性，为了不重建窗口，只能统一取透明。
+    transparent: true,
+    frame: false,
+    backgroundColor: '#00000000',
     width: isFramed ? 1200 : 500,
     height: isFramed ? 760 : 500,
-    // 头像球形态要能缩到 210 的迷你球，所以下限给 180；聊天窗口则不能太窄
-    minWidth: isFramed ? 900 : 180,
-    minHeight: isFramed ? 560 : 180,
+    // 同一个窗口要在 ball(210/500) 与 window(1200×760) 之间来回变，
+    // 下限按最小需求写死，window 形态的更大下限在创建后动态设置
+    minWidth: 180,
+    minHeight: 180,
     resizable: true,
     maximizable: true,
     minimizable: true,
     fullscreenable: true,
     alwaysOnTop: shouldAlwaysBeOnTop,
-    hasShadow: isFramed,
+    // 透明窗口没有系统阴影可谈，统一关掉，避免 Windows 下的残影
+    hasShadow: false,
     autoHideMenuBar: true,
     webPreferences: {
       preload: getPreloadPath(),
@@ -197,6 +206,11 @@ export async function createMainWindow(
       backgroundThrottling: false,
     },
   })
+
+  // 聊天窗口形态下限制更严的最小尺寸（形态切换前会先放宽，见 applyWindowMode）
+  if (isFramed) {
+    created.setMinimumSize(900, 560)
+  }
 
   win = created
   installNavigationGuards(created)
@@ -210,18 +224,24 @@ export async function createMainWindow(
 
   if (VITE_DEV_SERVER_URL) {
     created.loadURL(`${VITE_DEV_SERVER_URL}${stateHash}`)
-    // 开发模式下自动打开 DevTools（独立窗口模式）。
-    // Alice 主窗口很小且（ball 形态下）无边框，dock 模式会把界面挤坏，
-    // 所以用 detach 独立窗口。打包发布版本不会打开。
-    created.webContents.once('did-finish-load', () => {
-      created.webContents.openDevTools({ mode: 'detach' })
+    // 开发模式不自动弹 DevTools：它会在页面右上角挂一个视口尺寸角标，
+    // 干扰 UI 实测。需要调试时按 F12 手动开关。
+    created.webContents.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown' && input.key === 'F12') {
+        event.preventDefault()
+        if (created.webContents.isDevToolsOpened()) {
+          created.webContents.closeDevTools()
+        } else {
+          created.webContents.openDevTools({ mode: 'detach' })
+        }
+      }
     })
   } else {
     created.loadFile(getIndexHtmlPath(), { hash: stateHash.slice(1) })
   }
 
   created.on('closed', () => {
-    // 切换形态时会先建新窗再销毁旧窗，别把新窗口的引用清掉
+    // 形态切换不销毁窗口（applyWindowMode 就地切换），这里只在窗口真正关闭时清理
     if (win === created) {
       win = null
       clearCustomMaximized()
@@ -276,75 +296,62 @@ export async function createMainWindow(
   return win
 }
 
-let switchingMode = false
-
 /**
- * 切换窗口形态：先建新窗、加载好再把旧窗销毁（避免 window-all-closed 触发退出）。
- * 渲染进程会因为 hash 不同重新加载一次，会话状态由渲染侧从会话库恢复。
+ * 切换窗口形态：同一个窗口就地改尺寸 + 通知渲染层换布局，不重建窗口、
+ * 不重载渲染进程（会话/音频等运行时状态全部保留，切换耗时与 mini_ball 同级）。
+ * 渲染层收到 'window:mode-changed' 后自行切换布局（见 Main.vue）。
  */
-export async function switchWindowMode(
+export async function applyWindowMode(
   mode: WindowMode,
   options: { miniBall?: boolean } = {}
 ): Promise<boolean> {
   if (!win || win.isDestroyed()) return false
   if (mode === windowMode && !options.miniBall) return true
-  if (switchingMode) return false
 
-  switchingMode = true
-  const previous = win
-  const previousBounds = previous.getBounds()
+  windowMode = mode
+  const startAsMiniBall = mode === 'avatar_ball' && !!options.miniBall
 
-  try {
-    const next = await createMainWindow(mode, options)
+  // 坐标规则统一为"同一台显示器 + 居中/贴角"，不做随机偏移。
+  // 注意先放宽最小尺寸约束再 setBounds，否则从 window(900+) 收回 ball(500) 会被钳住。
+  const display = screen.getDisplayMatching(win.getBounds())
+  const area = display.workArea
 
-    // 坐标规则统一为"同一台显示器 + 居中/贴角"，不做相对上一个窗口的随机偏移
-    const display = screen.getDisplayMatching(previousBounds)
-    const area = display.workArea
-
-    if (mode === 'window') {
-      const width = Math.min(1200, area.width)
-      const height = Math.min(760, area.height)
-      next.setBounds({
-        x: area.x + Math.round((area.width - width) / 2),
-        y: area.y + Math.round((area.height - height) / 2),
-        width,
-        height,
-      })
-    } else if (options.miniBall) {
-      // 先落到上一窗口所在的显示器，再交给 setMiniBallMode 贴右下角
-      next.setBounds({
-        x: previousBounds.x,
-        y: previousBounds.y,
-        width: 500,
-        height: 500,
-      })
+  if (mode === 'window') {
+    setMinimumSizeForState('window')
+    const width = Math.min(1200, area.width)
+    const height = Math.min(760, area.height)
+    const target = {
+      x: area.x + Math.round((area.width - width) / 2),
+      y: area.y + Math.round((area.height - height) / 2),
+      width,
+      height,
+    }
+    win.setBounds(target)
+  } else {
+    win.setMinimumSize(180, 180)
+    if (startAsMiniBall) {
+      // 就地贴到当前显示器右下角（内部会清掉自定义最大化状态）
       setMiniBallMode(true)
     } else {
-      next.setBounds({
+      // 离开聊天窗口形态：最大化状态就地清掉（不再有"重建窗口"兜底）
+      if (customMaximized) {
+        clearCustomMaximized()
+        notifyMaximizedState()
+      }
+      win.setBounds({
         x: area.x + Math.round((area.width - 500) / 2),
         y: area.y + Math.round((area.height - 500) / 2),
         width: 500,
         height: 500,
       })
     }
-
-    next.show()
-
-    let destroyed = false
-    const destroyPrevious = () => {
-      if (destroyed) return
-      destroyed = true
-      switchingMode = false
-      if (previous && !previous.isDestroyed()) previous.destroy()
-    }
-    next.once('ready-to-show', destroyPrevious)
-    setTimeout(destroyPrevious, 3000)
-    return true
-  } catch (error) {
-    console.error('[WindowManager] 切换窗口形态失败:', error)
-    switchingMode = false
-    return false
   }
+
+  win.webContents.send('window:mode-changed', {
+    mode,
+    miniBall: startAsMiniBall,
+  })
+  return true
 }
 
 export async function createOverlayWindow(): Promise<BrowserWindow> {
@@ -478,20 +485,23 @@ export function minimizeMainWindowToTaskbar(): boolean {
  *
  * 无边框透明窗口没有系统标题栏，`win.maximize()` 在 Windows 上不可靠，
  * 所以按当前显示器的工作区 setBounds（保留任务栏），并记住还原前的 bounds。
+ * 从贴靠（半屏）状态点最大化时，保留"贴靠之前"的 bounds 作为还原目标
+ * （Windows 语义：还原按钮永远回到最近一次的正常尺寸，而不是半屏尺寸）。
  */
 export function toggleMaximizeMainWindow(): boolean {
   if (!win || win.isDestroyed()) return false
 
-  // 原生带框窗口可能被系统标题栏/贴边最大化，这种情况直接交回系统还原
-  if (win.isMaximized()) {
-    win.unmaximize()
-    notifyMaximizedState()
-    return false
-  }
-
+  // 必须先查自定义状态再查系统状态：把窗口 setBounds 成工作区大小后，
+  // Windows 会把窗口标记为 IsZoomed（isMaximized()=true），如果先走
+  // unmaximize()，系统会把窗口"还原"到它自己记的默认矩形（900×560@0,0），
+  // 而不是我们的 restoreBounds —— 这正是"还原按钮位置不对"的根因。
   if (customMaximized) {
     const previous = restoreBounds
     clearCustomMaximized()
+    // 清掉系统层面的"已最大化"样式，紧接着 setBounds 覆盖系统还原矩形
+    if (win.isMaximized()) {
+      win.unmaximize()
+    }
     if (previous) {
       try {
         win.setBounds(previous)
@@ -499,6 +509,15 @@ export function toggleMaximizeMainWindow(): boolean {
         console.warn('[WindowManager] 还原窗口尺寸失败:', error)
       }
     }
+    setMinimumSizeForState('window')
+    notifyMaximizedState()
+    return false
+  }
+
+  // 原生带框窗口可能被系统标题栏/贴边最大化，这种情况直接交回系统还原
+  if (win.isMaximized()) {
+    win.unmaximize()
+    setMinimumSizeForState('window')
     notifyMaximizedState()
     return false
   }
@@ -506,12 +525,17 @@ export function toggleMaximizeMainWindow(): boolean {
   const currentBounds = win.getBounds()
   const workArea = screen.getDisplayMatching(currentBounds).workArea
 
-  restoreBounds = currentBounds
+  // 贴靠状态下 maximize：还原目标用"贴靠之前"的 bounds，不用当前半屏
+  if (!snapZone || !restoreBounds) {
+    restoreBounds = currentBounds
+  }
+  snapZone = null
   expectedMaxBounds = workArea
   customMaximized = true
   maximizeAppliedAt = Date.now()
 
   try {
+    setMinimumSizeForState('window')
     win.setBounds(workArea)
   } catch (error) {
     console.warn('[WindowManager] 最大化 setBounds 失败:', error)
@@ -562,8 +586,167 @@ export function getMainWindowPosition(): { x: number; y: number } | null {
 
 export function setMainWindowPosition(x: number, y: number): void {
   if (!win || win.isDestroyed()) return
-  if (win.isMaximized() || customMaximized) return
+  if (win.isMaximized() || customMaximized || snapZone) return
   win.setPosition(Math.round(x), Math.round(y))
+  // 正常状态下移动窗口 = 更新"最近一次正常位置"，还原按钮以此为基准
+  const b = win.getBounds()
+  restoreBounds = { x: b.x, y: b.y, width: b.width, height: b.height }
+}
+
+/** 自绘标题栏的拖拽高度，与 TitleBar.vue 的 32px 保持一致 */
+const TITLEBAR_HEIGHT = 32
+
+// 窗口形态的正常最小尺寸；贴靠半屏时会临时放宽（半屏可能比它窄，见 endWindowDrag）
+const WINDOW_MODE_MIN = { width: 900, height: 560 }
+
+function setMinimumSizeForState(state: 'window' | 'relaxed'): void {
+  if (!win || win.isDestroyed()) return
+  if (state === 'window') {
+    win.setMinimumSize(WINDOW_MODE_MIN.width, WINDOW_MODE_MIN.height)
+  } else {
+    win.setMinimumSize(180, 180)
+  }
+}
+
+/**
+ * 标题栏拖拽开始（TitleBar.vue 手动拖拽，不走 app-region: drag —— 那种拖法
+ * 在 Windows 上拿不到双击最大化/边缘贴靠/像样的系统菜单）。
+ * 如果当前处于最大化/贴靠状态，按 Windows 语义"拖动即还原"：
+ * 恢复到贴靠/最大化之前的尺寸，并把窗口放到光标下（水平按抓住比例、垂直对齐标题栏）。
+ * 返回还原后窗口左上角坐标，渲染层以此为起点继续拖动。
+ */
+export function beginWindowDrag(cursor: { x: number; y: number }): {
+  x: number
+  y: number
+} {
+  if (!win || win.isDestroyed()) return { x: 0, y: 0 }
+
+  const bounds = win.getBounds()
+
+  if (customMaximized || snapZone) {
+    // 先清掉系统的 IsZoomed 样式（自定义最大化会触发它），否则 unmaximize
+    // 的系统还原矩形会和我们 setBounds 的目标位置打架
+    if (win.isMaximized()) {
+      win.unmaximize()
+    }
+    const pre = restoreBounds ?? { ...bounds }
+    const grabRatio = bounds.width
+      ? Math.min(1, Math.max(0, (cursor.x - bounds.x) / bounds.width))
+      : 0.5
+    const area = screen.getDisplayNearestPoint(cursor).workArea
+    const x = Math.round(cursor.x - grabRatio * pre.width)
+    const y = Math.round(cursor.y - TITLEBAR_HEIGHT / 2)
+    // Windows 语义：还原瞬间窗口跟随光标，允许水平方向部分出屏（用户可以
+    // 继续拖回来）。只保证光标附近的一段窗口可见，不能硬夹进工作区 ——
+    // 否则抓住贴靠窗口边缘拖动时会被钳到完全错误的位置。
+    const VISIBILITY = 100
+    const clampedX = Math.min(
+      Math.max(x, Math.round(cursor.x - pre.width) + VISIBILITY),
+      Math.round(cursor.x) - VISIBILITY
+    )
+    // 垂直方向必须留在屏幕内，且标题栏可见（不然窗口就拿不回来了）
+    const clampedY = Math.min(Math.max(y, area.y), area.y + area.height - TITLEBAR_HEIGHT)
+    try {
+      win.setBounds({
+        x: clampedX,
+        y: clampedY,
+        width: pre.width,
+        height: pre.height,
+      })
+    } catch (error) {
+      console.warn('[WindowManager] 拖拽还原窗口失败:', error)
+    }
+    setMinimumSizeForState('window')
+    if (customMaximized) {
+      customMaximized = false
+      expectedMaxBounds = null
+      notifyMaximizedState()
+    }
+    snapZone = null
+    if (driftTimer) {
+      clearTimeout(driftTimer)
+      driftTimer = null
+    }
+    const restored = win.getBounds()
+    // 拖出即还原：窗口此刻回到"正常状态"，位置就是最近一次正常位置，
+    // 后续上边缘最大化 / 还原按钮都应以它为基准（不能清空，否则
+    // 拖出后立即最大化，还原会找不到回不去的位置）
+    restoreBounds = {
+      x: restored.x,
+      y: restored.y,
+      width: restored.width,
+      height: restored.height,
+    }
+    return { x: restored.x, y: restored.y }
+  }
+
+  if (win.isMaximized()) {
+    // 罕见的原生最大化路径：交还系统还原
+    win.unmaximize()
+    notifyMaximizedState()
+  }
+
+  return { x: bounds.x, y: bounds.y }
+}
+
+/**
+ * 标题栏拖拽结束：光标落在屏幕工作区边缘时按 Windows 语义贴靠 ——
+ * 上边缘 → 最大化，左/右边缘 → 半屏贴靠。返回实际发生的贴靠动作。
+ */
+export function endWindowDrag(cursor: { x: number; y: number }): {
+  snapped: 'left' | 'right' | 'maximize' | null
+} {
+  if (!win || win.isDestroyed()) return { snapped: null }
+
+  const area = screen.getDisplayNearestPoint(cursor).workArea
+  const EDGE = 8
+  let zone: 'left' | 'right' | 'maximize' | null = null
+  if (cursor.y <= area.y + EDGE) {
+    zone = 'maximize'
+  } else if (cursor.x <= area.x + EDGE) {
+    zone = 'left'
+  } else if (cursor.x >= area.x + area.width - EDGE) {
+    zone = 'right'
+  }
+  if (!zone) return { snapped: null }
+
+  if (zone === 'maximize') {
+    toggleMaximizeMainWindow()
+    return { snapped: 'maximize' }
+  }
+
+  // 半屏可能比窗口模式的正常最小尺寸（900×560）还窄，先放宽再贴
+  setMinimumSizeForState('relaxed')
+
+  // 半屏贴靠：记住贴靠前的 bounds（已在最大化/贴靠状态下则沿用更早的记忆）
+  if (!customMaximized && !snapZone) {
+    restoreBounds = win.getBounds()
+  }
+  if (customMaximized) {
+    customMaximized = false
+    expectedMaxBounds = null
+    if (driftTimer) {
+      clearTimeout(driftTimer)
+      driftTimer = null
+    }
+    notifyMaximizedState()
+  }
+  snapZone = zone
+
+  const width = Math.floor(area.width / 2)
+  try {
+    win.setBounds({
+      x: zone === 'left' ? area.x : area.x + (area.width - width),
+      y: area.y,
+      width,
+      height: area.height,
+    })
+  } catch (error) {
+    console.warn('[WindowManager] 贴靠 setBounds 失败:', error)
+    snapZone = null
+    return { snapped: null }
+  }
+  return { snapped: zone }
 }
 
 

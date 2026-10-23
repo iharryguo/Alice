@@ -35,6 +35,12 @@ declare global {
         options?: { miniBall?: boolean }
       ) => Promise<unknown>
       getWindowMode: () => Promise<{ mode: 'avatar_ball' | 'window' }>
+      hideToTray: () => Promise<{ success: boolean }>
+      dragBegin: (cursor: { x: number; y: number }) => Promise<{ x: number; y: number }>
+      dragEnd: (cursor: {
+        x: number
+        y: number
+      }) => Promise<{ snapped: 'left' | 'right' | 'maximize' | null }>
       minimize: () => Promise<unknown>
       toggleMaximize: () => Promise<{ maximized: boolean }>
       isMaximized: () => Promise<{ maximized: boolean }>

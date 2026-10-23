@@ -93,10 +93,12 @@ import {
   toggleMaximizeMainWindow,
   isMainWindowMaximized,
   closeMainWindow,
-  switchWindowMode,
+  applyWindowMode,
   getWindowMode,
   getMainWindowPosition,
   setMainWindowPosition,
+  beginWindowDrag,
+  endWindowDrag,
   showOverlay,
   hideOverlay,
   focusMainWindow,
@@ -194,16 +196,40 @@ export function registerIPCHandlers(): void {
     app.quit()
   })
 
-  // 窗口形态：ball（只露圆形头像） / window（原生带框窗口）
+  // 窗口形态：ball（只露圆形头像） / window（自绘标题栏的聊天窗口），就地切换不重建
   ipcMain.handle('window:set-mode', async (_event, payload) => {
     const mode = payload?.mode === 'window' ? 'window' : 'avatar_ball'
-    const success = await switchWindowMode(mode, {
+    const success = await applyWindowMode(mode, {
       miniBall: !!payload?.miniBall,
     })
     return { success, mode: getWindowMode() }
   })
 
   ipcMain.handle('window:get-mode', () => ({ mode: getWindowMode() }))
+
+  // 自绘标题栏的 ✕：与系统标题栏关闭按钮同语义 —— 托盘可用就收进托盘，不退出程序
+  ipcMain.handle('window:hide-to-tray', () => {
+    closeMainWindow()
+    return { success: true }
+  })
+
+  // 自绘标题栏的手动拖拽：开始时如处于最大化/贴靠状态，按 Windows 语义"拖动即还原"，
+  // 返回还原后的窗口左上角；结束时光标在屏幕边缘则贴靠（上=最大化，左/右=半屏）
+  ipcMain.handle('window:drag-begin', (_event, cursor) => {
+    const point = {
+      x: Number(cursor?.x) || 0,
+      y: Number(cursor?.y) || 0,
+    }
+    return beginWindowDrag(point)
+  })
+
+  ipcMain.handle('window:drag-end', (_event, cursor) => {
+    const point = {
+      x: Number(cursor?.x) || 0,
+      y: Number(cursor?.y) || 0,
+    }
+    return endWindowDrag(point)
+  })
 
   // 拖头像移动窗口（渲染进程算绝对坐标，这里只负责落地）
   ipcMain.handle('window:get-position', () => getMainWindowPosition())

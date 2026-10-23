@@ -1,6 +1,8 @@
 <template>
   <div class="h-screen flex w-full items-center justify-start relative">
-    <!-- 最大化 / 原生窗口形态下铺一层不透明底色：头像浮在这层之上，
+    <!-- 聊天窗口形态：自绘标题栏（窗口是永久无边框的，见 windowManager.ts） -->
+    <TitleBar v-if="generalStore.windowMode === 'window'" />
+    <!-- 最大化 / 聊天窗口形态下铺一层不透明底色：头像浮在这层之上，
          不再让桌面从左侧透出来 -->
     <div
       v-if="windowMaximized || generalStore.windowMode === 'window'"
@@ -75,6 +77,7 @@ import type { CSSProperties } from 'vue'
 import { storeToRefs } from 'pinia'
 import Actions from './Actions.vue'
 import Sidebar from './Sidebar.vue'
+import TitleBar from './TitleBar.vue'
 
 import { useGeneralStore } from '../stores/generalStore'
 import { useConversationStore } from '../stores/conversationStore'
@@ -240,15 +243,35 @@ const avatarRingStyle = computed<CSSProperties>(() => {
   return style
 })
 
+const applyModeFromMain = (payload: {
+  mode?: string
+  miniBall?: boolean
+}) => {
+  const mode = payload?.mode === 'window' ? 'window' : 'avatar_ball'
+  const asMiniBall = mode === 'avatar_ball' && !!payload?.miniBall
+  generalStore.setWindowMode(mode)
+  generalStore.isMiniBall = asMiniBall
+  // 窗口形态展开聊天面板；收回头像球时面板一并收起（同一个页面，不再重载）
+  generalStore.openSidebar = mode === 'window'
+  if (mode !== 'window') {
+    generalStore.windowMaximized = false
+  }
+}
+
 onMounted(async () => {
-  // 主进程通过 hash 告知当前形态（定义见 src/utils/windowStates.ts）：
-  // #window = 聊天窗口， #mini-ball = 迷你球，其余为头像球
+  // 启动时主进程通过 hash 告知当前形态（定义见 src/utils/windowStates.ts）：
+  // #window = 聊天窗口， #mini-ball = 迷你球，其余为头像球。
+  // 之后的形态切换不重载页面，主进程发 'window:mode-changed' 事件，这里就地换布局。
   const hash = window.location.hash
   const framedMode = hash.includes('window')
   generalStore.setWindowMode(framedMode ? 'window' : 'avatar_ball')
   generalStore.isMiniBall = !framedMode && hash.includes('mini-ball')
   if (framedMode) {
     generalStore.openSidebar = true
+  }
+
+  if (window.aliceIPC) {
+    window.aliceIPC.on('window:mode-changed', applyModeFromMain)
   }
 
   audioPlayer.value = audioPlayerElement.value
@@ -274,6 +297,7 @@ onUnmounted(() => {
     cleanupScreenshotListeners()
   }
   handleDragEnd()
+  window.aliceIPC?.off('window:mode-changed', applyModeFromMain)
   aiVideo.value = null
   eventBus.off('processing-complete', handleProcessingComplete)
   eventBus.off('mute-playback-toggle', handleToggleTTS)

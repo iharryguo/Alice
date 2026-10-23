@@ -103,6 +103,11 @@ contextBridge.exposeInMainWorld('electron', {
     options?: { miniBall?: boolean }
   ) => aliceIPC.invoke('window:set-mode', { mode, ...options }),
   getWindowMode: () => aliceIPC.invoke('window:get-mode'),
+  hideToTray: () => aliceIPC.invoke('window:hide-to-tray'),
+  dragBegin: (cursor: { x: number; y: number }) =>
+    aliceIPC.invoke('window:drag-begin', cursor),
+  dragEnd: (cursor: { x: number; y: number }) =>
+    aliceIPC.invoke('window:drag-end', cursor),
   minimize: () => aliceIPC.invoke('window:minimize'),
   toggleMaximize: () => aliceIPC.invoke('window:toggle-maximize'),
   isMaximized: () => aliceIPC.invoke('window:is-maximized'),

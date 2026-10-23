@@ -44,8 +44,8 @@ export const useGeneralStore = defineStore('general', () => {
   const englishMode = ref<boolean>(loadEnglishMode())
   // 窗口是否处于最大化：最大化时把头像区让出来，聊天面板铺满整屏
   const windowMaximized = ref<boolean>(false)
-  // 窗口形态：avatar_ball = 只露圆形头像（无边框透明）；window = 原生带框窗口
-  // mini_ball 不是独立 mode，它是 avatar_ball + isMiniBall=true（见 windowStates.ts）
+  // 窗口形态：avatar_ball = 只露圆形头像（无边框透明）；window = 自绘标题栏的聊天窗口
+  // （三种形态共用同一个无边框透明窗口外壳，切换不重建窗口，见 windowStates.ts）
   const windowMode = ref<'avatar_ball' | 'window'>('avatar_ball')
   const recognizedText = ref<string>('')
   const chatHistory = ref<ChatMessage[]>([])
