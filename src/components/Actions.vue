@@ -54,20 +54,18 @@
   </div>
 
   <template v-if="props.isElectron">
-    <!-- 迷你球里也常显：否则缩下去以后找不到回来的按钮 -->
+    <!-- 侧边按钮在所有形态下都用同一个位置（设计坐标 top-[220px]，
+         约等于圆环垂直中线偏下），迷你球里只是整体缩小 + 反向补偿。
+         不能给迷你球单独改 top：圆越小，边缘的可用圆弧越窄，按钮会被裁掉。 -->
     <div
-      class="absolute w-full px-2 flex justify-between z-30 inside-actions"
-      :class="{
-        'top-[80px]': isMiniBall,
-        'top-[220px]': !isMiniBall,
-        'inside-actions-visible': isMiniBall,
-      }"
+      class="absolute w-full px-4 flex justify-between z-30 inside-actions"
+      :class="{ 'inside-actions-visible': isMiniBall }"
+      style="top: 220px"
     >
       <button
         class="btn btn-circle bg-opacity-20 bg-gray-500 border-0 p-2 btn-indicator-side tooltip tooltip-right"
         data-tip="Take Screenshot"
         aria-label="Take Screenshot"
-        :class="{ 'btn-sm': isMiniBall }"
         :style="sideControlStyle"
         @click="!isConfigState ? emit('takeScreenShot') : null"
         :disabled="takingScreenShot"
@@ -83,7 +81,6 @@
         class="btn btn-circle bg-opacity-20 bg-gray-500 border-0 p-2 btn-indicator-side tooltip tooltip-left"
         :data-tip="isMiniBall ? 'Expand avatar ball' : 'Shrink to mini ball'"
         :aria-label="isMiniBall ? 'Expand Avatar Ball' : 'Shrink to Mini Ball'"
-        :class="{ 'btn-sm': isMiniBall }"
         :style="sideControlStyle"
         @click="!isConfigState ? toggleMiniBall() : null"
       >
@@ -172,7 +169,8 @@ const emit = defineEmits(['takeScreenShot', 'togglePlaying', 'toggleRecording'])
  */
 const sideControlStyle = computed(() => {
   const scale = props.uiScale > 0 ? props.uiScale : 1
-  const counter = Math.min(2, Math.max(1, 1 / scale))
+  // 上限 1.6：再大就会顶出小圆的圆弧被裁掉（迷你球里约 21px，仍可点）
+  const counter = Math.min(1.6, Math.max(1, 1 / scale))
   return { transform: `scale(${counter})`, transformOrigin: 'center center' }
 })
 
