@@ -92,7 +92,8 @@ const aliceIPC = {
 contextBridge.exposeInMainWorld('electron', {
   resize: (dimensions: { width: number; height: number }) =>
     ipcRenderer.send('resize', dimensions),
-  mini: (minimize: { minimize: boolean }) => ipcRenderer.send('mini', minimize),
+  setMiniBall: (payload: { miniBall: boolean }) =>
+    ipcRenderer.send('window:mini-ball', payload),
   screenshot: () => ipcRenderer.send('screenshot'),
   showOverlay: () => ipcRenderer.send('show-overlay'),
   getScreenshot: () => ipcRenderer.send('get-screenshot'),
@@ -100,6 +101,8 @@ contextBridge.exposeInMainWorld('electron', {
   setWindowMode: (mode: 'ball' | 'window') =>
     aliceIPC.invoke('window:set-mode', { mode }),
   getWindowMode: () => aliceIPC.invoke('window:get-mode'),
+  setIgnoreMouseEvents: (ignore: boolean) =>
+    aliceIPC.invoke('window:set-ignore-mouse', { ignore }),
   minimize: () => aliceIPC.invoke('window:minimize'),
   toggleMaximize: () => aliceIPC.invoke('window:toggle-maximize'),
   isMaximized: () => aliceIPC.invoke('window:is-maximized'),

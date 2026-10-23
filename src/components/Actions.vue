@@ -4,7 +4,7 @@
       <img
         :src="micIconSrc"
         class="indicator"
-        :class="{ mini: isMinimized }"
+        :class="{ 'mini-ball': isMiniBall }"
         @click="!isConfigState ? emit('toggleRecording') : null"
         data-tip="Toggle Microphone"
         :aria-label="micAriaLabel"
@@ -12,13 +12,13 @@
       <img
         :src="props.isTTSEnabled ? speakerIcon : speakerIconInactive"
         class="indicator"
-        :class="{ mini: isMinimized }"
+        :class="{ 'mini-ball': isMiniBall }"
         @click="!isConfigState ? emit('togglePlaying') : null"
         data-tip="Toggle Speech Output"
         aria-label="Toggle Speech Output"
       />
+      <!-- 迷你球里也保留聊天入口：否则缩下去之后就再也回不到聊天窗口了 -->
       <img
-        v-if="!isMinimized"
         :src="chatIcon"
         class="indicator"
         @click="!isConfigState ? changeSidebarView('chat') : null"
@@ -29,9 +29,9 @@
     <div
       class="status-message-container dragable select-none overflow-hidden whitespace-nowrap relative"
       :class="{
-        'text-xs': isMinimized,
-        'h-4': isMinimized,
-        'h-6': !isMinimized,
+        'text-xs': isMiniBall,
+        'h-4': isMiniBall,
+        'h-6': !isMiniBall,
       }"
     >
       <span
@@ -56,34 +56,34 @@
   <template v-if="props.isElectron">
     <div
       class="absolute w-full px-2 flex justify-between z-30 inside-actions"
-      :class="{ 'top-[80px]': isMinimized, 'top-[220px]': !isMinimized }"
+      :class="{ 'top-[80px]': isMiniBall, 'top-[220px]': !isMiniBall }"
     >
       <button
         class="btn btn-circle bg-opacity-20 bg-gray-500 border-0 p-2 btn-indicator-side tooltip tooltip-right"
         data-tip="Take Screenshot"
         aria-label="Take Screenshot"
-        :class="{ 'btn-sm': isMinimized }"
+        :class="{ 'btn-sm': isMiniBall }"
         @click="!isConfigState ? emit('takeScreenShot') : null"
         :disabled="takingScreenShot"
       >
         <img
           :src="cameraIcon"
           class="indicator indicator-side"
-          :class="{ mini: isMinimized }"
+          :class="{ 'mini-ball': isMiniBall }"
           alt=""
         />
       </button>
       <button
         class="btn btn-circle bg-opacity-20 bg-gray-500 border-0 p-2 btn-indicator-side tooltip tooltip-left"
-        :data-tip="isMinimized ? 'Maximize' : 'Minimize'"
-        :aria-label="isMinimized ? 'Maximize Window' : 'Minimize Window'"
-        :class="{ 'btn-sm': isMinimized }"
-        @click="!isConfigState ? toggleMinimize() : null"
+        :data-tip="isMiniBall ? 'Expand avatar ball' : 'Shrink to mini ball'"
+        :aria-label="isMiniBall ? 'Expand Avatar Ball' : 'Shrink to Mini Ball'"
+        :class="{ 'btn-sm': isMiniBall }"
+        @click="!isConfigState ? toggleMiniBall() : null"
       >
         <img
-          :src="isMinimized ? maxiIcon : miniIcon"
+          :src="isMiniBall ? maxiIcon : miniIcon"
           class="indicator indicator-side"
-          :class="{ mini: isMinimized }"
+          :class="{ 'mini-ball': isMiniBall }"
           alt=""
         />
       </button>
@@ -96,7 +96,7 @@
           role="button"
           aria-label="Application Menu"
           class="btn btn-circle bg-opacity-20 bg-gray-500 border-0 p-2 btn-indicator-side close tooltip tooltip-bottom mb-2"
-          :class="{ 'btn-sm': isMinimized }"
+          :class="{ 'btn-sm': isMiniBall }"
         >
           <img :src="hamburgerIcon" class="indicator indicator-side" alt="" />
         </button>
@@ -155,7 +155,7 @@ const emit = defineEmits(['takeScreenShot', 'togglePlaying', 'toggleRecording'])
 
 const generalStore = useGeneralStore()
 const {
-  isMinimized,
+  isMiniBall,
   statusMessage,
   openSidebar,
   takingScreenShot,
@@ -209,7 +209,7 @@ watch(
   { immediate: true }
 )
 
-watch(isMinimized, () => {
+watch(isMiniBall, () => {
   calculateScrollDuration()
 })
 
@@ -260,8 +260,8 @@ const changeSidebarView = (view: 'chat' | 'settings') => {
   } else if (sideBarView.value !== view || !openSidebar.value) {
     sideBarView.value = view
     if (!openSidebar.value) {
-      if (isMinimized.value) {
-        toggleMinimize()
+      if (isMiniBall.value) {
+        toggleMiniBall()
       }
       toggleSidebar()
     }
@@ -282,23 +282,33 @@ const toggleSidebar = async () => {
   }
 }
 
-const toggleMinimize = async () => {
-  const willMinimize = !isMinimized.value
-  isMinimized.value = willMinimize
+/**
+ * 迷你球开关（avatar 上的 mini 按钮）。
+ * 注意：这不是 Windows 的窗口最小化，那个走 window:minimize → win.minimize()。
+ */
+const toggleMiniBall = async () => {
+  // 迷你球只在"头像球"形态下有意义：聊天窗口里按它 = 先收回头像球
+  if (generalStore.windowMode === 'window') {
+    await collapseToAvatar()
+    return
+  }
+
+  const nextMiniBall = !isMiniBall.value
+  isMiniBall.value = nextMiniBall
 
   if (props.isElectron) {
     await nextTick()
 
-    if (willMinimize && openSidebar.value) {
+    if (nextMiniBall && openSidebar.value) {
       toggleSidebar()
       openSidebar.value = false
       setTimeout(() => {
-        console.log('Minimizing window after closing sidebar.')
-        ;(window as any).electron.mini({ minimize: true })
+        console.log('[MiniBall] Shrink to mini ball after closing the panel.')
+        ;(window as any).electron.setMiniBall({ miniBall: true })
       }, 300)
     } else {
-      console.log(`Toggling minimize state: ${willMinimize}`)
-      ;(window as any).electron.mini({ minimize: willMinimize })
+      console.log(`[MiniBall] Toggle mini ball: ${nextMiniBall}`)
+      ;(window as any).electron.setMiniBall({ miniBall: nextMiniBall })
     }
   }
 }
@@ -311,3 +321,4 @@ onMounted(() => {
   calculateScrollDuration()
 })
 </script>
+

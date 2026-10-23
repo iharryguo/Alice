@@ -1,4 +1,6 @@
 <template>
+  <!-- 面板起点跟着头像尺寸走（三种形态的定义见 src/utils/windowStates.ts）：
+       聊天窗口最大化 240+60 / 聊天窗口 320+20 / 头像球 480（面板本不该出现） -->
   <div
     class="sidebar-wrapper fixed top-0 bottom-0 right-0 bg-gray-900/95 flex flex-col z-10 rounded-r-lg overflow-hidden"
     :class="{ open: openSidebar }"

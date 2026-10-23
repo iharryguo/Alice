@@ -25,11 +25,14 @@ declare global {
     desktopAPI: AliceDesktopAPI
     electron: {
       resize: (dimensions: { width: number; height: number }) => void
-      mini: (minimize: { minimize: boolean }) => void
+      setMiniBall: (payload: { miniBall: boolean }) => void
       screenshot: () => void
       showOverlay: () => void
       getScreenshot: () => Promise<string | null>
       closeApp: () => void
+      setWindowMode: (mode: 'ball' | 'window') => Promise<unknown>
+      getWindowMode: () => Promise<{ mode: 'ball' | 'window' }>
+      setIgnoreMouseEvents: (ignore: boolean) => Promise<unknown>
       minimize: () => Promise<unknown>
       toggleMaximize: () => Promise<{ maximized: boolean }>
       isMaximized: () => Promise<{ maximized: boolean }>

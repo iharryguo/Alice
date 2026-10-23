@@ -173,8 +173,9 @@ export async function createMainWindow(
     backgroundColor: isFramed ? '#070c17' : '#00000000',
     width: isFramed ? 1200 : 500,
     height: isFramed ? 760 : 500,
-    minWidth: isFramed ? 900 : 320,
-    minHeight: isFramed ? 560 : 320,
+    // 头像球形态要能缩到 210 的迷你球，所以下限给 180；聊天窗口则不能太窄
+    minWidth: isFramed ? 900 : 180,
+    minHeight: isFramed ? 560 : 180,
     resizable: true,
     maximizable: true,
     minimizable: true,
@@ -407,15 +408,20 @@ export function resizeMainWindow(width: number, height: number): void {
   win.setSize(width, height)
 }
 
-export function minimizeMainWindow(minimize: boolean): void {
-  if (!win) return
+/**
+ * 迷你球（Mini Ball）：avatar 上 mini 按钮的产物 —— 把窗口缩成 210×210 贴到右下角。
+ * 这不是 Windows 的窗口最小化，那个是 minimizeMainWindowToTaskbar()。
+ * 形态定义见 src/utils/windowStates.ts。
+ */
+export function setMiniBallMode(enabled: boolean): void {
+  if (!win || win.isDestroyed()) return
   if (customMaximized) {
     clearCustomMaximized()
     notifyMaximizedState()
   }
 
   const display = screen.getPrimaryDisplay()
-  if (minimize) {
+  if (enabled) {
     const x = display.bounds.width - 230
     const y = display.bounds.height - 260
     win.setPosition(x, y)
@@ -428,7 +434,7 @@ export function minimizeMainWindow(minimize: boolean): void {
   }
 }
 
-/** 系统级最小化（不是收成头像小球的那种迷你模式） */
+/** 系统级窗口最小化（任务栏），跟迷你球（setMiniBallMode）完全不同 */
 export function minimizeMainWindowToTaskbar(): boolean {
   if (!win || win.isDestroyed()) return false
   win.minimize()
@@ -513,6 +519,15 @@ export function closeMainWindow(): void {
   if (win && !win.isDestroyed()) {
     win.close()
   }
+}
+
+/**
+ * 圆形头像形态下，窗口矩形比圆形大一圈，那圈空白会把鼠标事件吃掉。
+ * 渲染进程根据指针是否在圆内调用这个开关，圆外直接穿透到下面的窗口。
+ */
+export function setMainWindowIgnoreMouseEvents(ignore: boolean): void {
+  if (!win || win.isDestroyed()) return
+  win.setIgnoreMouseEvents(ignore, { forward: true })
 }
 
 export function focusMainWindow(): boolean {

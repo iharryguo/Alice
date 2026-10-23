@@ -1,4 +1,5 @@
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import type { WindowState } from '../utils/windowStates'
 import { defineStore } from 'pinia'
 import eventBus from '../utils/eventBus'
 import { isExpectedAbortError } from '../utils/isAbortError'
@@ -62,7 +63,8 @@ export const useGeneralStore = defineStore('general', () => {
   const chatInput = ref<string>('')
   const statusMessage = ref<string>('Stand by')
   const openSidebar = ref<boolean>(false)
-  const isMinimized = ref<boolean>(false)
+  // 迷你球（avatar 上迷你按钮点下去的状态），跟 Windows 的窗口最小化无关
+  const isMiniBall = ref<boolean>(false)
   const takingScreenShot = ref<boolean>(false)
   const audioPlayer = ref<HTMLAudioElement | null>(null)
   const aiVideo = ref<HTMLVideoElement | null>(null)
@@ -252,6 +254,12 @@ export const useGeneralStore = defineStore('general', () => {
     windowMode.value = mode
   }
 
+  /** 三种窗口形态的唯一读法（定义与迁移规则见 src/utils/windowStates.ts） */
+  const windowState = computed<WindowState>(() => {
+    if (windowMode.value === 'window') return 'window'
+    return isMiniBall.value ? 'mini' : 'ball'
+  })
+
   const toggleEnglishMode = () => {
     englishMode.value = !englishMode.value
     try {
@@ -315,7 +323,7 @@ export const useGeneralStore = defineStore('general', () => {
     chatInput,
     statusMessage,
     openSidebar,
-    isMinimized,
+    isMiniBall,
     takingScreenShot,
     audioPlayer,
     aiVideo,
@@ -341,6 +349,7 @@ export const useGeneralStore = defineStore('general', () => {
     englishMode,
     windowMaximized,
     windowMode,
+    windowState,
     setWindowMaximized,
     setWindowMode,
     toggleEnglishMode,

@@ -46,6 +46,7 @@ export const INVOKE_CHANNELS = new Set([
   'websocket:status',
   'window:set-mode',
   'window:get-mode',
+  'window:set-ignore-mouse',
   'window:minimize',
   'window:toggle-maximize',
   'window:is-maximized',
@@ -99,7 +100,7 @@ export const INVOKE_CHANNELS = new Set([
 
 export const SEND_CHANNELS = new Set([
   'resize',
-  'mini',
+  'window:mini-ball',
   'close-app',
   'restart-and-install-update',
 ])
