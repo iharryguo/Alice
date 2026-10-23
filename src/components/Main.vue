@@ -148,7 +148,6 @@ const actionsLayerStyle = computed<CSSProperties>(() => {
     height: `${ACTIONS_DESIGN_SIZE}px`,
     transform: `translate(-50%, -50%) scale(${scale})`,
     transformOrigin: 'center center',
-    pointerEvents: 'none',
     zIndex: 30,
   }
 })
@@ -452,9 +451,9 @@ const processRequest = async (
   transition: ring-color 0.3s ease-in-out;
 }
 
-/* 整个头像区域都可以拖动窗口（无边框窗口依赖 -webkit-app-region）。
-   注意该属性不会被子元素继承，所以视频和圆环也要显式声明。 */
-.avatar-wrapper,
+/* 只有圆形本身可以拖动窗口。
+   绝不能给 .avatar-wrapper 加 drag：它是整窗大小的容器，一旦标成 drag，
+   窗口里所有元素（包括按钮）的点击都会被系统当成"拖动标题栏"吞掉。 */
 .avatar-wrapper :deep(.avatar-ring),
 .avatar-wrapper :deep(video) {
   -webkit-app-region: drag;
@@ -486,10 +485,8 @@ const processRequest = async (
   -webkit-app-region: no-drag;
 }
 
-/* 缩放层本身不吃点击，只有里面的按钮/状态条吃 */
-.actions-layer > * {
-  pointer-events: auto;
-}
+/* 缩放层不做 pointer-events 处理：一旦父层 none，子弹层只要有一条规则没生效，
+   整个头像上的按钮就全点不动。缩放层和圆环同尺寸，本身也不挡别的东西。 */
 
 /* 最大化时的整窗底色：让窗口看起来真的铺满，而不是中间一块、四周透明 */
 .max-backdrop {
