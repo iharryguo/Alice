@@ -115,9 +115,11 @@ export function getSettingsWindow(): BrowserWindow | null {
   return settingsWindow
 }
 
-export type WindowMode = 'ball' | 'window'
+// 窗口 frame 只有两种：透明无边框（avatar_ball / mini_ball）与原生带框（window）。
+// 三种状态的完整定义见 src/utils/windowStates.ts。
+export type WindowMode = 'avatar_ball' | 'window'
 
-let windowMode: WindowMode = 'ball'
+let windowMode: WindowMode = 'avatar_ball'
 
 // 点右上角关闭 = 收到托盘，不退出程序；只有真正 quit 时才放行关闭
 let appQuitting = false
@@ -150,10 +152,12 @@ export function getWindowMode(): WindowMode {
  * - window：原生带框窗口，标题栏/最大化/贴边全部交给系统
  */
 export async function createMainWindow(
-  mode: WindowMode = windowMode
+  mode: WindowMode = windowMode,
+  options: { miniBall?: boolean } = {}
 ): Promise<BrowserWindow> {
   windowMode = mode
   const isFramed = mode === 'window'
+  const startAsMiniBall = !isFramed && !!options.miniBall
   // Always-on-top is user-configurable (default: off) so the companion window
   // does not permanently cover other applications.
   let shouldAlwaysBeOnTop = false
@@ -197,11 +201,15 @@ export async function createMainWindow(
   win = created
   installNavigationGuards(created)
 
-  // 通过 hash 告诉渲染进程当前处于哪种形态
+  // 通过 hash 告诉渲染进程当前处于哪种形态（命名见 src/utils/windowStates.ts）
+  const stateHash = isFramed
+    ? '#window'
+    : startAsMiniBall
+      ? '#mini-ball'
+      : '#avatar-ball'
+
   if (VITE_DEV_SERVER_URL) {
-    created.loadURL(
-      isFramed ? `${VITE_DEV_SERVER_URL}#window` : VITE_DEV_SERVER_URL
-    )
+    created.loadURL(`${VITE_DEV_SERVER_URL}${stateHash}`)
     // 开发模式下自动打开 DevTools（独立窗口模式）。
     // Alice 主窗口很小且（ball 形态下）无边框，dock 模式会把界面挤坏，
     // 所以用 detach 独立窗口。打包发布版本不会打开。
@@ -209,10 +217,7 @@ export async function createMainWindow(
       created.webContents.openDevTools({ mode: 'detach' })
     })
   } else {
-    created.loadFile(
-      getIndexHtmlPath(),
-      isFramed ? { hash: 'window' } : undefined
-    )
+    created.loadFile(getIndexHtmlPath(), { hash: stateHash.slice(1) })
   }
 
   created.on('closed', () => {
@@ -277,9 +282,12 @@ let switchingMode = false
  * 切换窗口形态：先建新窗、加载好再把旧窗销毁（避免 window-all-closed 触发退出）。
  * 渲染进程会因为 hash 不同重新加载一次，会话状态由渲染侧从会话库恢复。
  */
-export async function switchWindowMode(mode: WindowMode): Promise<boolean> {
+export async function switchWindowMode(
+  mode: WindowMode,
+  options: { miniBall?: boolean } = {}
+): Promise<boolean> {
   if (!win || win.isDestroyed()) return false
-  if (mode === windowMode) return true
+  if (mode === windowMode && !options.miniBall) return true
   if (switchingMode) return false
 
   switchingMode = true
@@ -287,7 +295,7 @@ export async function switchWindowMode(mode: WindowMode): Promise<boolean> {
   const previousBounds = previous.getBounds()
 
   try {
-    const next = await createMainWindow(mode)
+    const next = await createMainWindow(mode, options)
 
     if (mode === 'window') {
       next.setBounds({
@@ -296,6 +304,9 @@ export async function switchWindowMode(mode: WindowMode): Promise<boolean> {
         width: 1200,
         height: 760,
       })
+    } else if (options.miniBall) {
+      // 直接落在迷你球的位置和尺寸上（210×210，屏幕右下角）
+      setMiniBallMode(true)
     } else {
       next.setBounds({
         x: previousBounds.x + Math.round((previousBounds.width - 500) / 2),

@@ -122,6 +122,7 @@ import { useGeneralStore, AudioState } from '../stores/generalStore'
 import {
   collapseToAvatar,
   expandToChatWindow,
+  shrinkToMiniBall,
 } from '../utils/windowModeActions'
 import { storeToRefs } from 'pinia'
 import {
@@ -245,7 +246,7 @@ const openSettingsWindow = async () => {
 const changeSidebarView = (view: 'chat' | 'settings') => {
   // 两种窗口形态之间切换：头像球点聊天 → 变成正常窗口；正常窗口里再点聊天 → 收回头像球
   if (view === 'chat' && props.isElectron) {
-    if (generalStore.windowMode === 'ball') {
+    if (generalStore.windowMode === 'avatar_ball') {
       void expandToChatWindow()
       return
     }
@@ -287,9 +288,9 @@ const toggleSidebar = async () => {
  * 注意：这不是 Windows 的窗口最小化，那个走 window:minimize → win.minimize()。
  */
 const toggleMiniBall = async () => {
-  // 迷你球只在"头像球"形态下有意义：聊天窗口里按它 = 先收回头像球
+  // 聊天窗口里按它 = 重建为透明窗口，并且直接落在迷你球尺寸上
   if (generalStore.windowMode === 'window') {
-    await collapseToAvatar()
+    await shrinkToMiniBall()
     return
   }
 

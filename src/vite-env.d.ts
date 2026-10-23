@@ -30,8 +30,11 @@ declare global {
       showOverlay: () => void
       getScreenshot: () => Promise<string | null>
       closeApp: () => void
-      setWindowMode: (mode: 'ball' | 'window') => Promise<unknown>
-      getWindowMode: () => Promise<{ mode: 'ball' | 'window' }>
+      setWindowMode: (
+        mode: 'avatar_ball' | 'window',
+        options?: { miniBall?: boolean }
+      ) => Promise<unknown>
+      getWindowMode: () => Promise<{ mode: 'avatar_ball' | 'window' }>
       minimize: () => Promise<unknown>
       toggleMaximize: () => Promise<{ maximized: boolean }>
       isMaximized: () => Promise<{ maximized: boolean }>

@@ -194,8 +194,10 @@ export function registerIPCHandlers(): void {
 
   // 窗口形态：ball（只露圆形头像） / window（原生带框窗口）
   ipcMain.handle('window:set-mode', async (_event, payload) => {
-    const mode = payload?.mode === 'window' ? 'window' : 'ball'
-    const success = await switchWindowMode(mode)
+    const mode = payload?.mode === 'window' ? 'window' : 'avatar_ball'
+    const success = await switchWindowMode(mode, {
+      miniBall: !!payload?.miniBall,
+    })
     return { success, mode: getWindowMode() }
   })
 

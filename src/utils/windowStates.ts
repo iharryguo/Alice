@@ -1,46 +1,47 @@
 /**
  * Alice 主窗口的三种形态 —— 这是主窗口最核心的状态机，改窗口相关的代码前先读这里。
  *
- * ┌───────────┬──────────────┬────────────────────────┬────────────────────────────────────┐
- * │ state     │ 中文名        │ 窗口                    │ 说明                                │
- * ├───────────┼──────────────┼────────────────────────┼────────────────────────────────────┤
- * │ ball      │ 头像球        │ 无边框 + 透明，500×500   │ 只露圆形头像 + 悬浮按钮，默认形态      │
- * │ mini      │ 迷你球        │ 无边框 + 透明，210×210   │ 贴屏幕右下角常驻，圆形之外点击穿透      │
- * │ window    │ 聊天窗口      │ 原生带框，1200×760      │ 头像缩到左侧 320 + 聊天面板，系统标题栏 │
- * └───────────┴──────────────┴────────────────────────┴────────────────────────────────────┘
+ * ┌──────────────┬──────────┬──────────────────────┬────────────────────────────────────┐
+ * │ state        │ 中文名    │ 窗口                  │ 说明                                │
+ * ├──────────────┼──────────┼──────────────────────┼────────────────────────────────────┤
+ * │ avatar_ball  │ 头像球    │ 无边框 + 透明，500×500 │ 只露圆形头像 + 悬浮按钮，默认形态      │
+ * │ mini_ball    │ 迷你球    │ 无边框 + 透明，210×210 │ 贴屏幕右下角常驻，可一键扩大回头像球    │
+ * │ window       │ 聊天窗口  │ 原生带框，1200×760    │ 头像缩到左侧 320 + 聊天面板，系统标题栏 │
+ * └──────────────┴──────────┴──────────────────────┴────────────────────────────────────┘
  *
- * 状态迁移规则（实现见 windowManager.ts 的 switchWindowMode / minimizeMainWindow）：
+ * 状态迁移规则（实现见 windowManager.ts 的 switchWindowMode / setMiniBallMode）：
  *
- *   ball ──点聊天按钮/点悬浮聊天图标──▶ window      （重建窗口，frame:true）
- *   window ──点「⌄ 收起」/再点聊天按钮──▶ ball      （重建窗口，frame:false）
- *   ball ──点悬浮的迷你按钮──▶ mini                （同一个 ball 窗口改尺寸，不重建）
- *   mini ──点悬浮的还原按钮──▶ ball
- *   window ──点迷你按钮──▶ ball（先退出聊天窗口，迷你只在 ball 下有意义）
+ *   avatar_ball ──点聊天按钮 / 头像上的聊天图标──▶ window        （重建窗口，frame:true）
+ *   window      ──点「⌄ 收起」/ 再点聊天按钮 ────▶ avatar_ball   （重建窗口，frame:false）
+ *   avatar_ball ──点头像上的迷你按钮────────────▶ mini_ball     （同一个窗口改尺寸，不重建）
+ *   mini_ball   ──点顶部的扩大按钮──────────────▶ avatar_ball   （同一个窗口改尺寸，不重建）
+ *   window      ──点头像上的迷你按钮────────────▶ mini_ball     （重建为透明窗口，且直接是迷你尺寸）
  *
  * 注意：
- * - ball 与 window 之间必须"重建窗口"，Electron 不能运行时改 frame
- * - mini 只是 ball 的尺寸/位置变体，靠 win.setSize/ setPosition 完成
- * - ball / mini 的窗口矩形比圆形大一圈（500/480、210/200），那圈 5~10px
- *   会吃掉点击。不做鼠标穿透（试过 setIgnoreMouseEvents，一旦开启就再也收不到
- *   真实点击，整窗变成穿透），保持窗口矩形 = 可点击区域
+ * - avatar_ball 与 window 之间必须"重建窗口"，Electron 不能运行时改 frame
+ * - mini_ball 是 avatar_ball 的尺寸/位置变体（210×210 贴右下角），靠
+ *   win.setSize / setPosition 完成，不重建窗口
+ * - 三种形态的窗口矩形都比圆形大一圈（500/480、210/200），那圈 5~10px 会吃掉
+ *   点击。不做鼠标穿透（试过 setIgnoreMouseEvents，一旦开启就再也收不到真实点击，
+ *   整窗变成穿透），保持窗口矩形 = 可点击区域
  * - 真正的窗口最小化是 window:minimize → minimizeMainWindowToTaskbar()，
- *   和迷你球（mini）是两回事
+ *   和 mini_ball 完全是两回事，命名上不要混
  */
 
-export type WindowState = 'ball' | 'mini' | 'window'
+export type WindowState = 'avatar_ball' | 'mini_ball' | 'window'
 
 export const WINDOW_STATE_LABELS: Record<
   WindowState,
   { zh: string; en: string }
 > = {
-  ball: { zh: '头像球', en: 'Avatar Ball' },
-  mini: { zh: '迷你球', en: 'Mini Ball' },
+  avatar_ball: { zh: '头像球', en: 'Avatar Ball' },
+  mini_ball: { zh: '迷你球', en: 'Mini Ball' },
   window: { zh: '聊天窗口', en: 'Chat Window' },
 }
 
 /** 只有这两种形态是"只有一个圆形头像"的透明窗口 */
 export function isAvatarOnlyState(state: WindowState): boolean {
-  return state === 'ball' || state === 'mini'
+  return state === 'avatar_ball' || state === 'mini_ball'
 }
 
 export function windowStateLabel(state: WindowState): string {
