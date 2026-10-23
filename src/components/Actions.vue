@@ -54,15 +54,21 @@
   </div>
 
   <template v-if="props.isElectron">
+    <!-- 迷你球里也常显：否则缩下去以后找不到回来的按钮 -->
     <div
       class="absolute w-full px-2 flex justify-between z-30 inside-actions"
-      :class="{ 'top-[80px]': isMiniBall, 'top-[220px]': !isMiniBall }"
+      :class="{
+        'top-[80px]': isMiniBall,
+        'top-[220px]': !isMiniBall,
+        'inside-actions-visible': isMiniBall,
+      }"
     >
       <button
         class="btn btn-circle bg-opacity-20 bg-gray-500 border-0 p-2 btn-indicator-side tooltip tooltip-right"
         data-tip="Take Screenshot"
         aria-label="Take Screenshot"
         :class="{ 'btn-sm': isMiniBall }"
+        :style="sideControlStyle"
         @click="!isConfigState ? emit('takeScreenShot') : null"
         :disabled="takingScreenShot"
       >
@@ -78,6 +84,7 @@
         :data-tip="isMiniBall ? 'Expand avatar ball' : 'Shrink to mini ball'"
         :aria-label="isMiniBall ? 'Expand Avatar Ball' : 'Shrink to Mini Ball'"
         :class="{ 'btn-sm': isMiniBall }"
+        :style="sideControlStyle"
         @click="!isConfigState ? toggleMiniBall() : null"
       >
         <img
@@ -150,9 +157,24 @@ const props = defineProps({
     type: String as () => AudioState,
     required: true,
   },
+  /** 外层 actions-layer 的缩放系数（头像尺寸 / 480），用于让侧边按钮反向补偿 */
+  uiScale: {
+    type: Number,
+    default: 1,
+  },
 })
 
 const emit = defineEmits(['takeScreenShot', 'togglePlaying', 'toggleRecording'])
+
+/**
+ * 侧边按钮（拍照 / 迷你球开关）跟着头像整体缩放后，在迷你球里只剩 13px，
+ * 既看不清也点不中。这里按 1/uiScale 反向补偿，位置锚点不变、视觉尺寸恒定。
+ */
+const sideControlStyle = computed(() => {
+  const scale = props.uiScale > 0 ? props.uiScale : 1
+  const counter = Math.min(2, Math.max(1, 1 / scale))
+  return { transform: `scale(${counter})`, transformOrigin: 'center center' }
+})
 
 const generalStore = useGeneralStore()
 const {

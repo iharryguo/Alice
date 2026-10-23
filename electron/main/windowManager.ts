@@ -297,20 +297,32 @@ export async function switchWindowMode(
   try {
     const next = await createMainWindow(mode, options)
 
+    // 坐标规则统一为"同一台显示器 + 居中/贴角"，不做相对上一个窗口的随机偏移
+    const display = screen.getDisplayMatching(previousBounds)
+    const area = display.workArea
+
     if (mode === 'window') {
+      const width = Math.min(1200, area.width)
+      const height = Math.min(760, area.height)
       next.setBounds({
-        x: Math.max(0, previousBounds.x - 120),
-        y: Math.max(0, previousBounds.y - 120),
-        width: 1200,
-        height: 760,
+        x: area.x + Math.round((area.width - width) / 2),
+        y: area.y + Math.round((area.height - height) / 2),
+        width,
+        height,
       })
     } else if (options.miniBall) {
-      // 直接落在迷你球的位置和尺寸上（210×210，屏幕右下角）
+      // 先落到上一窗口所在的显示器，再交给 setMiniBallMode 贴右下角
+      next.setBounds({
+        x: previousBounds.x,
+        y: previousBounds.y,
+        width: 500,
+        height: 500,
+      })
       setMiniBallMode(true)
     } else {
       next.setBounds({
-        x: previousBounds.x + Math.round((previousBounds.width - 500) / 2),
-        y: previousBounds.y + Math.round((previousBounds.height - 500) / 2),
+        x: area.x + Math.round((area.width - 500) / 2),
+        y: area.y + Math.round((area.height - 500) / 2),
         width: 500,
         height: 500,
       })
@@ -431,17 +443,26 @@ export function setMiniBallMode(enabled: boolean): void {
     notifyMaximizedState()
   }
 
-  const display = screen.getPrimaryDisplay()
+  // 坐标规则（保持"人眼不用重新找"的直觉）：
+  // - mini_ball：停靠在当前窗口所在显示器的右下角，留 20px 边距
+  // - avatar_ball：在同一台显示器上居中
+  const display = screen.getDisplayMatching(win.getBounds())
+  const area = display.workArea
+
   if (enabled) {
-    const x = display.bounds.width - 230
-    const y = display.bounds.height - 260
-    win.setPosition(x, y)
-    win.setSize(210, 210)
+    win.setBounds({
+      x: area.x + area.width - 210 - 20,
+      y: area.y + area.height - 210 - 20,
+      width: 210,
+      height: 210,
+    })
   } else {
-    const x = Math.round(display.bounds.width / 2 - 250)
-    const y = Math.round(display.bounds.height / 2 - 250)
-    win.setPosition(x, y)
-    win.setSize(500, 500)
+    win.setBounds({
+      x: area.x + Math.round((area.width - 500) / 2),
+      y: area.y + Math.round((area.height - 500) / 2),
+      width: 500,
+      height: 500,
+    })
   }
 }
 

@@ -14,21 +14,12 @@
         'justify-center': !openSidebar,
       }"
     >
-      <!-- 迷你球回不到头像球的问题：给一个常显的"扩大"按钮，
-           位置在圆顶正中，不依赖 hover、也不受圆形裁剪影响 -->
-      <button
-        v-if="isMiniBall"
-        class="mini-ball-expand"
-        title="Expand to Avatar Ball"
-        aria-label="Expand to Avatar Ball"
-        @click="expandFromMiniBall"
-      >
-        ⤢
-      </button>
-
       <div
         class="avatar"
-        :class="{ open: openSidebar, 'avatar-max': windowMaximized }"
+        :class="{
+          open: openSidebar,
+          'avatar-max': windowMaximized || generalStore.windowMode === 'window',
+        }"
       >
         <div
           class="avatar-ring"
@@ -62,6 +53,7 @@
               :isElectron="isElectron"
               :isTTSEnabled="isTTSEnabled"
               :audioState="audioState"
+              :ui-scale="avatarPixelSize / ACTIONS_DESIGN_SIZE"
             />
           </div>
         </div>
@@ -146,12 +138,6 @@ const avatarSizeStyle = computed<CSSProperties>(() => ({
 const avatarVideoStyle = computed<CSSProperties>(() => ({
   height: `${avatarPixelSize.value}px`,
 }))
-
-/** 迷你球 → 头像球：同一个窗口放大，不需要重建 */
-const expandFromMiniBall = () => {
-  generalStore.isMiniBall = false
-  window.electron?.setMiniBall?.({ miniBall: false })
-}
 
 // Action 层按 480 的设计尺寸排版，再整体缩放到当前头像大小
 const ACTIONS_DESIGN_SIZE = 480
@@ -508,35 +494,6 @@ const processRequest = async (
 
 /* 缩放层不做 pointer-events 处理：一旦父层 none，子弹层只要有一条规则没生效，
    整个头像上的按钮就全点不动。缩放层和圆环同尺寸，本身也不挡别的东西。 */
-
-/* 迷你球（mini_ball）专用的"扩大回头像球"按钮 */
-.mini-ball-expand {
-  position: absolute;
-  top: 2px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 40;
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  border: 1px solid rgb(148 163 184 / 0.55);
-  background: rgb(15 23 42 / 0.92);
-  color: rgb(226 232 240);
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
-}
-
-.mini-ball-expand:hover {
-  background: rgb(56 189 248 / 0.92);
-  color: rgb(6 26 38);
-}
 
 /* 最大化时的整窗底色：让窗口看起来真的铺满，而不是中间一块、四周透明 */
 .max-backdrop {
