@@ -40,16 +40,18 @@
             autoplay
             playsinline
           ></video>
-          <!-- 最大化时头像缩成小圆只做"存在感"，控制项交给聊天输入区 -->
-          <Actions
-            v-if="!windowMaximized"
-            @takeScreenShot="handleTakeScreenshot"
-            @togglePlaying="handleToggleTTS"
-            @toggleRecording="handleToggleRecording"
-            :isElectron="isElectron"
-            :isTTSEnabled="isTTSEnabled"
-            :audioState="audioState"
-          />
+          <!-- 按钮在 480×480 的设计坐标里排版，整体按头像尺寸等比缩放：
+               这样头像变小/最大化时按钮跟着缩小，而不是错位或被隐藏 -->
+          <div class="actions-layer" :style="actionsLayerStyle">
+            <Actions
+              @takeScreenShot="handleTakeScreenshot"
+              @togglePlaying="handleToggleTTS"
+              @toggleRecording="handleToggleRecording"
+              :isElectron="isElectron"
+              :isTTSEnabled="isTTSEnabled"
+              :audioState="audioState"
+            />
+          </div>
         </div>
       </div>
       <Sidebar @processRequest="processRequestFromSidebar" />
@@ -132,6 +134,24 @@ const avatarSizeStyle = computed<CSSProperties>(() => ({
 const avatarVideoStyle = computed<CSSProperties>(() => ({
   height: `${avatarPixelSize.value}px`,
 }))
+
+// Action 层按 480 的设计尺寸排版，再整体缩放到当前头像大小
+const ACTIONS_DESIGN_SIZE = 480
+
+const actionsLayerStyle = computed<CSSProperties>(() => {
+  const scale = avatarPixelSize.value / ACTIONS_DESIGN_SIZE
+  return {
+    position: 'absolute',
+    left: '50%',
+    top: '50%',
+    width: `${ACTIONS_DESIGN_SIZE}px`,
+    height: `${ACTIONS_DESIGN_SIZE}px`,
+    transform: `translate(-50%, -50%) scale(${scale})`,
+    transformOrigin: 'center center',
+    pointerEvents: 'none',
+    zIndex: 30,
+  }
+})
 
 const avatarRingStyle = computed<CSSProperties>(() => {
   const style: CSSProperties = {
@@ -464,6 +484,11 @@ const processRequest = async (
 /* 聊天侧栏整体不可拖动，保证输入框/滚动条/按钮正常工作 */
 .avatar-wrapper :deep(.sidebar-wrapper) {
   -webkit-app-region: no-drag;
+}
+
+/* 缩放层本身不吃点击，只有里面的按钮/状态条吃 */
+.actions-layer > * {
+  pointer-events: auto;
 }
 
 /* 最大化时的整窗底色：让窗口看起来真的铺满，而不是中间一块、四周透明 */
