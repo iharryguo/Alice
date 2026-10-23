@@ -100,7 +100,7 @@
           role="button"
           aria-label="Application Menu"
           class="btn btn-circle bg-opacity-20 bg-gray-500 border-0 p-2 btn-indicator-side close tooltip tooltip-bottom mb-2"
-          :class="{ 'btn-sm': isMiniBall }"
+          :style="sideControlStyle"
         >
           <img :src="hamburgerIcon" class="indicator indicator-side" alt="" />
         </button>
@@ -169,8 +169,8 @@ const emit = defineEmits(['takeScreenShot', 'togglePlaying', 'toggleRecording'])
  */
 const sideControlStyle = computed(() => {
   const scale = props.uiScale > 0 ? props.uiScale : 1
-  // 上限 1.6：再大就会顶出小圆的圆弧被裁掉（迷你球里约 21px，仍可点）
-  const counter = Math.min(1.6, Math.max(1, 1 / scale))
+  // 上限 1.5：再大顶部汉堡按钮会顶出圆顶被裁掉（迷你球里约 30px）
+  const counter = Math.min(1.5, Math.max(1, 1 / scale))
   return { transform: `scale(${counter})`, transformOrigin: 'center center' }
 })
 
