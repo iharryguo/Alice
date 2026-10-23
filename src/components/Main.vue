@@ -6,10 +6,15 @@
       v-if="windowMaximized || generalStore.windowMode === 'window'"
       class="max-backdrop"
     ></div>
+    <!-- 聊天窗口形态：头像固定在左上角，下方留给后续 UI；
+         头像球 / 迷你球：始终居中（这是一个"浮在桌面上的脸"） -->
     <div
-      class="avatar-wrapper flex w-full h-full items-center relative z-2"
+      class="avatar-wrapper flex w-full h-full relative z-2"
       :class="{
         'mini-ball': isMiniBall,
+        'avatar-top': generalStore.windowMode === 'window',
+        'items-center': generalStore.windowMode !== 'window',
+        'items-start': generalStore.windowMode === 'window',
         'justify-start': openSidebar,
         'justify-center': !openSidebar,
       }"
@@ -119,14 +124,13 @@ const aiVideoElement = vueRef<HTMLVideoElement | null>(null)
 
 let isProcessingRequest = false
 
-// 最大化后头像缩成左侧的小圆，给聊天区让出宽度；迷你模式保持 200
-const MAXIMIZED_AVATAR_SIZE = 240
+// 聊天窗口里（含最大化 / 还原）头像固定这个尺寸；迷你球固定 200
+const WINDOW_MODE_AVATAR_SIZE = 320
 
 const avatarPixelSize = computed(() => {
   if (isMiniBall.value) return 200
-  if (windowMaximized.value) return MAXIMIZED_AVATAR_SIZE
-  // 原生带框窗口里，头像缩小给聊天区让位
-  if (generalStore.windowMode === 'window') return 320
+  // 聊天窗口里头像固定 320：最大化 / 还原之间尺寸保持不变
+  if (generalStore.windowMode === 'window') return WINDOW_MODE_AVATAR_SIZE
   return isElectron ? 480 : 430
 })
 
@@ -506,9 +510,14 @@ const processRequest = async (
     #070c17;
 }
 
-/* 最大化后露在左侧的小头像：离窗口左沿留一点呼吸 */
+/* 聊天窗口里的头像：离窗口左沿留一点呼吸 */
 .avatar-max {
   margin-left: 24px;
+}
+
+/* 聊天窗口形态：头像靠上摆放（下方预留给后续 UI），不再上下居中 */
+.avatar-wrapper.avatar-top {
+  padding-top: 48px;
 }
 
 /* 最大化后露在左侧的小头像：给个柔和的过渡，尺寸变化不突兀 */
