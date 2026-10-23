@@ -1,7 +1,7 @@
 <template>
   <div class="cockpit">
     <header class="cockpit-head">
-      <div class="head-left">
+      <div class="head-left" title="双击最大化/还原" @dblclick="windowToggleMaximize">
         <span class="head-title">对话</span>
         <span class="head-state" :class="`state-${audioState.toLowerCase()}`">
           <span class="state-dot"></span>{{ stateLabel }}
@@ -21,6 +21,28 @@
         </button>
       </div>
 
+      <div class="window-controls">
+        <button class="window-btn" title="最小化" @click="windowMinimize">
+          <span class="glyph-minimize"></span>
+        </button>
+        <button
+          class="window-btn"
+          :title="isMaximized ? '还原' : '最大化'"
+          @click="windowToggleMaximize"
+        >
+          <span
+            class="glyph-maximize"
+            :class="{ 'glyph-restore': isMaximized }"
+          ></span>
+        </button>
+        <button
+          class="window-btn window-btn-close"
+          title="关闭"
+          @click="windowClose"
+        >
+          <span class="glyph-close"></span>
+        </button>
+      </div>
     </header>
 
     <div ref="scrollEl" class="cockpit-body" @scroll="handleScroll">
@@ -114,11 +136,33 @@ const scrollEl = ref<HTMLElement | null>(null)
 const shouldAutoScroll = ref(true)
 const showHistory = ref(false)
 const speakingKey = ref<string | null>(null)
+const isMaximized = ref(false)
 let disposeMaximizedListener: (() => void) | null = null
 
-/** 最大化状态同步到 store：侧栏与头像区据此切换布局（窗口按钮已交还系统标题栏） */
+/** 最大化状态同步到 store：侧栏与头像区据此切换布局 */
 const applyMaximized = (maximized: boolean) => {
+  isMaximized.value = maximized
   generalStore.setWindowMaximized(maximized)
+}
+
+const windowMinimize = () => {
+  Promise.resolve(window.electron?.minimize?.()).catch(error =>
+    console.warn('[ChatCockpit] 最小化失败:', error)
+  )
+}
+
+const windowToggleMaximize = () => {
+  Promise.resolve(window.electron?.toggleMaximize?.())
+    .then(() => {
+      window.setTimeout(() => void refreshMaximizedState(), 260)
+    })
+    .catch(error => console.warn('[ChatCockpit] 切换最大化失败:', error))
+}
+
+const windowClose = () => {
+  Promise.resolve(window.electron?.closeWindow?.()).catch(error =>
+    console.warn('[ChatCockpit] 关闭窗口失败:', error)
+  )
 }
 
 const refreshMaximizedState = async () => {
@@ -345,6 +389,8 @@ onUnmounted(() => {
   padding: 6px 8px;
   border-bottom: 1px solid rgb(148 163 184 / 0.16);
   background: rgb(15 23 42 / 0.85);
+  /* 无边框窗口：标题栏空白处可拖动窗口（双击走 .head-left 的处理器） */
+  -webkit-app-region: drag;
 }
 
 .head-left {
@@ -352,6 +398,9 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  /* 不设 no-drag 的话 DOM 收不到双击事件，就没法双击最大化 */
+  -webkit-app-region: no-drag;
+  cursor: default;
 }
 
 .head-title {
@@ -415,6 +464,98 @@ onUnmounted(() => {
   display: flex;
   gap: 4px;
   margin-left: auto;
+  -webkit-app-region: no-drag;
+}
+
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  -webkit-app-region: no-drag;
+}
+
+.window-btn {
+  width: 30px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: rgb(148 163 184);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.window-btn:hover {
+  background: rgb(148 163 184 / 0.16);
+  color: rgb(226 232 240);
+}
+
+.window-btn-close:hover {
+  background: rgb(239 68 68);
+  color: #fff;
+}
+
+.glyph-minimize {
+  display: block;
+  width: 9px;
+  height: 1px;
+  background: currentColor;
+}
+
+.glyph-maximize {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border: 1px solid currentColor;
+  border-radius: 1px;
+}
+
+.glyph-restore {
+  position: relative;
+}
+
+.glyph-restore::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border: 1px solid currentColor;
+  border-radius: 1px;
+  background: rgb(15 23 42);
+}
+
+.glyph-close {
+  position: relative;
+  display: block;
+  width: 10px;
+  height: 10px;
+}
+
+.glyph-close::before,
+.glyph-close::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: 10px;
+  height: 1px;
+  background: currentColor;
+}
+
+.glyph-close::before {
+  transform: rotate(45deg);
+}
+
+.glyph-close::after {
+  transform: rotate(-45deg);
 }
 
 .head-btn {
