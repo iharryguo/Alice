@@ -2,7 +2,13 @@
   <div
     class="sidebar-wrapper fixed top-0 bottom-0 right-0 bg-gray-900/95 flex flex-col z-10 rounded-r-lg overflow-hidden"
     :class="{ open: openSidebar }"
-    :style="{ left: generalStore.windowMaximized ? '300px' : '480px' }"
+    :style="{
+      left: generalStore.windowMaximized
+        ? '300px'
+        : generalStore.windowMode === 'window'
+          ? '340px'
+          : '480px',
+    }"
   >
     <div
       class="sidebar-content w-full flex-1 min-h-0 flex flex-col relative overflow-hidden"
@@ -84,6 +90,7 @@ import MemoryManagerComponent from './MemoryManager.vue'
 import { useGeneralStore } from '../stores/generalStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useConversationStore } from '../stores/conversationStore'
+import { useConversationLogStore } from '../stores/conversationLogStore'
 import { storeToRefs } from 'pinia'
 
 const generalStore = useGeneralStore()
@@ -170,7 +177,27 @@ onMounted(async () => {
   } else {
     if (generalStore.audioState === 'CONFIG') generalStore.setAudioState('IDLE')
   }
+
+  // 从"圆形头像"切到"正常窗口"会重建窗口、重载渲染进程，
+  // 这里把上一次的会话捞回来，用户感觉不到中断
+  await restorePendingSession()
 })
+
+async function restorePendingSession() {
+  try {
+    const pendingId = window.localStorage.getItem('alice:restore-session')
+    if (!pendingId) return
+    window.localStorage.removeItem('alice:restore-session')
+
+    const logStore = useConversationLogStore()
+    const restored = await logStore.loadSession(pendingId)
+    if (restored) {
+      generalStore.statusMessage = '已恢复上次对话'
+    }
+  } catch (error) {
+    console.warn('[Sidebar] 恢复上次会话失败:', error)
+  }
+}
 
 watch(
   () => settingsStore.successMessage,

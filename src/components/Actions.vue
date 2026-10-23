@@ -239,6 +239,14 @@ const openSettingsWindow = async () => {
 }
 
 const changeSidebarView = (view: 'chat' | 'settings') => {
+  // ball 形态（只有圆形头像）点聊天 → 让主进程重建为原生带框窗口
+  if (view === 'chat' && props.isElectron && generalStore.windowMode === 'ball') {
+    window.aliceIPC
+      ?.invoke('window:set-mode', { mode: 'window' })
+      .catch(error => console.warn('[Actions] 切换窗口形态失败:', error))
+    return
+  }
+
   if (sideBarView.value === view && openSidebar.value) {
     toggleSidebar()
   } else if (sideBarView.value !== view || !openSidebar.value) {

@@ -44,6 +44,8 @@ export const INVOKE_CHANNELS = new Set([
   'approval:respond',
   'screen:capture',
   'websocket:status',
+  'window:set-mode',
+  'window:get-mode',
   'window:minimize',
   'window:toggle-maximize',
   'window:is-maximized',

@@ -115,7 +115,24 @@ export function getSettingsWindow(): BrowserWindow | null {
   return settingsWindow
 }
 
-export async function createMainWindow(): Promise<BrowserWindow> {
+export type WindowMode = 'ball' | 'window'
+
+let windowMode: WindowMode = 'ball'
+
+export function getWindowMode(): WindowMode {
+  return windowMode
+}
+
+/**
+ * 主窗口有两种形态，靠重建窗口切换（Electron 不能运行时改 frame）：
+ * - ball：无边框 + 透明，只露出圆形头像
+ * - window：原生带框窗口，标题栏/最大化/贴边全部交给系统
+ */
+export async function createMainWindow(
+  mode: WindowMode = windowMode
+): Promise<BrowserWindow> {
+  windowMode = mode
+  const isFramed = mode === 'window'
   // Always-on-top is user-configurable (default: off) so the companion window
   // does not permanently cover other applications.
   let shouldAlwaysBeOnTop = false
@@ -126,23 +143,23 @@ export async function createMainWindow(): Promise<BrowserWindow> {
     // Fall back to the default (off) when settings cannot be read.
   }
 
-  win = new BrowserWindow({
+  const created = new BrowserWindow({
     title: 'Alice',
     icon: path.join(getVitePublic(), 'app_logo.png'),
-    // 默认状态只显示圆形头像，所以窗口必须是无边框 + 透明：
-    // 系统标题栏会和"只露一个圆"互斥，只能自己画标题栏（见 ChatCockpit 头部）。
-    transparent: true,
-    frame: false,
-    width: 500,
-    height: 500,
-    minWidth: 320,
-    minHeight: 320,
+    // ball：无边框透明，只露圆形头像；window：原生带框，系统标题栏负责一切
+    transparent: !isFramed,
+    frame: isFramed,
+    backgroundColor: isFramed ? '#070c17' : '#00000000',
+    width: isFramed ? 1200 : 500,
+    height: isFramed ? 760 : 500,
+    minWidth: isFramed ? 900 : 320,
+    minHeight: isFramed ? 560 : 320,
     resizable: true,
     maximizable: true,
     minimizable: true,
     fullscreenable: true,
     alwaysOnTop: shouldAlwaysBeOnTop,
-    hasShadow: false,
+    hasShadow: isFramed,
     autoHideMenuBar: true,
     webPreferences: {
       preload: getPreloadPath(),
@@ -155,34 +172,46 @@ export async function createMainWindow(): Promise<BrowserWindow> {
     },
   })
 
-  installNavigationGuards(win)
+  win = created
+  installNavigationGuards(created)
 
+  // 通过 hash 告诉渲染进程当前处于哪种形态
   if (VITE_DEV_SERVER_URL) {
-    win.loadURL(VITE_DEV_SERVER_URL)
+    created.loadURL(
+      isFramed ? `${VITE_DEV_SERVER_URL}#window` : VITE_DEV_SERVER_URL
+    )
     // 开发模式下自动打开 DevTools（独立窗口模式）。
-    // Alice 主窗口只有 500x500 且无边框，停靠(dock)模式会把界面挤坏，
+    // Alice 主窗口很小且（ball 形态下）无边框，dock 模式会把界面挤坏，
     // 所以用 detach 独立窗口。打包发布版本不会打开。
-    win.webContents.once('did-finish-load', () => {
-      win?.webContents.openDevTools({ mode: 'detach' })
+    created.webContents.once('did-finish-load', () => {
+      created.webContents.openDevTools({ mode: 'detach' })
     })
   } else {
-    win.loadFile(getIndexHtmlPath())
+    created.loadFile(
+      getIndexHtmlPath(),
+      isFramed ? { hash: 'window' } : undefined
+    )
   }
 
-  win.on('closed', () => {
-    win = null
-    clearCustomMaximized()
+  created.on('closed', () => {
+    // 切换形态时会先建新窗再销毁旧窗，别把新窗口的引用清掉
+    if (win === created) {
+      win = null
+      clearCustomMaximized()
+    }
   })
 
-  win.on('maximize', notifyMaximizedState)
-  win.on('unmaximize', notifyMaximizedState)
+  created.on('maximize', notifyMaximizedState)
+  created.on('unmaximize', notifyMaximizedState)
 
   // 用户手动拖边/移动窗口 → 退出自定义最大化，图标与真实状态保持一致
   const scheduleDriftCheck = () => {
+    if (win !== created) return
     if (!customMaximized) return
     if (driftTimer) clearTimeout(driftTimer)
     driftTimer = setTimeout(() => {
       driftTimer = null
+      if (win !== created) return
       if (!customMaximized || !win || win.isDestroyed()) return
       if (Date.now() - maximizeAppliedAt < 400) return
       const target = expectedMaxBounds
@@ -211,6 +240,59 @@ export async function createMainWindow(): Promise<BrowserWindow> {
   })
 
   return win
+}
+
+let switchingMode = false
+
+/**
+ * 切换窗口形态：先建新窗、加载好再把旧窗销毁（避免 window-all-closed 触发退出）。
+ * 渲染进程会因为 hash 不同重新加载一次，会话状态由渲染侧从会话库恢复。
+ */
+export async function switchWindowMode(mode: WindowMode): Promise<boolean> {
+  if (!win || win.isDestroyed()) return false
+  if (mode === windowMode) return true
+  if (switchingMode) return false
+
+  switchingMode = true
+  const previous = win
+  const previousBounds = previous.getBounds()
+
+  try {
+    const next = await createMainWindow(mode)
+
+    if (mode === 'window') {
+      next.setBounds({
+        x: Math.max(0, previousBounds.x - 120),
+        y: Math.max(0, previousBounds.y - 120),
+        width: 1200,
+        height: 760,
+      })
+    } else {
+      next.setBounds({
+        x: previousBounds.x + Math.round((previousBounds.width - 500) / 2),
+        y: previousBounds.y + Math.round((previousBounds.height - 500) / 2),
+        width: 500,
+        height: 500,
+      })
+    }
+
+    next.show()
+
+    let destroyed = false
+    const destroyPrevious = () => {
+      if (destroyed) return
+      destroyed = true
+      switchingMode = false
+      if (previous && !previous.isDestroyed()) previous.destroy()
+    }
+    next.once('ready-to-show', destroyPrevious)
+    setTimeout(destroyPrevious, 3000)
+    return true
+  } catch (error) {
+    console.error('[WindowManager] 切换窗口形态失败:', error)
+    switchingMode = false
+    return false
+  }
 }
 
 export async function createOverlayWindow(): Promise<BrowserWindow> {
@@ -333,6 +415,13 @@ export function minimizeMainWindowToTaskbar(): boolean {
  */
 export function toggleMaximizeMainWindow(): boolean {
   if (!win || win.isDestroyed()) return false
+
+  // 原生带框窗口可能被系统标题栏/贴边最大化，这种情况直接交回系统还原
+  if (win.isMaximized()) {
+    win.unmaximize()
+    notifyMaximizedState()
+    return false
+  }
 
   if (customMaximized) {
     const previous = restoreBounds

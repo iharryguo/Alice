@@ -1,8 +1,11 @@
 <template>
   <div class="h-screen flex w-full items-center justify-start relative">
-    <!-- 最大化时铺一层不透明底色：窗口本身铺满屏幕，圆形头像浮在这层之上，
-         不再让桌面从左侧透出来（透明窗口看起来像"没最大化"） -->
-    <div v-if="windowMaximized" class="max-backdrop"></div>
+    <!-- 最大化 / 原生窗口形态下铺一层不透明底色：头像浮在这层之上，
+         不再让桌面从左侧透出来 -->
+    <div
+      v-if="windowMaximized || generalStore.windowMode === 'window'"
+      class="max-backdrop"
+    ></div>
     <div
       class="avatar-wrapper flex w-full h-full items-center relative z-2"
       :class="{
@@ -116,6 +119,8 @@ const MAXIMIZED_AVATAR_SIZE = 240
 const avatarPixelSize = computed(() => {
   if (isMinimized.value) return 200
   if (windowMaximized.value) return MAXIMIZED_AVATAR_SIZE
+  // 原生带框窗口里，头像缩小给聊天区让位
+  if (generalStore.windowMode === 'window') return 320
   return isElectron ? 480 : 430
 })
 
@@ -142,6 +147,13 @@ const avatarRingStyle = computed<CSSProperties>(() => {
 })
 
 onMounted(async () => {
+  // 主进程通过 hash 告知当前形态：ball 只露圆形头像，window 是原生带框窗口
+  const framedMode = window.location.hash.includes('window')
+  generalStore.setWindowMode(framedMode ? 'window' : 'ball')
+  if (framedMode) {
+    generalStore.openSidebar = true
+  }
+
   audioPlayer.value = audioPlayerElement.value
   aiVideo.value = aiVideoElement.value
 

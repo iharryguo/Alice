@@ -97,6 +97,9 @@ contextBridge.exposeInMainWorld('electron', {
   showOverlay: () => ipcRenderer.send('show-overlay'),
   getScreenshot: () => ipcRenderer.send('get-screenshot'),
   closeApp: () => ipcRenderer.send('close-app'),
+  setWindowMode: (mode: 'ball' | 'window') =>
+    aliceIPC.invoke('window:set-mode', { mode }),
+  getWindowMode: () => aliceIPC.invoke('window:get-mode'),
   minimize: () => aliceIPC.invoke('window:minimize'),
   toggleMaximize: () => aliceIPC.invoke('window:toggle-maximize'),
   isMaximized: () => aliceIPC.invoke('window:is-maximized'),

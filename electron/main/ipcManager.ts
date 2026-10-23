@@ -93,6 +93,8 @@ import {
   toggleMaximizeMainWindow,
   isMainWindowMaximized,
   closeMainWindow,
+  switchWindowMode,
+  getWindowMode,
   showOverlay,
   hideOverlay,
   focusMainWindow,
@@ -186,6 +188,15 @@ export function registerIPCHandlers(): void {
   ipcMain.on('close-app', () => {
     app.quit()
   })
+
+  // 窗口形态：ball（只露圆形头像） / window（原生带框窗口）
+  ipcMain.handle('window:set-mode', async (_event, payload) => {
+    const mode = payload?.mode === 'window' ? 'window' : 'ball'
+    const success = await switchWindowMode(mode)
+    return { success, mode: getWindowMode() }
+  })
+
+  ipcMain.handle('window:get-mode', () => ({ mode: getWindowMode() }))
 
   // 聊天面板右上角的 Windows 三键
   ipcMain.handle('window:minimize', () => minimizeMainWindowToTaskbar())

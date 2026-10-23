@@ -43,6 +43,8 @@ export const useGeneralStore = defineStore('general', () => {
   const englishMode = ref<boolean>(loadEnglishMode())
   // 窗口是否处于最大化：最大化时把头像区让出来，聊天面板铺满整屏
   const windowMaximized = ref<boolean>(false)
+  // 窗口形态：ball = 只露圆形头像（无边框透明）；window = 原生带框窗口
+  const windowMode = ref<'ball' | 'window'>('ball')
   const recognizedText = ref<string>('')
   const chatHistory = ref<ChatMessage[]>([])
   const historyManager = createHistoryManager(chatHistory)
@@ -246,6 +248,10 @@ export const useGeneralStore = defineStore('general', () => {
     windowMaximized.value = value
   }
 
+  const setWindowMode = (mode: 'ball' | 'window') => {
+    windowMode.value = mode
+  }
+
   const toggleEnglishMode = () => {
     englishMode.value = !englishMode.value
     try {
@@ -334,7 +340,9 @@ export const useGeneralStore = defineStore('general', () => {
     stopPlaybackAndClearQueue,
     englishMode,
     windowMaximized,
+    windowMode,
     setWindowMaximized,
+    setWindowMode,
     toggleEnglishMode,
     toggleRecordingRequest,
     pendingScreenshots,
