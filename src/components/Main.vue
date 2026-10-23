@@ -25,6 +25,7 @@
           open: openSidebar,
           'avatar-max': windowMaximized || generalStore.windowMode === 'window',
         }"
+        @mousedown="handleAvatarMouseDown"
       >
         <div
           class="avatar-ring"
@@ -143,6 +144,72 @@ const avatarVideoStyle = computed<CSSProperties>(() => ({
   height: `${avatarPixelSize.value}px`,
 }))
 
+/**
+ * 拖头像移动窗口。
+ * 不用 -webkit-app-region: drag —— 拖动区会被系统当成标题栏，把 hover 事件一起吞掉，
+ * 结果侧边按钮永远不出现。这里改成手动拖动：mousedown 记录起点，mousemove 算绝对坐标，
+ * 通过 IPC 调 win.setPosition，按钮区域（button/indicator/dropdown/link）不参与。
+ */
+let dragSession: {
+  startScreenX: number
+  startScreenY: number
+  winX: number
+  winY: number
+} | null = null
+let dragFrame = 0
+let pendingDragPosition: { x: number; y: number } | null = null
+
+const flushDragPosition = () => {
+  dragFrame = 0
+  const next = pendingDragPosition
+  pendingDragPosition = null
+  if (next) window.aliceIPC?.invoke('window:set-position', next)
+}
+
+const handleDragMove = (event: MouseEvent) => {
+  if (!dragSession) return
+  pendingDragPosition = {
+    x: dragSession.winX + (event.screenX - dragSession.startScreenX),
+    y: dragSession.winY + (event.screenY - dragSession.startScreenY),
+  }
+  if (!dragFrame) dragFrame = window.requestAnimationFrame(flushDragPosition)
+}
+
+const handleDragEnd = () => {
+  dragSession = null
+  if (dragFrame) {
+    window.cancelAnimationFrame(dragFrame)
+    dragFrame = 0
+  }
+  pendingDragPosition = null
+  window.removeEventListener('mousemove', handleDragMove)
+}
+
+const handleAvatarMouseDown = async (event: MouseEvent) => {
+  if (event.button !== 0) return
+  if (typeof window.aliceIPC === 'undefined') return
+  // 最大化状态下不允许拖动（Windows 的语义是"拖标题栏先还原"，这里不做）
+  if (generalStore.windowMaximized) return
+
+  const target = event.target as HTMLElement | null
+  if (target?.closest('button, .indicator, .dropdown, a, input, textarea')) return
+
+  const position = (await window.aliceIPC.invoke(
+    'window:get-position'
+  )) as { x: number; y: number } | null
+  if (!position) return
+
+  event.preventDefault()
+  dragSession = {
+    startScreenX: event.screenX,
+    startScreenY: event.screenY,
+    winX: position.x,
+    winY: position.y,
+  }
+  window.addEventListener('mousemove', handleDragMove)
+  window.addEventListener('mouseup', handleDragEnd, { once: true })
+}
+
 // Action 层按 480 的设计尺寸排版，再整体缩放到当前头像大小
 const ACTIONS_DESIGN_SIZE = 480
 
@@ -206,6 +273,7 @@ onUnmounted(() => {
   if (isElectron) {
     cleanupScreenshotListeners()
   }
+  handleDragEnd()
   aiVideo.value = null
   eventBus.off('processing-complete', handleProcessingComplete)
   eventBus.off('mute-playback-toggle', handleToggleTTS)

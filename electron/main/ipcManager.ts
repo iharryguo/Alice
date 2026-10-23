@@ -95,6 +95,8 @@ import {
   closeMainWindow,
   switchWindowMode,
   getWindowMode,
+  getMainWindowPosition,
+  setMainWindowPosition,
   showOverlay,
   hideOverlay,
   focusMainWindow,
@@ -202,6 +204,18 @@ export function registerIPCHandlers(): void {
   })
 
   ipcMain.handle('window:get-mode', () => ({ mode: getWindowMode() }))
+
+  // 拖头像移动窗口（渲染进程算绝对坐标，这里只负责落地）
+  ipcMain.handle('window:get-position', () => getMainWindowPosition())
+  ipcMain.handle('window:set-position', (_event, payload) => {
+    const x = Number(payload?.x)
+    const y = Number(payload?.y)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return { success: false }
+    }
+    setMainWindowPosition(x, y)
+    return { success: true }
+  })
 
   // 聊天面板右上角的 Windows 三键
   ipcMain.handle('window:minimize', () => minimizeMainWindowToTaskbar())

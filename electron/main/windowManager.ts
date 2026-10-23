@@ -553,6 +553,19 @@ export function closeMainWindow(): void {
   }
 }
 
+/** 供渲染进程实现"拖头像移动窗口"（不用 app-region: drag，否则 hover 会被吞） */
+export function getMainWindowPosition(): { x: number; y: number } | null {
+  if (!win || win.isDestroyed()) return null
+  const [x, y] = win.getPosition()
+  return { x, y }
+}
+
+export function setMainWindowPosition(x: number, y: number): void {
+  if (!win || win.isDestroyed()) return
+  if (win.isMaximized() || customMaximized) return
+  win.setPosition(Math.round(x), Math.round(y))
+}
+
 
 
 export function focusMainWindow(): boolean {
