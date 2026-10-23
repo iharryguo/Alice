@@ -46,6 +46,7 @@ export function createHistoryManager(
     const messageToStore: ChatMessage = {
       ...message,
       local_id_temp: localId,
+      created_at: message.created_at ?? Date.now(),
       content: Array.isArray(message.content)
         ? message.content.map(part => ({ ...part }))
         : message.content,

@@ -12,3 +12,12 @@ html {
 body {
   overflow: hidden;
 }
+/* 兜底：根节点必须占满窗口，否则窗口放大后布局不会跟着长 */
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}

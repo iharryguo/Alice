@@ -30,6 +30,13 @@ declare global {
       showOverlay: () => void
       getScreenshot: () => Promise<string | null>
       closeApp: () => void
+      minimize: () => Promise<unknown>
+      toggleMaximize: () => Promise<{ maximized: boolean }>
+      isMaximized: () => Promise<{ maximized: boolean }>
+      closeWindow: () => Promise<{ success: boolean }>
+      onMaximizedChanged: (
+        callback: (maximized: boolean) => void
+      ) => () => void
     }
     settingsAPI: {
       loadSettings: () => Promise<ElectronAppSettings | null>

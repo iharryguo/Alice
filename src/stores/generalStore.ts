@@ -15,11 +15,34 @@ export type AudioState =
   | 'CONFIG'
   | 'GENERATING_IMAGE'
 
+export interface ScreenshotRecord {
+  dataUrl: string
+  savedPath: string
+  width: number
+  height: number
+  displayName: string
+  question?: string
+  capturedAt: number
+}
+
+const ENGLISH_MODE_STORAGE_KEY = 'alice:english-mode'
+
+function loadEnglishMode(): boolean {
+  try {
+    return window.localStorage.getItem(ENGLISH_MODE_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 export const useGeneralStore = defineStore('general', () => {
   const customAvatarsStore = useCustomAvatarsStore()
   const audioState = ref<AudioState>('IDLE')
   const isRecordingRequested = ref<boolean>(false)
   const isTTSEnabled = ref<boolean>(true)
+  const englishMode = ref<boolean>(loadEnglishMode())
+  // 窗口是否处于最大化：最大化时把头像区让出来，聊天面板铺满整屏
+  const windowMaximized = ref<boolean>(false)
   const recognizedText = ref<string>('')
   const chatHistory = ref<ChatMessage[]>([])
   const historyManager = createHistoryManager(chatHistory)
@@ -58,6 +81,12 @@ export const useGeneralStore = defineStore('general', () => {
   const attachedFile = ref<File | null>(null)
   const awaitingWakeWord = ref<boolean>(false)
   const wakeWordDetected = ref<boolean>(false)
+  // 工具主动抓屏的临时图片队列：只在本轮对话内注入给模型，不写入聊天历史
+  const pendingScreenshots = ref<string[]>([])
+  // 最近一次截图（含缩略图），供工具卡片展示"它到底看到了什么"
+  const lastScreenshot = ref<ScreenshotRecord | null>(null)
+  // 按保存路径索引的截图记录，多屏/多次截图时工具卡片能各自取到自己的图
+  const screenshotRecords = ref<Record<string, ScreenshotRecord>>({})
 
   const setAudioState = (newState: AudioState) => {
     if (audioState.value === newState) return
@@ -209,6 +238,52 @@ export const useGeneralStore = defineStore('general', () => {
     return true
   }
 
+  const toggleRecordingRequest = () => {
+    isRecordingRequested.value = !isRecordingRequested.value
+  }
+
+  const setWindowMaximized = (value: boolean) => {
+    windowMaximized.value = value
+  }
+
+  const toggleEnglishMode = () => {
+    englishMode.value = !englishMode.value
+    try {
+      window.localStorage.setItem(
+        ENGLISH_MODE_STORAGE_KEY,
+        englishMode.value ? '1' : '0'
+      )
+    } catch {
+      // localStorage 不可用时只保留内存状态
+    }
+    statusMessage.value = englishMode.value
+      ? 'English mode on — talk to me in English'
+      : 'English mode off'
+  }
+
+  const addPendingScreenshot = (dataUrl: string) => {
+    if (!dataUrl) return
+    pendingScreenshots.value = [...pendingScreenshots.value, dataUrl]
+  }
+
+  const clearPendingScreenshots = () => {
+    pendingScreenshots.value = []
+  }
+
+  const setLastScreenshot = (record: ScreenshotRecord | null) => {
+    lastScreenshot.value = record
+  }
+
+  const addScreenshotRecord = (record: ScreenshotRecord) => {
+    if (!record?.savedPath) return
+    const key = record.savedPath.replace(/\\+/g, '/').toLowerCase()
+    screenshotRecords.value = {
+      ...screenshotRecords.value,
+      [key]: record,
+    }
+    lastScreenshot.value = record
+  }
+
   const stopPlaybackAndClearQueue = () => {
     playbackEpoch.value++
     eventBus.emit('cancel-tts')
@@ -257,5 +332,17 @@ export const useGeneralStore = defineStore('general', () => {
     addToolCallToMessageByTempId,
     updateMessageToolCallsByTempId,
     stopPlaybackAndClearQueue,
+    englishMode,
+    windowMaximized,
+    setWindowMaximized,
+    toggleEnglishMode,
+    toggleRecordingRequest,
+    pendingScreenshots,
+    lastScreenshot,
+    screenshotRecords,
+    addPendingScreenshot,
+    clearPendingScreenshots,
+    setLastScreenshot,
+    addScreenshotRecord,
   }
 })

@@ -89,6 +89,10 @@ import {
   getMainWindow,
   resizeMainWindow,
   minimizeMainWindow,
+  minimizeMainWindowToTaskbar,
+  toggleMaximizeMainWindow,
+  isMainWindowMaximized,
+  closeMainWindow,
   showOverlay,
   hideOverlay,
   focusMainWindow,
@@ -181,6 +185,23 @@ export function registerIPCHandlers(): void {
 
   ipcMain.on('close-app', () => {
     app.quit()
+  })
+
+  // 聊天面板右上角的 Windows 三键
+  ipcMain.handle('window:minimize', () => minimizeMainWindowToTaskbar())
+
+  ipcMain.handle('window:toggle-maximize', () => ({
+    maximized: toggleMaximizeMainWindow(),
+  }))
+
+  ipcMain.handle('window:is-maximized', () => ({
+    maximized: isMainWindowMaximized(),
+  }))
+
+  ipcMain.handle('window:close', () => {
+    closeMainWindow()
+    app.quit()
+    return { success: true }
   })
 
   // Thought vector operations
@@ -1657,6 +1678,18 @@ export function registerGoogleIPCHandlers(): void {
       }
     }
   )
+
+  // 浏览器扩展连接状态：渲染进程据此决定是否把 browser_context 暴露给模型
+  ipcMain.handle('websocket:status', () => {
+    const wss = getWebSocketServer()
+    if (!wss) return { running: false, clients: 0 }
+    try {
+      return { running: true, clients: wss.clients?.size ?? 0 }
+    } catch (error) {
+      console.warn('[IPC websocket:status] 读取连接数失败:', error)
+      return { running: true, clients: 0 }
+    }
+  })
 
   // WebSocket communication for browser context
   ipcMain.handle('websocket:send-request', async (event, requestData: any) => {

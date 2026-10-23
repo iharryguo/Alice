@@ -47,6 +47,9 @@ import {
   stopCodexAppServer,
 } from './codexAppServerManager'
 import DesktopManager from './desktopManager'
+import { registerApprovalHandlers } from './approvalManager'
+import { registerConversationLogHandlers } from './conversationLogManager'
+import { registerScreenCaptureHandlers } from './screenCaptureManager'
 import { backendManager } from './backendManager'
 import { setupDependencies } from '../../scripts/setup-dependencies.js'
 
@@ -146,6 +149,9 @@ function initializeManagers(): void {
 
   console.log(`[Main Index ${initId}] Initializing managers...`)
   DesktopManager.getInstance()
+  registerApprovalHandlers()
+  registerConversationLogHandlers()
+  registerScreenCaptureHandlers()
   initializeUpdater()
 
   registerIPCHandlers()

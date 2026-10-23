@@ -443,7 +443,7 @@
   {
     "type": "function",
     "name": "browser_context",
-    "description": "Use this function to get information about the current webpage in users browser. Use it when the user refers to their browser content.",
+    "description": "Use this function to get information about the current webpage in the user's browser (URL, page text, selected text, links). Requires the Alice Chrome extension to be connected - when the extension is not running this tool is not offered, so fall back to take_screenshot for anything visual on screen.",
     "strict": true,
     "parameters": {
       "type": "object",
@@ -458,6 +458,28 @@
           "type": "integer",
           "description": "Maximum character length for the response. Content will be prioritized and truncated to fit. Default is 4000.",
           "default": 4000
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "type": "function",
+    "name": "take_screenshot",
+    "description": "Takes a screenshot of the user's screen RIGHT NOW so you can actually see it. The captured picture is attached to this turn as an image, so look at the image and answer from what you see. Use this whenever the user asks what is on their screen, what they are working on, to read something visible on the screen, to inspect an error dialog or window, or any time you need visual context about the user's computer. This is the correct tool for 'look at my screen' requests; do NOT use browser_context for that. The screenshot also contains Alice's own window, and it is saved to disk so the user can open it later.",
+    "strict": false,
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": ["cursor", "primary", "all"],
+          "description": "Which display to capture. 'cursor' (default) captures the display the mouse is on, 'primary' captures the main display, 'all' captures every display.",
+          "default": "cursor"
+        },
+        "question": {
+          "type": "string",
+          "description": "Optional: what the user wants you to look for or read on the screen, e.g. '报错内容是什么'. Helps you focus your answer."
         }
       },
       "additionalProperties": false

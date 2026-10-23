@@ -9,7 +9,16 @@ import pkg from './package.json'
 import { vadStaticCopyTargets } from './build/vadAssets'
 
 export default defineConfig(({ mode, command }) => {
-  fs.rmSync('dist-electron', { recursive: true, force: true })
+  // 清理旧的 electron 产物。删不掉（文件被占用 / 系统回收站不可用）不应该让整个构建失败，
+  // Rollup 会直接覆盖同名文件。
+  try {
+    fs.rmSync('dist-electron', { recursive: true, force: true })
+  } catch (error) {
+    console.warn(
+      '[vite.config] 清理 dist-electron 失败，继续构建（可能有旧文件残留）:',
+      error instanceof Error ? error.message : error
+    )
+  }
 
   const isServe = command === 'serve'
   const isBuild = command === 'build'

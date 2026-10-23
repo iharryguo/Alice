@@ -220,6 +220,7 @@ const defaultSettings: AliceSettings = {
   assistantTools: [
     'get_current_datetime',
     'perform_web_search',
+    'take_screenshot',
     'save_memory',
     'delete_memory',
     'recall_memories',
@@ -381,6 +382,27 @@ export const useSettingsStore = defineStore('settings', () => {
   ): { settings: AliceSettings; migrated: boolean } => {
     const validated = { ...defaultSettings, ...loadedSettings }
     let migrated = false
+
+    // Migration: 老配置里没有 take_screenshot（看屏幕），补一次；只补一次，
+    // 之后用户手动关掉不会再被强行加回来。
+    try {
+      const toolsetMigrationKey = 'alice:toolset-migrated:v2'
+      const alreadyMigrated =
+        window.localStorage.getItem(toolsetMigrationKey) === '1'
+      const toolList = Array.isArray(validated.assistantTools)
+        ? validated.assistantTools
+        : []
+      if (!alreadyMigrated) {
+        if (!toolList.includes('take_screenshot')) {
+          validated.assistantTools = [...toolList, 'take_screenshot']
+          migrated = true
+          console.log('🖥️ 迁移设置：启用 take_screenshot 工具')
+        }
+        window.localStorage.setItem(toolsetMigrationKey, '1')
+      }
+    } catch (error) {
+      console.warn('工具集迁移跳过（localStorage 不可用）:', error)
+    }
 
     // Migration: Handle old 'transformers' provider
     if ((validated.sttProvider as any) === 'transformers') {

@@ -257,7 +257,8 @@ const toggleSidebar = async () => {
   if (props.isElectron) {
     await nextTick()
     const targetWidth = openSidebar.value ? 1200 : 500
-    const targetHeight = 500
+    // 聊天驾驶舱需要更高的面板（消息流 + 输入区 + 审批卡片）
+    const targetHeight = openSidebar.value ? 700 : 500
     ;(window as any).electron.resize({
       width: targetWidth,
       height: targetHeight,

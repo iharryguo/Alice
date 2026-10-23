@@ -17,7 +17,8 @@ import { createTurnManager } from '../modules/conversation/turnManager'
 import { createReminderHandler } from '../modules/conversation/reminderHandler'
 import { createChatOrchestrator } from '../modules/conversation/chatOrchestrator'
 import { createBackendService } from '../modules/conversation/backendService'
-import { buildAssistantSystemPrompt } from '../prompts/systemPrompt'
+import { composeAssistantSystemPrompt } from '../prompts/composeSystemPrompt'
+import { ENGLISH_REPLY_REMINDER } from '../prompts/englishCoachPrompt'
 import type {
   ToolCallHandlerDependencies,
 } from '../modules/conversation/types'
@@ -297,7 +298,9 @@ export const useConversationStore = defineStore('conversation', () => {
   const llmAbortController = ref<AbortController | null>(null)
   const ephemeralEmotionalContext = ref<string | null>(null)
   const getComposedSystemPrompt = () =>
-    buildAssistantSystemPrompt(settingsStore.config.assistantSystemPrompt)
+    composeAssistantSystemPrompt(settingsStore.config.assistantSystemPrompt, {
+      englishMode: generalStore.englishMode,
+    })
 
   const chatWithCleanHistory = async () => {
     console.log(
@@ -445,6 +448,11 @@ export const useConversationStore = defineStore('conversation', () => {
       getMaxHistoryMessagesForApi: () =>
         settingsStore.config.MAX_HISTORY_MESSAGES_FOR_API,
       getAiProvider: () => settingsStore.config.aiProvider,
+      getPendingImages: () => [...generalStore.pendingScreenshots],
+      // 双保险：英语模式下在最新一条用户消息后加一句极短的语言提醒，
+      // 对小模型来说，离用户话最近的指令权重最高
+      getResponseLanguageRule: () =>
+        generalStore.englishMode ? ENGLISH_REPLY_REMINDER : null,
     }
   }
 
@@ -833,7 +841,58 @@ export const useConversationStore = defineStore('conversation', () => {
 
   const chat = async () => {
     currentConversationTurnId.value = `turn-${Date.now()}`
+    // 新一轮对话开始，清掉上一轮工具抓的截图，避免旧画面被反复计费
+    generalStore.clearPendingScreenshots()
     await chatOrchestrator.runChat()
+  }
+
+  /** 朗读指定文本（历史消息回放 / 单条消息朗读按钮） */
+  const speakText = async (text: string) => {
+    const cleaned = String(text || '').trim()
+    if (!cleaned) return
+
+    generalStore.stopPlaybackAndClearQueue()
+
+    const controller = new AbortController()
+    ttsAbortController.value = controller
+    const clipped =
+      cleaned.length > 1500 ? `${cleaned.slice(0, 1500)}…` : cleaned
+
+    try {
+      const response = await api.ttsStream(clipped, controller.signal)
+      if (controller.signal.aborted) return
+      if (queueAudioForPlayback(response)) {
+        setAudioState('SPEAKING')
+      }
+    } catch (error) {
+      if (!controller.signal.aborted && !isExpectedAbortError(error)) {
+        console.error('[TTS] 朗读消息失败:', error)
+      }
+    }
+  }
+
+  const stopSpeaking = () => {
+    generalStore.stopPlaybackAndClearQueue()
+    if (audioState.value === 'SPEAKING') {
+      setAudioState(isRecordingRequested.value ? 'LISTENING' : 'IDLE')
+    }
+  }
+
+  /** 中断当前这一轮回复（停止按钮 / Esc） */
+  const cancelCurrentTurn = () => {
+    eventBus.emit('cancel-llm-stream')
+    generalStore.stopPlaybackAndClearQueue()
+    if (llmAbortController.value) {
+      try {
+        llmAbortController.value.abort()
+      } catch {
+        // 已结束的请求忽略
+      }
+      llmAbortController.value = null
+    }
+    if (audioState.value !== 'IDLE' && audioState.value !== 'LISTENING') {
+      setAudioState(isRecordingRequested.value ? 'LISTENING' : 'IDLE')
+    }
   }
 
   const transcribeAudioMessage = async (
@@ -912,6 +971,8 @@ export const useConversationStore = defineStore('conversation', () => {
     }
     currentConversationTurnId.value = `turn-${Date.now()}`
     setAudioState('WAITING_FOR_RESPONSE')
+    // 上下文动作也是一次新请求，不带上上一轮工具抓的截图
+    generalStore.clearPendingScreenshots()
 
     const isNewChain = currentResponseId.value === null
     const constructedApiInput = await buildApiInput(isNewChain)
@@ -972,10 +1033,9 @@ export const useConversationStore = defineStore('conversation', () => {
       }
     }
 
+    // 上下文动作也必须走统一的提示词拼装，否则英语模式在这条路径上会失效
     const finalApiInput = [...contextMessages, ...constructedApiInput]
-    const finalInstructions = buildAssistantSystemPrompt(
-      settingsStore.config.assistantSystemPrompt
-    )
+    const finalInstructions = getComposedSystemPrompt()
 
     const assistantMessagePlaceholder: ChatMessage = {
       role: 'assistant',
@@ -1053,5 +1113,8 @@ export const useConversationStore = defineStore('conversation', () => {
     fetchModels,
     currentResponseId,
     triggerConversationSummarization,
+    speakText,
+    stopSpeaking,
+    cancelCurrentTurn,
   }
 })

@@ -1,26 +1,45 @@
 <template>
   <div
-    class="sidebar-wrapper h-[480px] ml-[380px] bg-gray-900/90 flex flex-col absolute z-10 rounded-r-lg"
+    class="sidebar-wrapper fixed top-0 bottom-0 right-0 bg-gray-900/95 flex flex-col z-10 rounded-r-lg overflow-hidden"
     :class="{ open: openSidebar }"
+    :style="{ left: generalStore.windowMaximized ? '300px' : '480px' }"
   >
     <div
-      class="sidebar-content w-full flex-1 overflow-y-auto flex flex-col relative"
-      ref="sidebarContentElement"
-      @scroll="handleScroll"
+      class="sidebar-content w-full flex-1 min-h-0 flex flex-col relative overflow-hidden"
     >
-      <Chat
-        @processRequest="$emit('processRequest')"
+      <ChatCockpit
         v-if="sideBarView === 'chat'"
+        :disabled="!isConversationReady"
+        @send="handleSend"
       />
-      <MemoryManagerComponent v-if="sideBarView === 'memories'" />
+      <div
+        v-else-if="sideBarView === 'memories'"
+        class="flex flex-col h-full min-h-0"
+      >
+        <div
+          class="flex items-center gap-2 px-3 py-2 border-b border-white/10 shrink-0"
+        >
+          <button
+            class="text-xs text-gray-400 hover:text-white transition-colors"
+            @click="generalStore.sideBarView = 'chat'"
+          >
+            ← 返回对话
+          </button>
+          <span class="text-xs text-gray-500 ml-auto">记忆管理</span>
+        </div>
+        <div class="flex-1 min-h-0 overflow-y-auto">
+          <MemoryManagerComponent />
+        </div>
+      </div>
 
       <div
         v-if="
           sideBarView === 'chat' &&
           !isConversationReady &&
-          !settingsStore.isLoading
+          !settingsStore.isLoading &&
+          !generalStore.chatHistory.length
         "
-        class="absolute inset-0 flex items-center justify-center text-center p-4 z-10"
+        class="absolute inset-0 flex items-center justify-center text-center p-4 z-20 bg-gray-900/70"
       >
         <div class="text-white">
           <p class="text-lg font-semibold mb-2">
@@ -55,116 +74,29 @@
         </div>
       </div>
     </div>
-
-    <div
-      class="w-full pt-4 pr-4"
-      v-if="sideBarView === 'chat' && isConversationReady"
-    >
-      <div
-        class="gradient-border-wrapper"
-        :class="{ 'opacity-50': !isConversationReady }"
-      >
-        <div class="flex items-center gap-1 bg-gray-800 rounded-lg pl-2">
-          <img
-            :src="pdfIcon"
-            alt="PDF Icon"
-            class="w-6 h-6 mr-2 cursor-pointer hover:opacity-60"
-            title="Attach PDF"
-            @click="triggerFileUpload"
-          />
-          <input
-            ref="fileInput"
-            type="file"
-            @change="handleFileSelect"
-            class="hidden"
-            accept=".pdf"
-          />
-          <input
-            v-model="chatInput"
-            @keyup.enter="chatInputHandle"
-            class="input w-full bg-transparent border-0 shadow-none text-white p-3 relative z-10 disabled:cursor-not-allowed focus:outline-none focus:shadow-none"
-            placeholder="Type your message here..."
-            :disabled="!isConversationReady"
-          />
-        </div>
-      </div>
-      <div
-        v-if="attachedFile"
-        class="text-xs text-gray-400 p-1 pl-3 flex justify-between items-center"
-      >
-        <span class="truncate" :title="attachedFile.name"
-          >Attached: {{ attachedFile.name }}</span
-        >
-        <button
-          @click="clearAttachedFile"
-          class="btn btn-xs btn-ghost"
-          title="Remove file"
-        >
-          ✕
-        </button>
-      </div>
-      <div
-        class="w-full px-4 pt-1 pb-2 text-center text-xs text-gray-500"
-        v-if="!isConversationReady && !attachedFile"
-      >
-        {{
-          generalStore.statusMessage.includes('Error:')
-            ? 'AI Services unavailable. Check settings or retry.'
-            : 'Initializing AI services...'
-        }}
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, nextTick, computed } from 'vue'
-import Chat from './Chat.vue'
+import { computed, onMounted, watch } from 'vue'
+import ChatCockpit from './chat/ChatCockpit.vue'
 import MemoryManagerComponent from './MemoryManager.vue'
 import { useGeneralStore } from '../stores/generalStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useConversationStore } from '../stores/conversationStore'
 import { storeToRefs } from 'pinia'
-import { pdfIcon } from '../utils/assetsImport'
 
 const generalStore = useGeneralStore()
 const settingsStore = useSettingsStore()
 const conversationStore = useConversationStore()
 
-const sidebarContentElement = ref<null | HTMLElement>(null)
 const emit = defineEmits(['processRequest'])
 
-// Smart scrolling state
-const shouldAutoScroll = ref(true)
-const scrollThreshold = 100 // pixels from bottom to consider "at bottom"
-
-const { openSidebar, chatInput, sideBarView, attachedFile } =
-  storeToRefs(generalStore)
-const { chatHistory } = storeToRefs(generalStore)
+const { openSidebar, sideBarView } = storeToRefs(generalStore)
 const { isInitialized: conversationIsInitialized } =
   storeToRefs(conversationStore)
 
 const isConversationReady = computed(() => conversationIsInitialized.value)
-const fileInput = ref<HTMLInputElement | null>(null)
-
-const triggerFileUpload = () => {
-  if (!isConversationReady.value) return
-  fileInput.value?.click()
-}
-
-const handleFileSelect = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  if (target.files && target.files[0]) {
-    generalStore.attachedFile = target.files[0]
-  }
-}
-
-const clearAttachedFile = () => {
-  generalStore.attachedFile = null
-  if (fileInput.value) {
-    fileInput.value.value = ''
-  }
-}
 
 const openSettingsWindow = async () => {
   if (window.aliceIPC) {
@@ -176,73 +108,8 @@ const openSettingsWindow = async () => {
   }
 }
 
-const changeSidebarView = async (newView: 'chat' | 'memories') => {
-  sideBarView.value = newView
-  if (newView === 'chat') {
-    shouldAutoScroll.value = true // Ensure we scroll when switching to chat
-    await nextTick(() => scrollChatToBottom())
-  }
-}
-
-let debounceTimeout = ref<number | null>(null)
-const debounceDelay = 300
-
-const chatInputHandle = async () => {
-  const text = chatInput.value.trim()
-  const file = generalStore.attachedFile
-
-  if ((text.length > 0 || file) && isConversationReady.value) {
-    if (debounceTimeout.value) clearTimeout(debounceTimeout.value)
-
-    debounceTimeout.value = window.setTimeout(async () => {
-      const textToSend = chatInput.value.trim()
-      chatInput.value = ''
-      shouldAutoScroll.value = true // Ensure we scroll after sending a message
-      emit('processRequest', textToSend)
-      clearAttachedFile()
-    }, debounceDelay)
-  } else if (!isConversationReady.value) {
-    generalStore.statusMessage = 'AI not ready. Please wait or check settings.'
-  }
-}
-
-watch(
-  chatHistory,
-  () => {
-    if (sideBarView.value === 'chat') {
-      smartScrollToBottom()
-    }
-  },
-  { deep: true }
-)
-
-const isAtBottom = () => {
-  if (!sidebarContentElement.value) return false
-  const element = sidebarContentElement.value
-  const distanceFromBottom =
-    element.scrollHeight - element.scrollTop - element.clientHeight
-  return distanceFromBottom <= scrollThreshold
-}
-
-const handleScroll = () => {
-  shouldAutoScroll.value = isAtBottom()
-}
-
-const scrollChatToBottom = () => {
-  requestAnimationFrame(() => {
-    if (!sidebarContentElement.value) return
-    sidebarContentElement.value.scrollTo({
-      top: sidebarContentElement.value.scrollHeight,
-      behavior: 'smooth',
-    })
-    shouldAutoScroll.value = true
-  })
-}
-
-const smartScrollToBottom = () => {
-  if (shouldAutoScroll.value) {
-    scrollChatToBottom()
-  }
+const handleSend = (text: string) => {
+  emit('processRequest', text)
 }
 
 const retryInitialization = async () => {
@@ -317,7 +184,7 @@ watch(
 
         setTimeout(() => {
           // Keep chat selected when the user opens the panel after settings close.
-          changeSidebarView('chat')
+          generalStore.sideBarView = 'chat'
           if (window.aliceIPC) {
             window.aliceIPC.invoke('settings-window:close').catch(console.error)
           }

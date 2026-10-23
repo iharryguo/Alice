@@ -97,6 +97,15 @@ contextBridge.exposeInMainWorld('electron', {
   showOverlay: () => ipcRenderer.send('show-overlay'),
   getScreenshot: () => ipcRenderer.send('get-screenshot'),
   closeApp: () => ipcRenderer.send('close-app'),
+  minimize: () => aliceIPC.invoke('window:minimize'),
+  toggleMaximize: () => aliceIPC.invoke('window:toggle-maximize'),
+  isMaximized: () => aliceIPC.invoke('window:is-maximized'),
+  closeWindow: () => aliceIPC.invoke('window:close'),
+  onMaximizedChanged: (callback: (maximized: boolean) => void) => {
+    const listener = (maximized: boolean) => callback(maximized)
+    aliceIPC.on('window:maximized-changed', listener)
+    return () => aliceIPC.off('window:maximized-changed', listener)
+  },
 })
 
 // --------- Expose a narrow, allowlisted API to the Renderer process ---------

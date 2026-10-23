@@ -4,8 +4,11 @@
   transition: opacity 0.3s ease-in-out;
   transition: border 0.3s ease-in-out;
 }
+/* 打开状态：宽度由 left/right 决定（见 Sidebar.vue），跟着窗口一起拉伸到右边缘，
+   不再有 960px 上限 —— 否则窗口最大化之后右侧会留一大片空白。 */
 .sidebar-wrapper.open {
-  @apply w-full max-w-[960px] py-4 pl-[300px] opacity-100 border-blue-500/50 shadow-md;
+  /* 不再留上下内边距：顶部标题栏要贴着窗口上沿，最大化时三个窗口按钮才好点 */
+  @apply w-auto max-w-none py-0 opacity-100 border-blue-500/50 shadow-md;
 }
 .gradient-border-wrapper {
   position: relative;

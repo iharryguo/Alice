@@ -1,32 +1,35 @@
 <template>
   <div class="h-screen flex w-full items-center justify-start relative">
+    <!-- 最大化时铺一层不透明底色：窗口本身铺满屏幕，圆形头像浮在这层之上，
+         不再让桌面从左侧透出来（透明窗口看起来像"没最大化"） -->
+    <div v-if="windowMaximized" class="max-backdrop"></div>
     <div
-      class="avatar-wrapper flex container h-full items-center justify-center relative z-2"
-      :class="{ mini: isMinimized }"
+      class="avatar-wrapper flex w-full h-full items-center relative z-2"
+      :class="{
+        mini: isMinimized,
+        'justify-start': openSidebar,
+        'justify-center': !openSidebar,
+      }"
     >
-      <div class="avatar" :class="{ open: openSidebar }">
+      <div
+        class="avatar"
+        :class="{ open: openSidebar, 'avatar-max': windowMaximized }"
+      >
         <div
           class="avatar-ring"
-          :style="avatarRingStyle"
+          :style="[avatarRingStyle, avatarSizeStyle]"
           :class="{
             'ring-green-500!': audioState === 'SPEAKING',
             'ring-cyan-500!':
               audioState === 'PROCESSING_AUDIO' ||
               audioState === 'WAITING_FOR_RESPONSE',
             'ring-blue-500!': audioState === 'LISTENING',
-            'w-[200px] h-[200px]': isMinimized,
-            'w-[480px] h-[480px]': !isMinimized && isElectron,
-            'w-[430px] h-[430px]': !isElectron,
           }"
         >
           <audio ref="audioPlayerElement" class="hidden"></audio>
           <video
             class="max-w-screen-md rounded-full"
-            :class="{
-              'h-[200px]': isMinimized,
-              'h-[480px]': !isMinimized && isElectron,
-              'h-[430px]': !isElectron,
-            }"
+            :style="avatarVideoStyle"
             ref="aiVideoElement"
             :src="videoSource"
             loop
@@ -34,7 +37,9 @@
             autoplay
             playsinline
           ></video>
+          <!-- 最大化时头像缩成小圆只做"存在感"，控制项交给聊天输入区 -->
           <Actions
+            v-if="!windowMaximized"
             @takeScreenShot="handleTakeScreenshot"
             @togglePlaying="handleToggleTTS"
             @toggleRecording="handleToggleRecording"
@@ -94,6 +99,7 @@ const {
   isRecordingRequested,
   takingScreenShot,
   avatarFallbackImage,
+  windowMaximized,
 } = storeToRefs(generalStore)
 const { setAudioState } = generalStore
 
@@ -103,6 +109,24 @@ const audioPlayerElement = vueRef<HTMLAudioElement | null>(null)
 const aiVideoElement = vueRef<HTMLVideoElement | null>(null)
 
 let isProcessingRequest = false
+
+// 最大化后头像缩成左侧的小圆，给聊天区让出宽度；迷你模式保持 200
+const MAXIMIZED_AVATAR_SIZE = 240
+
+const avatarPixelSize = computed(() => {
+  if (isMinimized.value) return 200
+  if (windowMaximized.value) return MAXIMIZED_AVATAR_SIZE
+  return isElectron ? 480 : 430
+})
+
+const avatarSizeStyle = computed<CSSProperties>(() => ({
+  width: `${avatarPixelSize.value}px`,
+  height: `${avatarPixelSize.value}px`,
+}))
+
+const avatarVideoStyle = computed<CSSProperties>(() => ({
+  height: `${avatarPixelSize.value}px`,
+}))
 
 const avatarRingStyle = computed<CSSProperties>(() => {
   const style: CSSProperties = {
@@ -428,5 +452,35 @@ const processRequest = async (
 /* 聊天侧栏整体不可拖动，保证输入框/滚动条/按钮正常工作 */
 .avatar-wrapper :deep(.sidebar-wrapper) {
   -webkit-app-region: no-drag;
+}
+
+/* 最大化时的整窗底色：让窗口看起来真的铺满，而不是中间一块、四周透明 */
+.max-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(
+      120% 90% at 8% 45%,
+      rgba(29, 78, 116, 0.55) 0%,
+      rgba(8, 15, 30, 0) 55%
+    ),
+    #070c17;
+}
+
+/* 最大化后露在左侧的小头像：离窗口左沿留一点呼吸 */
+.avatar-max {
+  margin-left: 24px;
+}
+
+/* 最大化后露在左侧的小头像：给个柔和的过渡，尺寸变化不突兀 */
+.avatar-ring {
+  transition:
+    width 0.18s ease-out,
+    height 0.18s ease-out;
+}
+
+.avatar video {
+  transition: height 0.18s ease-out;
 }
 </style>

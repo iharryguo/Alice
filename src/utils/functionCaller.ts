@@ -1,5 +1,6 @@
 import { createDualEmbeddings, createEmbedding } from '../services/apiService'
 import { useCustomToolsStore } from '../stores/customToolsStore'
+import { useGeneralStore } from '../stores/generalStore'
 import { manage_clipboard } from './functions/clipboard'
 import {
   open_path,
@@ -53,6 +54,20 @@ interface GetEmailContentArgs {
 interface BrowserContextArgs {
   focus?: 'content' | 'selection' | 'links' | 'all'
   maxLength?: number
+}
+
+interface TakeScreenshotArgs {
+  target?: 'cursor' | 'primary' | 'all'
+  question?: string
+}
+
+interface ScreenshotShotPayload {
+  dataUrl: string
+  width: number
+  height: number
+  savedPath: string
+  displayName: string
+  scaleFactor?: number
 }
 
 interface WebSearchArgs {
@@ -729,6 +744,75 @@ async function searxng_web_search(
   }
 }
 
+async function take_screenshot(
+  args: TakeScreenshotArgs = {}
+): Promise<FunctionResult> {
+  try {
+    if (typeof window === 'undefined' || !window.aliceIPC?.invoke) {
+      return {
+        success: false,
+        error: '截图只能 Alice 桌面应用中调用，当前环境不支持。',
+      }
+    }
+
+    const target: TakeScreenshotArgs['target'] =
+      args.target === 'all' || args.target === 'primary' ? args.target : 'cursor'
+
+    const result = await window.aliceIPC.invoke('screen:capture', { target })
+
+    if (
+      !result?.success ||
+      !Array.isArray(result.shots) ||
+      result.shots.length === 0
+    ) {
+      return {
+        success: false,
+        error: result?.error || '屏幕抓取失败，没有拿到任何画面。',
+      }
+    }
+
+    const shots = result.shots as ScreenshotShotPayload[]
+    const generalStore = useGeneralStore()
+
+    shots.forEach(shot => {
+      if (shot?.dataUrl) generalStore.addPendingScreenshot(shot.dataUrl)
+    })
+
+    const capturedAt = Date.now()
+    shots.forEach(shot => {
+      generalStore.addScreenshotRecord({
+        dataUrl: shot.dataUrl,
+        savedPath: shot.savedPath,
+        width: shot.width,
+        height: shot.height,
+        displayName: shot.displayName,
+        question: args.question,
+        capturedAt,
+      })
+    })
+
+    return {
+      success: true,
+      data: {
+        message: `已抓取 ${shots.length} 块屏幕，截图已作为图片附加到本轮对话。请直接观察图片后再回答，不要凭空猜测屏幕内容。`,
+        question: args.question || null,
+        captures: shots.map(shot => ({
+          display: shot.displayName,
+          resolution: `${shot.width}x${shot.height}`,
+          savedPath: shot.savedPath,
+        })),
+        hint: '如果这一轮你并没有收到图片（例如当前模型不支持看图），就把 captures 里的 savedPath 告诉用户，让他自己打开确认，并说明可以换用支持看图的模型。',
+      },
+    }
+  } catch (error: any) {
+    console.error('Error in take_screenshot:', error)
+    return {
+      success: false,
+      error: `截屏失败: ${error?.message || String(error)}`,
+    }
+  }
+}
+
 const functionRegistry: {
   [key: string]: (args: any, settings?: any) => Promise<FunctionResult>
 } = {
@@ -752,6 +836,7 @@ const functionRegistry: {
   schedule_task,
   manage_scheduled_tasks,
   browser_context: browser_context,
+  take_screenshot,
   perform_web_search: perform_web_search,
   searxng_web_search: searxng_web_search,
 }
@@ -779,6 +864,7 @@ const functionSchemas = {
   schedule_task: { required: ['name', 'schedule', 'action_type', 'details'] },
   manage_scheduled_tasks: { required: ['action'] },
   browser_context: { required: [] },
+  take_screenshot: { required: [] },
   perform_web_search: { required: ['query'] },
   searxng_web_search: { required: ['query'] },
 }

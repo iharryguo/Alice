@@ -39,15 +39,22 @@ export function useAudioProcessing() {
 
   // 打断灵敏度与回声保护相关常量（可按真机体感微调）
   const LISTENING_SPEECH_THRESHOLD = 0.65 // 平时（未播放时）的语音判定阈值
-  const SPEAKING_SPEECH_THRESHOLD = 0.78 // 播放期间：比平时更严格，但仍要能听到真人
+  const SPEAKING_SPEECH_THRESHOLD = 0.75 // 播放期间略严一点，但仍要能听清真人
   const TURN_START_ECHO_GUARD_MS = 700 // 新一轮播放开始后的回声保护窗口
   const FIRST_PLAYBACK_ECHO_GUARD_MS = 1500 // 应用启动后首次播放：AEC 尚未收敛
   const DUCKED_VOLUME = 0.35 // 待判定期间把 TTS 音量压低到 35%
+  // 用户持续说话超过这个时长就先暂停 TTS，不再等语音结束、更不等转写
+  const BARGE_IN_WATCHDOG_MS = 500
+  const SPEAKING_REDEMPTION_MS = 350 // 播放期间快速收句
+  const LISTENING_REDEMPTION_MS = 1000 // 普通对话：别把一句话切成两段
   let playbackStartedAt = 0
   let isFirstPlaybackAfterStart = true
   let volumeBeforeDuck = 1
+  let bargeInWatchdog: ReturnType<typeof setTimeout> | null = null
+  let bargeInOnsetAt = 0
+  let isBargeInPaused = false
 
-  // 播放期间提高 VAD 阈值，防止被自己的声音打断
+  // 播放期间提高 VAD 阈值并在播放期快速收句，防止被自己的声音打断
   const applyVadThresholdForState = (state: string) => {
     if (!myvad.value) return
     myvad.value.setOptions({
@@ -55,7 +62,19 @@ export function useAudioProcessing() {
         state === 'SPEAKING'
           ? SPEAKING_SPEECH_THRESHOLD
           : LISTENING_SPEECH_THRESHOLD,
+      // vad-web 在判定"语音结束"时才读取这个值，所以按状态切换是生效的
+      redemptionMs:
+        state === 'SPEAKING'
+          ? SPEAKING_REDEMPTION_MS
+          : LISTENING_REDEMPTION_MS,
     })
+  }
+
+  const clearBargeInWatchdog = () => {
+    if (bargeInWatchdog) {
+      clearTimeout(bargeInWatchdog)
+      bargeInWatchdog = null
+    }
   }
 
   // 是否处于回声保护窗口内（播放刚开始时，回声消除尚未收敛，忽略打断）
@@ -104,17 +123,55 @@ export function useAudioProcessing() {
   }
 
   /**
+   * 看门狗到点：用户已经连续说了 500ms，直接把 TTS 暂停。
+   * 只 pause，不动 audioState / playbackEpoch / 队列 —— 万一是咳嗽或回声，
+   * 还能原地恢复播放，回答不会丢。
+   */
+  const pausePlaybackForJudgement = () => {
+    const player = generalStore.audioPlayer
+    if (!player || isBargeInPaused) return
+    try {
+      player.pause()
+      isBargeInPaused = true
+      generalStore.statusMessage = '听到你说话了…'
+      console.log(
+        `[Barge-In] TTS paused after ${Date.now() - bargeInOnsetAt}ms of speech`
+      )
+    } catch (error) {
+      console.warn('[Barge-In] 暂停播放失败:', error)
+    }
+  }
+
+  /** 判定为噪音/回声：把刚才暂停的播放原地恢复 */
+  const resumePlaybackForJudgement = () => {
+    const player = generalStore.audioPlayer
+    if (!player || !isBargeInPaused) return
+    isBargeInPaused = false
+    void player.play().catch(error => {
+      console.warn('[Barge-In] 恢复播放失败:', error)
+    })
+    console.log('[Barge-In] Playback resumed (utterance judged as noise/echo).')
+  }
+
+  /**
    * 播放期间收到一段语音后的处理：
    * - 语气词 / 自声回声 / 空转写 → 恢复音量，继续播放
    * - 明确指令或真实用户语音 → 停止原回答，接管对话
    */
   const handleBargeInUtterance = async (audio: Float32Array) => {
     const spokenText = getLastAssistantText()
+    clearBargeInWatchdog()
+
+    const giveUpAndResume = () => {
+      isBargeInPending.value = false
+      isSpeechDetected.value = false
+      restorePlaybackVolume()
+      resumePlaybackForJudgement()
+    }
+
     try {
       if (!audio || audio.length === 0) {
-        restorePlaybackVolume()
-        isBargeInPending.value = false
-        isSpeechDetected.value = false
+        giveUpAndResume()
         return
       }
 
@@ -125,14 +182,12 @@ export function useAudioProcessing() {
 
       if (!isLikelyMeaningfulSpeech(transcription, spokenText)) {
         console.log(
-          `[Barge-In] Ignoring noise/echo after ducking: "${transcription.slice(0, 60)}"`
+          `[Barge-In] Ignoring noise/echo: "${transcription.slice(0, 60)}"`
         )
         if (isMeaninglessFiller(transcription)) {
           console.log('[Barge-In] Utterance classified as filler.')
         }
-        restorePlaybackVolume()
-        isBargeInPending.value = false
-        isSpeechDetected.value = false
+        giveUpAndResume()
         return
       }
 
@@ -141,6 +196,7 @@ export function useAudioProcessing() {
       )
       isBargeInPending.value = false
       isSpeechDetected.value = false
+      isBargeInPaused = false
       restorePlaybackVolume()
       eventBus.emit('cancel-llm-stream')
       generalStore.stopPlaybackAndClearQueue()
@@ -152,9 +208,7 @@ export function useAudioProcessing() {
         '[Barge-In] Failed to process interruption; restoring playback:',
         error
       )
-      restorePlaybackVolume()
-      isBargeInPending.value = false
-      isSpeechDetected.value = false
+      giveUpAndResume()
     }
   }
 
@@ -294,6 +348,16 @@ export function useAudioProcessing() {
             // 等转写结果出来再决定恢复音量还是接管。
             isBargeInPending.value = true
             duckPlayback()
+            bargeInOnsetAt = Date.now()
+            clearBargeInWatchdog()
+            // 关键提速：不等这段语音结束、更不等转写；只要用户连续说满
+            // BARGE_IN_WATCHDOG_MS 就直接把 TTS 暂停（可恢复）
+            bargeInWatchdog = setTimeout(() => {
+              bargeInWatchdog = null
+              if (!isBargeInPending.value) return
+              if (audioState.value !== 'SPEAKING') return
+              pausePlaybackForJudgement()
+            }, BARGE_IN_WATCHDOG_MS)
             console.log(
               '[Barge-In] Speech during playback detected; ducking TTS for judgement.'
             )
@@ -303,6 +367,7 @@ export function useAudioProcessing() {
               `[VAD Callback] Speech ended. Audio length: ${audio?.length}. Current state: ${audioState.value}`
             )
             if (isBargeInPending.value) {
+              clearBargeInWatchdog()
               void handleBargeInUtterance(audio)
               return
             }
@@ -347,6 +412,8 @@ export function useAudioProcessing() {
     if (!myvad.value) {
       return
     }
+    clearBargeInWatchdog()
+    isBargeInPaused = false
     console.log('[VAD Manager] Destroying VAD instance...')
     const vadInstance = myvad.value
     myvad.value = null
@@ -455,11 +522,24 @@ export function useAudioProcessing() {
   }
 
   // 播放状态变化时：动态调整 VAD 阈值并记录本轮播放的起始时间（回声保护用）
+  // 任何一次真正的停止（playbackEpoch 自增：点停止、取消本轮、换会话）
+  // 都要复位打断标记，否则 isBargeInPaused 卡在 true 会让后续打断静默失效
+  watch(
+    () => generalStore.playbackEpoch,
+    () => {
+      isBargeInPaused = false
+      clearBargeInWatchdog()
+    }
+  )
+
   watch(audioState, (newState, oldState) => {
     if (newState === 'SPEAKING') {
       playbackStartedAt = Date.now()
     } else if (oldState === 'SPEAKING') {
       isFirstPlaybackAfterStart = false
+      // 离开播放态：这次打断判定结束，别让看门狗再触发
+      clearBargeInWatchdog()
+      isBargeInPaused = false
     }
     applyVadThresholdForState(newState)
   })
@@ -486,6 +566,8 @@ export function useAudioProcessing() {
         }
       }
     } else {
+      clearBargeInWatchdog()
+      isBargeInPaused = false
       destroyVAD()
       if (audioState.value === 'LISTENING') {
         setAudioState('IDLE')
@@ -504,6 +586,8 @@ export function useAudioProcessing() {
   }
 
   onUnmounted(() => {
+    clearBargeInWatchdog()
+    isBargeInPaused = false
     if (isBargeInPending.value) {
       restorePlaybackVolume()
       isBargeInPending.value = false

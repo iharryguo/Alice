@@ -1,5 +1,6 @@
 .avatar-wrapper {
-  height: 500px;
+  /* 原来是写死的 500px（圆形窗口时代的假设），窗口最大化后会把布局钉在半屏 */
+  height: 100%;
 }
 .avatar-wrapper.mini {
   height: 200px;
@@ -12,8 +13,9 @@
 .avatar {
   transition: all 0.1s ease-in-out;
 }
+/* 面板现在是 fixed 定位，不再需要给头像加右侧留白 */
 .avatar.open {
-  @apply pr-[505px];
+  @apply pr-0;
 }
 .avatar:hover .inside-actions {
   opacity: 1;

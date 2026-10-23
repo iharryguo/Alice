@@ -7,6 +7,42 @@ import {
 import { PROVIDER_CONFIGS } from './providerCatalog'
 
 const OPENAI_IMAGE_GENERATION_MODEL = 'gpt-image-2'
+const BROWSER_STATUS_CACHE_MS = 2000
+
+let browserStatusCache: { clients: number; checkedAt: number } | null = null
+
+/**
+ * Chrome 扩展没连上时，browser_context 必然失败（模型还会一直误选它）。
+ * 这里查一次主进程的 WebSocket 连接数，没客户端就把工具从列表里摘掉；
+ * 查询本身失败也按"不可用"处理（fail-closed）。
+ */
+async function isBrowserExtensionConnected(): Promise<boolean> {
+  const now = Date.now()
+  if (
+    browserStatusCache &&
+    now - browserStatusCache.checkedAt < BROWSER_STATUS_CACHE_MS
+  ) {
+    return browserStatusCache.clients > 0
+  }
+
+  if (typeof window === 'undefined' || !window.aliceIPC?.invoke) {
+    return false
+  }
+
+  try {
+    const status = await window.aliceIPC.invoke('websocket:status')
+    const clients = Number(status?.clients) || 0
+    browserStatusCache = { clients, checkedAt: now }
+    return clients > 0
+  } catch (error) {
+    console.warn(
+      '[Tools] 读取浏览器扩展连接状态失败，本次下架 browser_context:',
+      error
+    )
+    browserStatusCache = { clients: 0, checkedAt: now }
+    return false
+  }
+}
 
 export async function buildToolsForProvider(): Promise<any[]> {
   const settings = useSettingsStore().config
@@ -14,6 +50,13 @@ export async function buildToolsForProvider(): Promise<any[]> {
 
   if (settings.assistantTools && settings.assistantTools.length > 0) {
     for (const toolName of settings.assistantTools) {
+      if (
+        toolName === 'browser_context' &&
+        !(await isBrowserExtensionConnected())
+      ) {
+        continue
+      }
+
       const toolDefinition = PREDEFINED_OPENAI_TOOLS.find(
         (tool: ApiRequestBodyFunctionTool) => tool.name === toolName
       )

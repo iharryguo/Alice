@@ -338,6 +338,8 @@ function getToolInfo(name: string): {
     add_torrent_to_qb: 'Add Torrent to QB',
     perform_web_search: 'Web Search (Tavily)',
     searxng_web_search: 'Web Search (SearXNG)',
+    take_screenshot: 'Screen Screenshot',
+    browser_context: 'Browser Context (Extension)',
   }
 
   const descriptionMap: Record<string, string> = {
@@ -369,6 +371,8 @@ function getToolInfo(name: string): {
       'Alice can add a torrent to qBittorrent (requires qBittorrent)',
     browser_context:
       'Alice can get information about the current webpage in users browser (requires browser extension)',
+    take_screenshot:
+      'Alice can capture your screen and actually look at it (errors, windows, text)',
     perform_web_search: 'For models that lack web search capabilities (Tavily)',
     searxng_web_search:
       'For models that lack web search capabilities (SearXNG)',

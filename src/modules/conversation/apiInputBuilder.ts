@@ -1,6 +1,7 @@
 import type OpenAI from 'openai'
 import type { AppChatMessageContentPart } from '../../types/chat'
 import { isChatCompletionsProvider } from '../../services/llmProviders/providerCatalog'
+import { appendPendingImages } from './pendingImageInjection'
 
 export type ConversationHistoryRole =
   | 'user'
@@ -24,6 +25,10 @@ export interface ApiInputBuilderDependencies {
   getChatHistory(): ConversationHistoryMessage[]
   getMaxHistoryMessagesForApi(): number
   getAiProvider(): string
+  /** 工具（take_screenshot）在本轮攒下的截图，仅在构建最新一条 user 消息时注入 */
+  getPendingImages?(): string[]
+  /** 英语模式下追加到最新一条用户消息末尾的极短语言提醒 */
+  getResponseLanguageRule?(): string | null
 }
 
 export interface ApiInputBuilder {
@@ -46,6 +51,11 @@ export function createApiInputBuilder(
       const maxHistory = dependencies.getMaxHistoryMessagesForApi()
       const apiInput: OpenAI.Responses.Request.InputItemLike[] = []
       const recentHistory = historyToBuildFrom.slice(0, maxHistory).reverse()
+
+      // 本轮窗口里最新的一条 user 消息（用对象身份比较，不依赖 local_id_temp 是否存在）
+      const newestUserMessage = [...recentHistory]
+        .reverse()
+        .find(msg => msg.role === 'user')
 
       const lastUserMessageInFullHistoryId = historyToBuildFrom.find(
         msg => msg.role === 'user'
@@ -74,6 +84,13 @@ export function createApiInputBuilder(
           apiItemPartial = { role: currentApiRole, content: [] }
           if (msg.name) apiItemPartial.name = msg.name
 
+          // 必须要求 id 真实存在：否则 undefined === undefined 会让每一条
+          // user 消息都吃到工具截图
+          const isLastUserMessageWithPotentialImage =
+            currentApiRole === 'user' &&
+            !!msg.local_id_temp &&
+            msg.local_id_temp === lastUserMessageInFullHistoryId
+
           let messageContentParts: OpenAI.Responses.Request.ContentPartLike[] =
             []
 
@@ -84,10 +101,6 @@ export function createApiInputBuilder(
                 : 'output_text'
             messageContentParts = [{ type: typeForPart, text: msg.content }]
           } else if (Array.isArray(msg.content)) {
-            const isLastUserMessageWithPotentialImage =
-              currentApiRole === 'user' &&
-              msg.local_id_temp === lastUserMessageInFullHistoryId
-
             messageContentParts = msg.content
               .map((appPart: AppChatMessageContentPart) => {
                 if (appPart.type === 'app_text') {
@@ -157,6 +170,29 @@ export function createApiInputBuilder(
                 return null
               })
               .filter(Boolean) as OpenAI.Responses.Request.ContentPartLike[]
+          }
+
+          // 工具（take_screenshot）抓到的画面在这里并进最新一条 user 消息，
+          // 让同一个工具往返里重建出来的输入也能带上图片
+          if (isLastUserMessageWithPotentialImage) {
+            messageContentParts = appendPendingImages(
+              messageContentParts,
+              dependencies.getPendingImages?.()
+            )
+          }
+
+          // 英语模式：紧贴用户这句话再提醒一次，比只放在 system 里更管用。
+          // 这里不能和截图注入共用条件——截图依赖 local_id_temp，语言提醒不该被它拖累
+          const isLatestUserMessage =
+            currentApiRole === 'user' && msg === newestUserMessage
+          if (isLatestUserMessage) {
+            const languageRule = dependencies.getResponseLanguageRule?.()
+            if (languageRule) {
+              messageContentParts = [
+                ...messageContentParts,
+                { type: 'input_text', text: languageRule } as any,
+              ]
+            }
           }
 
           apiItemPartial.content =

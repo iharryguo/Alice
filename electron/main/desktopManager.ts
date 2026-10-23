@@ -1,11 +1,14 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { ipcMain } from 'electron'
 import fs from 'fs/promises'
 import { exec } from 'child_process'
-import { isPathWithinRoot } from './securityBoundaries'
+import {
+  commandScope,
+  isPreApproved,
+  requestApproval,
+} from './approvalManager'
 
 class DesktopManager {
   private static instance: DesktopManager | null = null
-  private readonly approvedDirectoryRoots = new Set<string>()
 
   constructor() {
     if (DesktopManager.instance) {
@@ -23,14 +26,14 @@ class DesktopManager {
   }
 
   private registerIpcHandlers() {
-    // Remove existing handlers if they exist
     if (ipcMain.listenerCount('desktop:listDirectory') > 0) {
       ipcMain.removeAllListeners('desktop:listDirectory')
     }
     if (ipcMain.listenerCount('desktop:executeCommand') > 0) {
       ipcMain.removeAllListeners('desktop:executeCommand')
     }
-    ipcMain.handle('desktop:listDirectory', async (event, dirPath) => {
+
+    ipcMain.handle('desktop:listDirectory', async (_event, dirPath) => {
       try {
         if (typeof dirPath !== 'string' || dirPath.trim().length === 0) {
           return { success: false, error: 'A directory path is required.' }
@@ -45,29 +48,17 @@ class DesktopManager {
           }
         }
 
-        const isApproved = [...this.approvedDirectoryRoots].some(root =>
-          isPathWithinRoot(root, requestedPath)
-        )
-        if (!isApproved) {
-          const owner = BrowserWindow.fromWebContents(event.sender)
-          const options = {
-            type: 'warning' as const,
-            buttons: ['Cancel', 'Allow for session'],
-            defaultId: 0,
-            cancelId: 0,
-            noLink: true,
-            title: 'Allow directory access?',
-            message:
-              'Alice wants to read this directory and its subdirectories.',
+        if (!isPreApproved('directory', requestedPath)) {
+          const decision = await requestApproval({
+            kind: 'directory',
+            title: '允许访问这个目录？',
             detail: requestedPath,
-          }
-          const confirmation = owner
-            ? await dialog.showMessageBox(owner, options)
-            : await dialog.showMessageBox(options)
-          if (confirmation.response !== 1) {
+            scope: requestedPath,
+            fallbackMessage: 'Alice 想要读取这个目录及其子目录。',
+          })
+          if (decision === 'deny') {
             return { success: false, error: 'Directory access denied by user.' }
           }
-          this.approvedDirectoryRoots.add(requestedPath)
         }
 
         const files = await fs.readdir(requestedPath)
@@ -80,70 +71,52 @@ class DesktopManager {
       }
     })
 
-    ipcMain.handle(
-      'desktop:executeCommand',
-      async (event, command: unknown) => {
-        if (typeof command !== 'string' || command.trim().length === 0) {
-          return { success: false, error: 'A command is required.' }
-        }
-
-        if (command.length > 16_000) {
-          return { success: false, error: 'Command is too long.' }
-        }
-
-        const commandPreview =
-          command.length > 4_000
-            ? `${command.slice(0, 4_000)}\n\n[Command preview truncated]`
-            : command
-
-        const owner = BrowserWindow.fromWebContents(event.sender)
-        const confirmation = owner
-          ? await dialog.showMessageBox(owner, {
-              type: 'warning',
-              buttons: ['Cancel', 'Run once'],
-              defaultId: 0,
-              cancelId: 0,
-              noLink: true,
-              title: 'Allow command execution?',
-              message: 'Alice wants to execute a command on this computer.',
-              detail: commandPreview,
-            })
-          : await dialog.showMessageBox({
-              type: 'warning',
-              buttons: ['Cancel', 'Run once'],
-              defaultId: 0,
-              cancelId: 0,
-              noLink: true,
-              title: 'Allow command execution?',
-              message: 'Alice wants to execute a command on this computer.',
-              detail: commandPreview,
-            })
-
-        if (confirmation.response !== 1) {
-          return { success: false, error: 'Command execution denied by user.' }
-        }
-
-        return new Promise(resolve => {
-          exec(
-            command,
-            { timeout: 60_000, maxBuffer: 1024 * 1024 },
-            (error, stdout, stderr) => {
-              if (error) {
-                resolve({
-                  success: false,
-                  error: stderr ? `${error.message}\n${stderr}` : error.message,
-                })
-                return
-              }
-              resolve({
-                success: true,
-                output: stderr ? `${stdout}${stderr}` : stdout,
-              })
-            }
-          )
-        })
+    ipcMain.handle('desktop:executeCommand', async (_event, command: unknown) => {
+      if (typeof command !== 'string' || command.trim().length === 0) {
+        return { success: false, error: 'A command is required.' }
       }
-    )
+
+      if (command.length > 16_000) {
+        return { success: false, error: 'Command is too long.' }
+      }
+
+      const commandPreview =
+        command.length > 4_000
+          ? `${command.slice(0, 4_000)}\n\n[Command preview truncated]`
+          : command
+
+      const decision = await requestApproval({
+        kind: 'command',
+        title: '允许执行这条命令？',
+        detail: commandPreview,
+        scope: commandScope(command),
+        fallbackMessage: 'Alice 想要在这台电脑上执行命令。',
+      })
+
+      if (decision === 'deny') {
+        return { success: false, error: 'Command execution denied by user.' }
+      }
+
+      return new Promise(resolve => {
+        exec(
+          command,
+          { timeout: 60_000, maxBuffer: 1024 * 1024 },
+          (error, stdout, stderr) => {
+            if (error) {
+              resolve({
+                success: false,
+                error: stderr ? `${error.message}\n${stderr}` : error.message,
+              })
+              return
+            }
+            resolve({
+              success: true,
+              output: stderr ? `${stdout}${stderr}` : stdout,
+            })
+          }
+        )
+      })
+    })
   }
 }
 

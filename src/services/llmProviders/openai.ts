@@ -3,7 +3,8 @@ import { useSettingsStore } from '../../stores/settingsStore'
 import { getOpenAIClient } from '../apiClients'
 import { listModelsViaMainProcess } from './modelDiscovery'
 import { buildToolsForProvider } from './tools'
-import { buildAssistantSystemPrompt } from '../../prompts/systemPrompt'
+import { composeAssistantSystemPrompt } from '../../prompts/composeSystemPrompt'
+import { useGeneralStore } from '../../stores/generalStore'
 
 export async function listOpenAIModelsForConfig(
   apiKey: string
@@ -72,7 +73,9 @@ export const createOpenAIResponse = async (
     input: input,
     instructions:
       customInstructions ||
-      buildAssistantSystemPrompt(settings.assistantSystemPrompt),
+      composeAssistantSystemPrompt(settings.assistantSystemPrompt, {
+        englishMode: useGeneralStore().englishMode,
+      }),
     ...(isOModel || settings.assistantModel.startsWith('gpt-5')
       ? {}
       : {

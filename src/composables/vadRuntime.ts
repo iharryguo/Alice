@@ -31,6 +31,12 @@ export function createVadOptions(
     // 播放期间由 useAudioProcessing 动态调整（见 SPEAKING_SPEECH_THRESHOLD）。
     positiveSpeechThreshold: 0.65,
     negativeSpeechThreshold: 0.5,
+    // 显式覆盖 vad-web 的默认值（默认 minSpeechMs≈400、preSpeechPadMs≈800）。
+    // redemptionMs（"说完还要等多久才收句"）不在这里写死：它按状态由
+    // useAudioProcessing.applyVadThresholdForState() 动态设置
+    // （播放期 350ms / 普通对话 1000ms），初始化后立刻生效。
+    minSpeechMs: 250,
+    preSpeechPadMs: 500,
     // 关闭自动增益：AGC 会把环境噪音、以及回声消除后的残余信号一起放大，
     // 是“任何小声音都触发”的主要推手。
     // 代价是远场/偏小的真实语音更难被拾取；这里通过更低的播放期阈值
