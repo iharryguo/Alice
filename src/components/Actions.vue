@@ -56,10 +56,10 @@
   <template v-if="props.isElectron">
     <!-- 侧边按钮在所有形态下都用同一个位置（设计坐标 top-[220px]，
          约等于圆环垂直中线偏下），迷你球里只是整体缩小 + 反向补偿。
-         不能给迷你球单独改 top：圆越小，边缘的可用圆弧越窄，按钮会被裁掉。 -->
+         不能给迷你球单独改 top：圆越小，边缘的可用圆弧越窄，按钮会被裁掉。
+         显隐统一由 .avatar:hover 控制，三种形态一致。 -->
     <div
       class="absolute w-full px-4 flex justify-between z-30 inside-actions"
-      :class="{ 'inside-actions-visible': isMiniBall }"
       style="top: 220px"
     >
       <button

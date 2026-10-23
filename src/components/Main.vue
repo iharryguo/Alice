@@ -458,13 +458,10 @@ const processRequest = async (
   transition: ring-color 0.3s ease-in-out;
 }
 
-/* 只有圆形本身可以拖动窗口。
-   绝不能给 .avatar-wrapper 加 drag：它是整窗大小的容器，一旦标成 drag，
-   窗口里所有元素（包括按钮）的点击都会被系统当成"拖动标题栏"吞掉。 */
-.avatar-wrapper :deep(.avatar-ring),
-.avatar-wrapper :deep(video) {
-  -webkit-app-region: drag;
-}
+/* 不要给圆环/视频加 -webkit-app-region: drag。
+   拖动区会被系统当成标题栏，hover 事件直接吞掉 —— 侧边按钮靠 .avatar:hover 显示，
+   一旦圆内是拖动区，鼠标放在脸上就永远等不到 hover，按钮再也不出现。
+   现在只有状态条（.dragable）能拖动窗口。 */
 
 /* 交互元素必须排除在拖动区域之外，否则点击会被窗口拖动吞掉 */
 .avatar-wrapper :deep(.indicator) {

@@ -33,10 +33,7 @@
   transition: all 0.3s ease-in-out;
 }
 
-/* 迷你球里侧边按钮常显（不能靠 hover，否则缩下去就找不到还原入口） */
-.inside-actions-visible {
-  opacity: 1 !important;
-}
+
 
 .dragable {
   -webkit-user-select: none;

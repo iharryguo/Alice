@@ -21,8 +21,5 @@
   opacity: 1;
 }
 
-/* 迷你球：侧边动作（还原窗口 / 拍照）常显，否则缩下去以后找不到还原入口 */
-.avatar-wrapper.mini-ball .inside-actions {
-  opacity: 1;
-}
+
 
