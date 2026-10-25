@@ -270,8 +270,8 @@ const applyModeFromMain = (payload: {
   generalStore.setWindowMode(mode)
   generalStore.isMiniBall = asMiniBall
 
-  // hash 跟着真实形态走：否则下次 location.reload()（设置里的"保存并重载"在开发模式就是它）
-  // 会按旧 hash 渲染成另一种布局，窗口大小和界面就对不上了。
+  // hash 跟着真实形态走：窗口只创建一次、形态就地切换，
+  // hash 不同步的话，一旦页面重新加载就会按旧形态渲染，布局与窗口大小对不上。
   const nextHash = asMiniBall ? '#mini-ball' : mode === 'window' ? '#window' : '#avatar-ball'
   if (window.location.hash !== nextHash) {
     window.history.replaceState(null, '', nextHash)

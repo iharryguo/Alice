@@ -5,6 +5,7 @@
 const TOOL_LABELS: Record<string, string> = {
   // 记忆
   save_memory: '写入记忆',
+  remember_self_fact: '记住自己的设定',
   delete_memory: '删除记忆',
   recall_memories: '检索记忆',
   // 基础

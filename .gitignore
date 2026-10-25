@@ -64,3 +64,4 @@ GEMINI.md
 .codebuddy/
 *.bak
 我和DeepSeekHarness的沟通过程.txt
+.agent-runs/

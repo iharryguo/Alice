@@ -61,6 +61,8 @@ import type { MessageDisplayItem } from '../../utils/chatDisplay'
 import { formatClock } from '../../utils/chatDisplay'
 import { renderMessageContent } from '../../utils/messageRender'
 import { toolLabel } from '../../utils/toolLabels'
+import { useSettingsStore } from '../../stores/settingsStore'
+import { getPersona } from '../../prompts/personas'
 
 const props = defineProps<{
   item: MessageDisplayItem
@@ -75,9 +77,13 @@ const isUser = computed(() => props.item.role === 'user')
 const clock = computed(() => formatClock(props.item.time))
 const html = computed(() => renderMessageContent(props.item.message))
 
+const settingsStore = useSettingsStore()
 const roleLabel = computed(() => {
   if (props.item.role === 'user') return '你'
-  if (props.item.role === 'assistant') return 'Alice'
+  if (props.item.role === 'assistant') {
+    // 换了身份还显示 Alice，等于当场穿帮
+    return getPersona(settingsStore.settings.assistantPersonaId).displayName
+  }
   return props.item.role
 })
 
@@ -142,7 +148,7 @@ const handleContentClick = (event: MouseEvent) => {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: 11px;
   color: rgb(148 163 184 / 0.85);
   padding: 0 4px;
 }
@@ -160,8 +166,9 @@ const handleContentClick = (event: MouseEvent) => {
 .msg-bubble {
   border-radius: 14px;
   padding: 8px 12px;
-  font-size: 13px;
-  line-height: 1.55;
+  /* 五号字大小：正文太小是阅读负担，尤其长回复 */
+  font-size: 15px;
+  line-height: 1.65;
   word-break: break-word;
   overflow-wrap: anywhere;
   border: 1px solid transparent;
@@ -200,13 +207,13 @@ const handleContentClick = (event: MouseEvent) => {
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 12px;
+  font-size: 13px;
 }
 .msg-content :deep(code) {
   background: rgb(2 6 23 / 0.6);
   border-radius: 4px;
   padding: 1px 4px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .msg-content :deep(pre code) {
   background: transparent;
@@ -219,7 +226,7 @@ const handleContentClick = (event: MouseEvent) => {
 .msg-content :deep(table) {
   border-collapse: collapse;
   margin: 6px 0;
-  font-size: 12px;
+  font-size: 13px;
 }
 .msg-content :deep(th),
 .msg-content :deep(td) {

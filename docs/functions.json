@@ -541,5 +541,22 @@
       "required": ["query"],
       "additionalProperties": false
     }
+  },
+  {
+    "type": "function",
+    "name": "remember_self_fact",
+    "description": "Record a detail about YOURSELF (the current persona) that you just established in conversation but that was not written in your background notes. Use it exactly once after you invent such a detail, so you stay consistent later. Do not use it for facts about the user, and never store passwords, keys, or identity numbers.",
+    "strict": true,
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "fact": {
+          "type": "string",
+          "description": "One short first-person sentence, e.g. \"My father's name is Dale and he still drives the combine.\" Keep it under 200 characters."
+        }
+      },
+      "required": ["fact"],
+      "additionalProperties": false
+    }
   }
 ]

@@ -1,5 +1,6 @@
 import type OpenAI from 'openai'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { usePersonaStore } from '../../stores/personaStore'
 import { getOpenAIClient } from '../apiClients'
 import { listModelsViaMainProcess } from './modelDiscovery'
 import { buildToolsForProvider } from './tools'
@@ -75,6 +76,8 @@ export const createOpenAIResponse = async (
       customInstructions ||
       composeAssistantSystemPrompt(settings.assistantSystemPrompt, {
         englishMode: useGeneralStore().englishMode,
+        personaId: settings.assistantPersonaId,
+        personaNotes: usePersonaStore().notesFor(settings.assistantPersonaId),
       }),
     ...(isOModel || settings.assistantModel.startsWith('gpt-5')
       ? {}

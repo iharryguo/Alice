@@ -15,6 +15,14 @@ function generateSessionId(): string {
 
 let currentSessionId = generateSessionId()
 
+/**
+ * 当前会话是不是从历史里恢复出来的。
+ *
+ * 恢复出来的会话，"最近 10 条"这种窗口毫无意义——用户就是来接着上次聊的，
+ * 前文必须一起带上；真正该管的是字符预算，不是条数。
+ */
+let sessionRestored = false
+
 export function createConversationSessionId(): string {
   return generateSessionId()
 }
@@ -32,5 +40,14 @@ export function setConversationSessionId(id: string): void {
 /** 新建对话时轮换，旧会话的摘要与 thoughts 不会被新对话读到 */
 export function rotateConversationSessionId(): string {
   currentSessionId = generateSessionId()
+  sessionRestored = false
   return currentSessionId
+}
+
+export function markSessionRestored(restored: boolean): void {
+  sessionRestored = restored
+}
+
+export function isSessionRestored(): boolean {
+  return sessionRestored
 }

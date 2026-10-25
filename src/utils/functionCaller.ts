@@ -1,6 +1,8 @@
 import { createDualEmbeddings, createEmbedding } from '../services/apiService'
 import { useCustomToolsStore } from '../stores/customToolsStore'
 import { useGeneralStore } from '../stores/generalStore'
+import { useSettingsStore } from '../stores/settingsStore'
+import { usePersonaStore } from '../stores/personaStore'
 import { manage_clipboard } from './functions/clipboard'
 import {
   open_path,
@@ -813,10 +815,40 @@ async function take_screenshot(
   }
 }
 
+interface RememberSelfFactArgs {
+  fact: string
+}
+
+/**
+ * 记录"关于我自己（当前人格）"的新细节。
+ *
+ * 只在模型即兴补全了设定里没有的背景后调用；用户自己的记忆走 save_memory，
+ * 两者不要混。重复内容由主进程按归一化文本挡掉。
+ */
+async function remember_self_fact(args: RememberSelfFactArgs) {
+  const fact = String(args?.fact || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!fact) {
+    return { success: false, error: 'fact is required.' }
+  }
+
+  const personaId = useSettingsStore().config.assistantPersonaId || 'alice'
+  const saved = await usePersonaStore().remember(personaId, fact)
+  if (!saved) {
+    return {
+      success: false,
+      error: '这条设定没能保存（可能已经记过，或内容过长）。',
+    }
+  }
+  return { success: true, data: { remembered: true } }
+}
+
 const functionRegistry: {
   [key: string]: (args: any, settings?: any) => Promise<FunctionResult>
 } = {
   save_memory: save_memory,
+  remember_self_fact: remember_self_fact,
   delete_memory: delete_memory,
   recall_memories: recall_memories,
   get_current_datetime: get_current_datetime,
@@ -843,6 +875,7 @@ const functionRegistry: {
 
 const functionSchemas = {
   save_memory: { required: ['content'] },
+  remember_self_fact: { required: ['fact'] },
   delete_memory: { required: ['id'] },
   recall_memories: { required: [] },
   get_current_datetime: { required: ['format'] },

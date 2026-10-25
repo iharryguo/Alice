@@ -45,6 +45,7 @@
       <template v-else>
         <div v-if="groups.length === 0" class="history-empty">
           还没有历史对话。聊几句之后这里会自动出现。
+          <div v-if="error" class="history-error">上次保存失败：{{ error }}</div>
         </div>
         <div v-for="group in groups" :key="group.label" class="history-group">
           <div class="group-label">{{ group.label }}</div>
@@ -88,7 +89,8 @@ const emit = defineEmits<{
 }>()
 
 const logStore = useConversationLogStore()
-const { sessions, searchResults, isLoading, sessionId } = storeToRefs(logStore)
+const { sessions, searchResults, isLoading, sessionId, error } =
+  storeToRefs(logStore)
 
 const query = ref('')
 const currentSessionId = computed(() => sessionId.value)
@@ -244,6 +246,12 @@ onMounted(() => {
   text-align: center;
   font-size: 11px;
   color: rgb(100 116 139);
+}
+
+.history-error {
+  margin-top: 8px;
+  color: rgb(248 113 113);
+  line-height: 1.5;
 }
 
 .history-group {

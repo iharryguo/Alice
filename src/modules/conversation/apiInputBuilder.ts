@@ -24,6 +24,8 @@ export interface ConversationHistoryMessage {
 export interface ApiInputBuilderDependencies {
   getChatHistory(): ConversationHistoryMessage[]
   getMaxHistoryMessagesForApi(): number
+  /** 历史文本的字符预算，超出后从最旧的一端丢弃（回复恢复的会话时尤其需要） */
+  getMaxHistoryCharsForApi?(): number
   getAiProvider(): string
   /** 工具（take_screenshot）在本轮攒下的截图，仅在构建最新一条 user 消息时注入 */
   getPendingImages?(): string[]
@@ -35,6 +37,25 @@ export interface ApiInputBuilder {
   build(params: {
     isNewChain: boolean
   }): Promise<OpenAI.Responses.Request.InputItemLike[]>
+}
+
+/** 单条历史消息的字符当量，用来卡上下文预算 */
+function messageCharCost(message: ConversationHistoryMessage): number {
+  let chars = 0
+  if (typeof message.content === 'string') {
+    chars = message.content.length
+  } else if (Array.isArray(message.content)) {
+    chars = message.content.reduce((sum, part: any) => {
+      if (typeof part?.text === 'string') return sum + part.text.length
+      // 图片按一个粗略当量计，避免截图把预算算成 0
+      if (part?.type === 'app_image_uri') return sum + 4000
+      return sum
+    }, 0)
+  }
+  if (message.tool_calls) {
+    chars += JSON.stringify(message.tool_calls).length
+  }
+  return chars
 }
 
 export function createApiInputBuilder(
@@ -49,8 +70,27 @@ export function createApiInputBuilder(
 
       const historyToBuildFrom = [...dependencies.getChatHistory()]
       const maxHistory = dependencies.getMaxHistoryMessagesForApi()
+      const maxChars = dependencies.getMaxHistoryCharsForApi?.() ?? 120_000
       const apiInput: OpenAI.Responses.Request.InputItemLike[] = []
-      const recentHistory = historyToBuildFrom.slice(0, maxHistory).reverse()
+
+      // 先按条数取最近的，再按字符预算从旧往新砍。
+      // 只砍条数会让"接着上次聊"变成"只记得最后十句"；只砍字符又可能留下
+      // 一堆碎片消息。两道闸一起用，才既不丢前文也不把请求撑爆。
+      const selectedNewestFirst: ConversationHistoryMessage[] = []
+      let usedChars = 0
+      for (const message of historyToBuildFrom.slice(0, maxHistory)) {
+        const cost = messageCharCost(message)
+        if (
+          selectedNewestFirst.length > 0 &&
+          usedChars + cost > maxChars
+        ) {
+          break
+        }
+        selectedNewestFirst.push(message)
+        usedChars += cost
+      }
+
+      const recentHistory = selectedNewestFirst.reverse()
 
       // 本轮窗口里最新的一条 user 消息（用对象身份比较，不依赖 local_id_temp 是否存在）
       const newestUserMessage = [...recentHistory]

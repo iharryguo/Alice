@@ -301,9 +301,7 @@
       </legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-2">
         <div class="md:col-span-2">
-          <label for="stt-provider" class="block mb-1 text-sm"
-            >提供商 *</label
-          >
+          <label for="stt-provider" class="block mb-1 text-sm">提供商 *</label>
           <select
             id="stt-provider"
             v-model="currentSettings.sttProvider"
@@ -322,6 +320,69 @@
           这里的凭据只用于语音识别，改动不会影响语音合成与向量嵌入。
         </p>
 
+        <div class="md:col-span-2">
+          <label for="voice-silence-ms" class="block mb-1 text-sm"
+            >未点名时的兜底静默（毫秒）</label
+          >
+          <input
+            id="voice-silence-ms"
+            type="number"
+            min="300"
+            step="100"
+            v-model.number="currentSettings.voiceSilenceMs"
+            class="input focus:outline-none w-full"
+            placeholder="10000"
+          />
+          <p class="text-xs text-gray-400 mt-1">
+            没叫人格名时，要静默这么久才把攒下的话一次性发出去（默认 10000，即
+            10 秒）。嫌反应慢可以调小，但不建议低于 3000。
+          </p>
+        </div>
+
+        <div>
+          <label for="voice-name-pause-ms" class="block mb-1 text-sm"
+            >叫名字后停顿判定（毫秒）</label
+          >
+          <input
+            id="voice-name-pause-ms"
+            type="number"
+            min="800"
+            step="100"
+            v-model.number="currentSettings.voiceNamePauseMs"
+            class="input focus:outline-none w-full"
+            placeholder="2000"
+          />
+          <p class="text-xs text-gray-400 mt-1">
+            说了"Alice，…"这类开头称呼之后，停这么久就算说完（默认 2000）。
+            加上转写耗时，实际回话大约 3~4 秒。
+          </p>
+        </div>
+
+        <div>
+          <label for="voice-name-gate" class="block mb-1 text-sm"
+            >按人格名结束说话</label
+          >
+          <select
+            id="voice-name-gate"
+            v-model="currentSettings.voiceNameTurnGateEnabled"
+            class="select select-bordered w-full focus:select-primary"
+            @change="
+              e =>
+                $emit(
+                  'update:setting',
+                  'voiceNameTurnGateEnabled',
+                  getTargetValue(e) === 'true'
+                )
+            "
+          >
+            <option value="true">Enable</option>
+            <option value="false">Disable</option>
+          </select>
+          <p class="text-xs text-gray-400 mt-1">
+            开启后：叫了人格名（如
+            Alice、Felix）并停顿就立刻发送；没叫名字则一直听着，直到上面的兜底静默到了才发送。关掉则回到旧的"一次静默定收句"。
+          </p>
+        </div>
 
         <!-- 火山引擎识别（凭据独立，不复用合成那一份） -->
         <template v-if="currentSettings.sttProvider === 'volcengine'">
@@ -352,8 +413,12 @@
               v-model="currentSettings.volcengineAsrResourceId"
               class="select select-bordered w-full focus:select-primary"
             >
-              <option value="volc.seedasr.auc">volc.seedasr.auc（录音文件识别 2.0）</option>
-              <option value="volc.bigasr.auc">volc.bigasr.auc（1.0，历史版本）</option>
+              <option value="volc.seedasr.auc">
+                volc.seedasr.auc（录音文件识别 2.0）
+              </option>
+              <option value="volc.bigasr.auc">
+                volc.bigasr.auc（1.0，历史版本）
+              </option>
             </select>
           </div>
           <div>
@@ -474,8 +539,6 @@
           </div>
         </template>
 
-
-
         <!-- Qwen -->
         <template v-if="currentSettings.sttProvider === 'qwen'">
           <div>
@@ -518,9 +581,12 @@
         </template>
 
         <!-- Local -->
-        <p v-if="currentSettings.sttProvider === 'local'" class="md:col-span-2 text-xs text-gray-400">
-          使用本地 Go 后端的 Whisper 模型，模型规格与唤醒词在下方
-          "Local Speech-to-Text Configuration" 区域配置。
+        <p
+          v-if="currentSettings.sttProvider === 'local'"
+          class="md:col-span-2 text-xs text-gray-400"
+        >
+          使用本地 Go 后端的 Whisper 模型，模型规格与唤醒词在下方 "Local
+          Speech-to-Text Configuration" 区域配置。
         </p>
       </div>
     </fieldset>
@@ -646,16 +712,16 @@
       </legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-2">
         <div class="md:col-span-2">
-          <label for="tts-provider" class="block mb-1 text-sm"
-            >提供商 *</label
-          >
+          <label for="tts-provider" class="block mb-1 text-sm">提供商 *</label>
           <select
             id="tts-provider"
             v-model="currentSettings.ttsProvider"
             class="select select-bordered w-full focus:select-primary"
           >
             <option value="doubao">豆包 Doubao (火山方舟)</option>
-            <option value="volcengine">火山引擎（豆包语音 · 支持情绪语气）</option>
+            <option value="volcengine">
+              火山引擎（豆包语音 · 支持情绪语气）
+            </option>
             <option value="qwen">通义 Qwen (阿里百炼)</option>
             <option value="local">本地 (Piper)</option>
           </select>
@@ -720,7 +786,6 @@
           </div>
         </template>
 
-
         <!-- 火山引擎（豆包语音）-->
         <template v-if="currentSettings.ttsProvider === 'volcengine'">
           <div>
@@ -745,12 +810,14 @@
               v-model="currentSettings.volcengineTtsResourceId"
               class="select select-bordered w-full focus:select-primary"
             >
-              <option value="seed-tts-2.0">seed-tts-2.0（合成大模型 2.0）</option>
+              <option value="seed-tts-2.0">
+                seed-tts-2.0（合成大模型 2.0）
+              </option>
               <option value="seed-icl-2.0">seed-icl-2.0（声音复刻 2.0）</option>
             </select>
             <p class="text-xs text-gray-400 mt-1">
-              复刻音色（ICL_ 开头）如果没开通 seed-icl-2.0，会自动回落到 seed-tts-2.0，
-              不影响出声。
+              复刻音色（ICL_ 开头）如果没开通 seed-icl-2.0，会自动回落到
+              seed-tts-2.0， 不影响出声。
             </p>
           </div>
           <div>
@@ -765,7 +832,8 @@
               placeholder="en_female_dacey_uranus_bigtts"
             />
             <p class="text-xs text-gray-400 mt-1">
-              从控制台「音色库」复制音色 ID。英语课建议用英文 2.0 音色（en_ 开头）；
+              从控制台「音色库」复制音色 ID。英语课建议用英文 2.0 音色（en_
+              开头）；
               纯单语音色遇到另一种语言会合不出音频，主进程会自动回落到中英双语音色，不会没声音。
             </p>
           </div>
@@ -840,9 +908,7 @@
             />
           </div>
           <div class="md:col-span-2">
-            <label for="qwen-tts-voice" class="block mb-1 text-sm"
-              >音色</label
-            >
+            <label for="qwen-tts-voice" class="block mb-1 text-sm">音色</label>
             <select
               id="qwen-tts-voice"
               v-model="currentSettings.qwenTtsVoice"
@@ -890,9 +956,7 @@
             />
           </div>
           <div class="md:col-span-2">
-            <label for="tts-voice" class="block mb-1 text-sm"
-              >音色</label
-            >
+            <label for="tts-voice" class="block mb-1 text-sm">音色</label>
             <select
               id="tts-voice"
               v-model="currentSettings.ttsVoice"
@@ -939,7 +1003,8 @@
               v-model="currentSettings.googleTtsVoice"
               class="select select-bordered w-full focus:select-primary"
               @change="
-                e => $emit('update:setting', 'googleTtsVoice', getTargetValue(e))
+                e =>
+                  $emit('update:setting', 'googleTtsVoice', getTargetValue(e))
               "
             >
               <option value="en-US-Journey-F">Journey F (Fem)</option>
@@ -1150,8 +1215,6 @@
           </div>
         </template>
 
-
-
         <!-- Qwen -->
         <template v-if="currentSettings.embeddingProvider === 'qwen'">
           <div>
@@ -1226,7 +1289,10 @@
         </template>
 
         <!-- Local -->
-        <p v-if="currentSettings.embeddingProvider === 'local'" class="md:col-span-2 text-xs text-gray-400">
+        <p
+          v-if="currentSettings.embeddingProvider === 'local'"
+          class="md:col-span-2 text-xs text-gray-400"
+        >
           使用本地 Go 后端的 multilingual-e5-small 模型，无需任何 API Key。
         </p>
       </div>
@@ -1336,11 +1402,47 @@
       </div>
     </fieldset>
 
+    <!-- Long-term Memory Section -->
+    <fieldset
+      class="fieldset bg-gray-900/90 border-blue-500/50 rounded-box w-full border p-4"
+    >
+      <legend class="fieldset-legend">⑥ 长期记忆 (Memory)</legend>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-2">
+        <div>
+          <label for="memory-auto" class="block mb-1 text-sm">自动整理</label>
+          <select
+            id="memory-auto"
+            v-model="currentSettings.memoryAutoExtract"
+            class="select select-bordered w-full focus:select-primary"
+          >
+            <option :value="true">开启</option>
+            <option :value="false">关闭</option>
+          </select>
+          <p class="text-xs text-gray-400 mt-1">
+            一轮说完、切换会话、收起窗口、退出程序时，把值得长期记住的事写进记忆库并生成向量。
+          </p>
+        </div>
+        <div>
+          <label for="memory-model" class="block mb-1 text-sm">整理模型</label>
+          <input
+            id="memory-model"
+            type="text"
+            v-model="currentSettings.memoryExtractModel"
+            class="input focus:outline-none w-full"
+            placeholder="留空则跟随对话模型"
+          />
+          <p class="text-xs text-gray-400 mt-1">
+            抽取记忆是独立的一类调用，想省钱可以单独指定一个小模型。
+          </p>
+        </div>
+      </div>
+    </fieldset>
+
     <!-- Window Behavior Section -->
     <fieldset
       class="fieldset bg-gray-900/90 border-blue-500/50 rounded-box w-full border p-4"
     >
-      <legend class="fieldset-legend">⑥ 窗口行为 (Window Behavior)</legend>
+      <legend class="fieldset-legend">⑦ 窗口行为 (Window Behavior)</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-2">
         <div>
           <label for="always-on-top" class="block mb-1 text-sm"
@@ -1362,9 +1464,7 @@
             <option value="false">关闭 (不遮挡其他程序)</option>
             <option value="true">开启 (始终保持在最前)</option>
           </select>
-          <p class="text-xs text-gray-400 mt-1">
-            保存后立即生效，无需重启。
-          </p>
+          <p class="text-xs text-gray-400 mt-1">保存后立即生效，无需重启。</p>
         </div>
       </div>
     </fieldset>
@@ -1378,8 +1478,13 @@ import { backendApi, type Voice } from '../../services/backendApi'
 import { useCodexAuth } from '../../composables/useCodexAuth'
 
 // Type for service status
+type ServiceName = 'stt' | 'tts' | 'embeddings'
+type ServiceState = 'ready' | 'downloading' | 'error' | 'offline'
+
 interface ServiceStatus {
-  status: 'ready' | 'downloading' | 'error' | 'offline'
+  status: ServiceState
+  /** 一句话说明依据，鼠标悬停时显示，避免只给一个颜色让人猜 */
+  detail: string
 }
 
 const props = defineProps<{
@@ -1398,9 +1503,9 @@ const serviceStatus = ref<{
   tts: ServiceStatus
   embeddings: ServiceStatus
 }>({
-  stt: { status: 'offline' },
-  tts: { status: 'offline' },
-  embeddings: { status: 'offline' },
+  stt: { status: 'offline', detail: '未配置' },
+  tts: { status: 'offline', detail: '未配置' },
+  embeddings: { status: 'offline', detail: '未配置' },
 })
 
 const availableVoices = ref<Voice[]>([])
@@ -1424,33 +1529,108 @@ const getTargetValue = (event: Event): string => {
   return (event.target as HTMLInputElement | HTMLSelectElement).value
 }
 
-const updateServiceStatus = async () => {
-  try {
-    await backendApi.initialize()
-
-    // Check each service status
-    const [sttReady, ttsReady, embeddingsReady] = await Promise.all([
-      backendApi.isSTTReady().catch(() => false),
-      backendApi.isTTSReady().catch(() => false),
-      backendApi.isEmbeddingsReady().catch(() => false),
-    ])
-
-    serviceStatus.value = {
-      stt: { status: sttReady ? 'ready' : 'error' },
-      tts: { status: ttsReady ? 'ready' : 'error' },
-      embeddings: { status: embeddingsReady ? 'ready' : 'error' },
-    }
-  } catch (error) {
-    console.warn('Failed to get service status:', error)
-    serviceStatus.value = {
-      stt: { status: 'offline' },
-      tts: { status: 'offline' },
-      embeddings: { status: 'offline' },
-    }
+/**
+ * 每类服务当前选的是谁、要的是哪一把 Key。
+ *
+ * 这个圆的含义以前被写错成"本地 Go 后端有没有起来"，于是只要选了云端供应商，
+ * 后端本来就不参与，圆却永远是红的，看着像配置坏了。云端只用 Key 判断，
+ * 只有选 local 时才真的去问 Go 后端。
+ */
+const resolveProvider = (
+  service: ServiceName
+): { provider: string; apiKey: string } => {
+  const s = props.currentSettings
+  if (service === 'stt') {
+    const provider = s.sttProvider || 'volcengine'
+    const key =
+      provider === 'volcengine'
+        ? s.sttVolcengineApiKey
+        : provider === 'doubao'
+          ? s.sttDoubaoApiKey
+          : provider === 'qwen'
+            ? s.sttQwenApiKey
+            : ''
+    return { provider, apiKey: String(key || '').trim() }
   }
+  if (service === 'tts') {
+    const provider = s.ttsProvider || 'volcengine'
+    const key =
+      provider === 'volcengine'
+        ? s.ttsVolcengineApiKey || s.VOLCENGINE_TTS_API_KEY
+        : provider === 'doubao'
+          ? s.ttsDoubaoApiKey
+          : provider === 'qwen'
+            ? s.ttsQwenApiKey
+            : ''
+    return { provider, apiKey: String(key || '').trim() }
+  }
+  const provider = s.embeddingProvider || 'doubao'
+  const key =
+    provider === 'doubao'
+      ? s.embeddingDoubaoApiKey
+      : provider === 'qwen'
+        ? s.embeddingQwenApiKey
+        : ''
+  return { provider, apiKey: String(key || '').trim() }
 }
 
-const getServiceStatusClass = (service: 'stt' | 'tts' | 'embeddings') => {
+const checkLocalService = (service: ServiceName): Promise<boolean> => {
+  if (service === 'stt') return backendApi.isSTTReady()
+  if (service === 'tts') return backendApi.isTTSReady()
+  return backendApi.isEmbeddingsReady()
+}
+
+const updateServiceStatus = async () => {
+  const next: Record<ServiceName, ServiceStatus> = {
+    stt: { status: 'offline', detail: '未配置' },
+    tts: { status: 'offline', detail: '未配置' },
+    embeddings: { status: 'offline', detail: '未配置' },
+  }
+  const localServices: ServiceName[] = []
+
+  for (const service of ['stt', 'tts', 'embeddings'] as ServiceName[]) {
+    const { provider, apiKey } = resolveProvider(service)
+    if (provider === 'local') {
+      localServices.push(service)
+      continue
+    }
+    next[service] = apiKey
+      ? { status: 'ready', detail: `云端服务，Key 已填写（${provider}）` }
+      : { status: 'offline', detail: '还没填 API Key' }
+  }
+
+  if (localServices.length > 0) {
+    let backendUp = true
+    try {
+      await backendApi.initialize()
+    } catch (error) {
+      backendUp = false
+      console.warn('Local backend unavailable:', error)
+    }
+
+    for (const service of localServices) {
+      if (!backendUp) {
+        next[service] = {
+          status: 'error',
+          detail: '本地 Go 后端没有启动，只有选 local 才需要它',
+        }
+        continue
+      }
+      try {
+        const ready = await checkLocalService(service)
+        next[service] = ready
+          ? { status: 'ready', detail: '本地后端已就绪' }
+          : { status: 'error', detail: '本地后端已启动，但模型还没装好' }
+      } catch {
+        next[service] = { status: 'error', detail: '本地后端查询失败' }
+      }
+    }
+  }
+
+  serviceStatus.value = next
+}
+
+const getServiceStatusClass = (service: ServiceName) => {
   const status = serviceStatus.value[service].status
   switch (status) {
     case 'ready':
@@ -1465,25 +1645,14 @@ const getServiceStatusClass = (service: 'stt' | 'tts' | 'embeddings') => {
   }
 }
 
-const getServiceStatusText = (service: 'stt' | 'tts' | 'embeddings') => {
-  const status = serviceStatus.value[service].status
-  const serviceNames = {
-    stt: 'Speech-to-Text',
-    tts: 'Text-to-Speech',
-    embeddings: 'Embeddings',
+const getServiceStatusText = (service: ServiceName) => {
+  const labels: Record<ServiceName, string> = {
+    stt: '语音识别',
+    tts: '语音合成',
+    embeddings: '向量嵌入',
   }
-
-  switch (status) {
-    case 'ready':
-      return `${serviceNames[service]} service is ready`
-    case 'downloading':
-      return `${serviceNames[service]} model is downloading`
-    case 'error':
-      return `${serviceNames[service]} service has errors`
-    case 'offline':
-    default:
-      return `${serviceNames[service]} service is offline`
-  }
+  const { detail } = serviceStatus.value[service]
+  return `${labels[service]}：${detail}`
 }
 
 // Voice management computed properties and functions
@@ -1683,6 +1852,25 @@ watch(
       await refreshVoices()
     }
   }
+)
+
+// 换供应商、填或清 Key 之后立刻重算圆点，不用等 10 秒那一轮轮询
+watch(
+  () => [
+    props.currentSettings.sttProvider,
+    props.currentSettings.sttVolcengineApiKey,
+    props.currentSettings.sttDoubaoApiKey,
+    props.currentSettings.sttQwenApiKey,
+    props.currentSettings.ttsProvider,
+    props.currentSettings.ttsVolcengineApiKey,
+    props.currentSettings.VOLCENGINE_TTS_API_KEY,
+    props.currentSettings.ttsDoubaoApiKey,
+    props.currentSettings.ttsQwenApiKey,
+    props.currentSettings.embeddingProvider,
+    props.currentSettings.embeddingDoubaoApiKey,
+    props.currentSettings.embeddingQwenApiKey,
+  ],
+  () => updateServiceStatus()
 )
 
 onUnmounted(() => {

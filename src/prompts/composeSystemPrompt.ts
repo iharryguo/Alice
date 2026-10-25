@@ -3,9 +3,14 @@ import {
   ENGLISH_COACH_RULES,
   ENGLISH_LANGUAGE_LOCK,
 } from './englishCoachPrompt'
+import { buildPersonaPrompt, getPersona } from './personas'
 
 export interface ComposeSystemPromptOptions {
   englishMode?: boolean
+  /** 当前身份（alice / felix…），决定"对面是谁" */
+  personaId?: string
+  /** 这个身份在以往对话里即兴确立、并被记住的细节 */
+  personaNotes?: string[]
 }
 
 /**
@@ -27,8 +32,14 @@ export function composeAssistantSystemPrompt(
 
   blocks.push(CORE_SYSTEM_PROMPT.trim())
 
-  const personaText = (persona || '').trim()
-  if (personaText) blocks.push(personaText)
+  // 身份底稿 + 已确立细节 + 用户自己的补充设定。
+  // 底稿始终在：否则切到新人身份后，模型会退回一个没有来历的通用助手。
+  blocks.push(
+    buildPersonaPrompt(getPersona(options.personaId), {
+      notes: options.personaNotes,
+      extra: persona,
+    })
+  )
 
   if (options.englishMode) blocks.push(ENGLISH_COACH_RULES)
 

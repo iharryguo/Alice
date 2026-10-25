@@ -87,10 +87,44 @@
           </p>
         </div>
 
+        <div class="md:col-span-2 rounded-xl border border-blue-500/30 bg-gray-900/60 p-3">
+          <label for="assistant-persona" class="block mb-1 text-sm font-semibold"
+            >Assistant Identity</label
+          >
+          <select
+            id="assistant-persona"
+            v-model="currentSettings.assistantPersonaId"
+            class="select select-bordered w-full focus:select-primary"
+          >
+            <option
+              v-for="persona in personas"
+              :key="persona.id"
+              :value="persona.id"
+            >
+              {{ persona.displayName }}
+            </option>
+          </select>
+          <p class="text-xs text-gray-300 mt-2">
+            {{ selectedPersona.summary }}
+          </p>
+          <p
+            v-if="selectedPersona.avatarFile"
+            class="text-xs text-gray-400 mt-1"
+          >
+            配套头像：把
+            <code class="text-[11px] bg-gray-800 px-1 rounded">{{ selectedPersona.avatarFile }}</code>
+            放进 <code class="text-[11px] bg-gray-800 px-1 rounded">src/assets/videos/</code>，
+            切换后自动替换，找不到就继续用当前头像。
+          </p>
+          <p class="text-xs text-gray-500 mt-1">
+            切换的是"对面是谁"，不影响软件本身的名字与窗口。
+          </p>
+        </div>
+
         <div>
           <div class="flex justify-between items-center mb-1">
             <label for="assistant-system-prompt" class="block text-sm"
-              >Assistant Persona Prompt</label
+              >Additional Persona Notes</label
             >
             <button
               type="button"
@@ -105,7 +139,7 @@
             v-model="currentSettings.assistantSystemPrompt"
             rows="8"
             class="textarea textarea-bordered w-full focus:textarea-primary h-48"
-            placeholder="Describe Alice's voice, tone, and personality..."
+            placeholder="可选：补充这个人物的设定，会拼在身份档案之后…"
           ></textarea>
         </div>
 
@@ -490,6 +524,7 @@ import type { AliceSettings } from '../../stores/settingsStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useCustomToolsStore } from '../../stores/customToolsStore'
 import { infoIcon } from '../../utils/assetsImport'
+import { PERSONAS, getPersona } from '../../prompts/personas'
 
 interface Tool {
   name: string
@@ -511,6 +546,10 @@ defineEmits<{
 }>()
 
 const settingsStore = useSettingsStore()
+const personas = PERSONAS
+const selectedPersona = computed(() =>
+  getPersona(props.currentSettings.assistantPersonaId)
+)
 const customToolsStore = useCustomToolsStore()
 
 onMounted(() => {

@@ -128,7 +128,7 @@
             v-if="settingsStore.isSaving"
             class="loading loading-spinner loading-sm"
           ></span>
-          {{ settingsStore.isSaving ? 'Saving & Testing...' : 'Save & Reload' }}
+          {{ settingsStore.isSaving ? 'Saving...' : 'Save & Apply' }}
         </button>
       </div>
 
@@ -213,7 +213,6 @@ import { useSettingsStore, type AliceSettings } from '../stores/settingsStore'
 import { useConversationStore } from '../stores/conversationStore'
 import { heartIcon } from '../utils/assetsImport'
 import { PREDEFINED_OPENAI_TOOLS } from '../utils/assistantTools'
-import { DEFAULT_ASSISTANT_PERSONA_PROMPT } from '../stores/settingsStore'
 import { useHotkeyRecording } from '../composables/useHotkeyRecording'
 import { useGoogleAuth } from '../composables/useGoogleAuth'
 import {
@@ -387,7 +386,8 @@ function getToolInfo(name: string): {
 }
 
 const resetSystemPrompt = () => {
-  currentSettings.value.assistantSystemPrompt = DEFAULT_ASSISTANT_PERSONA_PROMPT
+  // 身份底稿在人格档案里，不在这里；这个框只放用户自己的补充设定
+  currentSettings.value.assistantSystemPrompt = ''
 }
 
 const startRecordingHotkey = (settingKey: keyof AliceSettings) => {

@@ -1,10 +1,30 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { CustomAvatar, CustomAvatarsSnapshot } from '../../types/customAvatars'
+import type {
+  CustomAvatar,
+  CustomAvatarsSnapshot,
+} from '../../types/customAvatars'
 import videoSpeaking from '../assets/videos/speaking.mp4'
 import videoStandby from '../assets/videos/standby.mp4'
 import videoThinking from '../assets/videos/thinking.mp4'
 import { useSettingsStore } from './settingsStore'
+import { getPersona } from '../prompts/personas'
+
+/**
+ * 人格专属头像：把文件丢进 assets/videos 就会被打进包。
+ * 目前一个 MP4 同时充当 standby / speaking / thinking，够用且省事；
+ * 想分状态再按 <id>-speaking.mp4 这类命名扩展即可。
+ */
+const personaVideoModules = import.meta.glob('../assets/videos/*.mp4', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+}) as Record<string, string>
+
+function personaAvatarVideo(personaId: string, file?: string): string | null {
+  if (!file) return null
+  return personaVideoModules[`../assets/videos/${personaId}.mp4`] || null
+}
 
 interface OperationResult<T> {
   success: boolean
@@ -91,13 +111,38 @@ export const useCustomAvatarsStore = defineStore('customAvatars', () => {
     }
   }
 
-  const allAvatars = computed<CustomAvatar[]>(() => [builtInAvatar, ...customAvatars.value])
+  const allAvatars = computed<CustomAvatar[]>(() => [
+    builtInAvatar,
+    ...customAvatars.value,
+  ])
 
   const settingsStore = useSettingsStore()
 
-  const activeAvatarId = computed(() => settingsStore.settings.assistantAvatar || builtInAvatar.id)
+  const activeAvatarId = computed(
+    () => settingsStore.settings.assistantAvatar || builtInAvatar.id
+  )
 
   const activeAvatar = computed<CustomAvatar>(() => {
+    // 切到男性人格后，头像也要跟着换：否则声音、自称、背景都变了，
+    // 屏幕上还是原来那个女性形象，最出戏。
+    const persona = getPersona(settingsStore.settings.assistantPersonaId)
+    if (persona.id !== 'alice') {
+      const video = personaAvatarVideo(persona.id, persona.avatarFile)
+      if (video) {
+        return {
+          id: `persona-${persona.id}`,
+          name: persona.displayName,
+          folderName: persona.displayName,
+          source: 'builtin',
+          stateVideos: { speaking: video, standby: video, thinking: video },
+          previewVideo: video,
+        }
+      }
+      // 这个人格没有配套视频时，宁可回到 Alice 的内置三件套。
+      // 沿用"当前选中的自定义头像"会张冠李戴：声音、背景都换了，脸还是别人的。
+      return builtInAvatar
+    }
+
     return (
       allAvatars.value.find(avatar => avatar.id === activeAvatarId.value) ||
       builtInAvatar

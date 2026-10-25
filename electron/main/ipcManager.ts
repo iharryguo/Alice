@@ -68,6 +68,11 @@ import {
   deleteAllMemoriesLocal,
 } from './memoryManager'
 import {
+  listPersonaNotes,
+  addPersonaNote,
+  deletePersonaNote,
+} from './personaNotes'
+import {
   addThoughtVector,
   searchSimilarThoughts,
   deleteAllThoughtVectors,
@@ -438,6 +443,41 @@ export function registerIPCHandlers(): void {
       return { success: true, data: stats }
     } catch (error) {
       console.error('[IPC rag:stats] Error:', error)
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  // Persona notes: 人格自己记下的背景细节
+  ipcMain.handle('persona:notes:list', (_event, { personaId } = {} as any) => {
+    try {
+      return { success: true, data: listPersonaNotes(personaId) }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle(
+    'persona:notes:add',
+    (_event, { personaId, content } = {} as any) => {
+      try {
+        const note = addPersonaNote(personaId, content)
+        if (!note) {
+          return {
+            success: false,
+            error: '这条已经记过，或内容不像一条可保存的设定。',
+          }
+        }
+        return { success: true, data: note }
+      } catch (error) {
+        return { success: false, error: (error as Error).message }
+      }
+    }
+  )
+
+  ipcMain.handle('persona:notes:delete', (_event, { id } = {} as any) => {
+    try {
+      return { success: deletePersonaNote(String(id || '')) }
+    } catch (error) {
       return { success: false, error: (error as Error).message }
     }
   })

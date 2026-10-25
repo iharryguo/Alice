@@ -5,11 +5,12 @@ import * as api from '../services/apiService'
 import { useGeneralStore } from './generalStore'
 import type { AudioState } from './generalStore'
 import { useSettingsStore } from './settingsStore'
+import { usePersonaStore } from './personaStore'
 import { executeFunction } from '../utils/functionCaller'
 import eventBus from '../utils/eventBus'
 import { isExpectedAbortError } from '../utils/isAbortError'
 import { logEvent } from '../utils/logger'
-import { getConversationSessionId } from '../utils/conversationSession'
+import { getConversationSessionId, isSessionRestored } from '../utils/conversationSession'
 import { createStreamHandler } from '../modules/conversation/streamHandler'
 import { createToolCallHandler } from '../modules/conversation/toolCallHandler'
 import { createApiInputBuilder } from '../modules/conversation/apiInputBuilder'
@@ -21,6 +22,7 @@ import { createChatOrchestrator } from '../modules/conversation/chatOrchestrator
 import { createBackendService } from '../modules/conversation/backendService'
 import { composeAssistantSystemPrompt } from '../prompts/composeSystemPrompt'
 import { ENGLISH_REPLY_REMINDER } from '../prompts/englishCoachPrompt'
+import { settleMemories } from '../modules/memory/autoMemory'
 import type {
   ToolCallHandlerDependencies,
 } from '../modules/conversation/types'
@@ -299,10 +301,17 @@ export const useConversationStore = defineStore('conversation', () => {
   const ttsAbortController = ref<AbortController | null>(null)
   const llmAbortController = ref<AbortController | null>(null)
   const ephemeralEmotionalContext = ref<string | null>(null)
-  const getComposedSystemPrompt = () =>
-    composeAssistantSystemPrompt(settingsStore.config.assistantSystemPrompt, {
-      englishMode: generalStore.englishMode,
-    })
+  const getComposedSystemPrompt = () => {
+    const personaId = settingsStore.config.assistantPersonaId || 'alice'
+    return composeAssistantSystemPrompt(
+      settingsStore.config.assistantSystemPrompt,
+      {
+        englishMode: generalStore.englishMode,
+        personaId,
+        personaNotes: usePersonaStore().notesFor(personaId),
+      }
+    )
+  }
 
   const chatWithCleanHistory = async () => {
     console.log(
@@ -398,8 +407,15 @@ export const useConversationStore = defineStore('conversation', () => {
   function createApiInputDependencies(): ApiInputBuilderDependencies {
     return {
       getChatHistory: () => [...chatHistory.value],
-      getMaxHistoryMessagesForApi: () =>
-        settingsStore.config.MAX_HISTORY_MESSAGES_FOR_API,
+      getMaxHistoryMessagesForApi: () => {
+        const configured = settingsStore.config.MAX_HISTORY_MESSAGES_FOR_API
+        // 恢复出来的会话要接上前文，不能只带最后十条；
+        // 真正的长度闸门是下面的字符预算。
+        return isSessionRestored()
+          ? Number.MAX_SAFE_INTEGER
+          : configured
+      },
+      getMaxHistoryCharsForApi: () => 120_000,
       getAiProvider: () => settingsStore.config.aiProvider,
       getPendingImages: () => [...generalStore.pendingScreenshots],
       // 双保险：英语模式下在最新一条用户消息后加一句极短的语言提醒，
@@ -794,6 +810,12 @@ export const useConversationStore = defineStore('conversation', () => {
       isContinuationAfterTool,
     })
 
+    // 一轮说完顺手整理记忆：不阻塞回复，内部有 45 秒冷却与条数门槛。
+    // 以前只有模型主动调 save_memory 才写记忆，全库一个月只有一条。
+    if (result.streamEndedNormally) {
+      void settleMemories('turn')
+    }
+
     return result
   }
   const chatOrchestrator = createChatOrchestrator(
@@ -934,6 +956,7 @@ export const useConversationStore = defineStore('conversation', () => {
       search_torrents: '🧲 Looking for torrents...',
       add_torrent_to_qb: '🚀 Starting your download...',
       save_memory: '🧠 Got it, remembering that...',
+      remember_self_fact: '🧠 Keeping my story straight...',
       recall_memories: '🧠 Let me think back...',
       delete_memory: '🗑️ Forgetting that now...',
       get_calendar_events: '🗓️ Fetching your schedule...',

@@ -263,6 +263,13 @@ export async function createMainWindow(
     created.hide()
   })
 
+  // 收进托盘也算一段对话的结束：让渲染层把聊天记录落库、记忆整理掉。
+  // 窗口只是隐藏，进程还在，这点时间完全给得起。
+  created.on('hide', () => {
+    if (created.isDestroyed()) return
+    created.webContents.send('app:flush-state', { reason: 'window-hide' })
+  })
+
   created.on('maximize', notifyMaximizedState)
   created.on('unmaximize', notifyMaximizedState)
 

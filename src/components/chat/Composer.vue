@@ -97,6 +97,8 @@
 import { computed, nextTick, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useGeneralStore } from '../../stores/generalStore'
+import { useSettingsStore } from '../../stores/settingsStore'
+import { getPersona } from '../../prompts/personas'
 
 const props = defineProps<{
   disabled?: boolean
@@ -134,11 +136,16 @@ const statusHint = computed(() => {
   return ''
 })
 
+const assistantName = computed(() => {
+  const personaId = useSettingsStore().settings.assistantPersonaId
+  return getPersona(personaId).displayName
+})
+
 const placeholder = computed(() =>
   props.disabled
     ? '正在初始化…'
     : englishMode.value
-      ? '用英文聊聊，或让 Alice 帮你纠错…（Enter 发送，Shift+Enter 换行）'
+      ? `用英文聊聊，或让 ${assistantName.value} 帮你纠错…（Enter 发送，Shift+Enter 换行）`
       : '说点什么，或让我操作你的电脑…（Enter 发送，Shift+Enter 换行）'
 )
 
@@ -244,8 +251,8 @@ const clearAttachedFile = () => {
   outline: none;
   background: transparent;
   color: rgb(241 245 249);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 15px;
+  line-height: 1.6;
   max-height: 120px;
   padding: 2px 2px 4px;
 }

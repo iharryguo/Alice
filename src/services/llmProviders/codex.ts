@@ -1,5 +1,6 @@
 import type OpenAI from 'openai'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { usePersonaStore } from '../../stores/personaStore'
 import { useGeneralStore } from '../../stores/generalStore'
 import { composeAssistantSystemPrompt } from '../../prompts/composeSystemPrompt'
 import { CODEX_TEXT_MODELS, getSafeProviderModel } from './providerCatalog'
@@ -352,6 +353,8 @@ export const createCodexResponse = async (
     customInstructions ||
     composeAssistantSystemPrompt(settings.assistantSystemPrompt, {
       englishMode: useGeneralStore().englishMode,
+      personaId: settings.assistantPersonaId,
+      personaNotes: usePersonaStore().notesFor(settings.assistantPersonaId),
     })
   const tooling = await buildCodexTooling()
 

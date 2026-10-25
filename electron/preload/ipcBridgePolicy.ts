@@ -11,6 +11,9 @@ export const INVOKE_CHANNELS = new Set([
   'rag:remove-paths',
   'rag:stats',
   'memory:save',
+  'persona:notes:list',
+  'persona:notes:add',
+  'persona:notes:delete',
   'memory:delete',
   'memory:delete-all',
   'memory:get',
@@ -140,6 +143,7 @@ export const SEND_CHANNELS = new Set([
   'window:mini-ball',
   'close-app',
   'restart-and-install-update',
+  'app:flush-done',
 ])
 
 export const EVENT_CHANNELS = new Set([
@@ -170,6 +174,7 @@ export const EVENT_CHANNELS = new Set([
   'window:mode-changed',
   'kokoro-tts-progress',
   'local-embedding-progress',
+  'app:flush-state',
 ])
 
 const DYNAMIC_EVENT_CHANNELS = [

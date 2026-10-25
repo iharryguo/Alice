@@ -12,6 +12,13 @@ import {
   isLikelyMeaningfulSpeech,
   isMeaninglessFiller,
 } from '../utils/bargeInHeuristics'
+import {
+  DEFAULT_VOICE_NAME_PAUSE_MS,
+  decideTurnEnd,
+  findPersonaName,
+  mergeTurnFragments,
+} from '../utils/voiceTurnGate'
+import { getPersona } from '../prompts/personas'
 import type { ChatMessage } from '../types/chat'
 
 let ipcListenersRegistered = false
@@ -56,9 +63,7 @@ export function useAudioProcessing() {
       logEvent('audio', 'stt.segment', { samples: merged.length })
       transcriptionChain = transcriptionChain
         .then(() => processAudioRecording(merged))
-        .catch(error =>
-          console.warn('[Audio Processing] 转写队列失败:', error)
-        )
+        .catch(error => console.warn('[Audio Processing] 转写队列失败:', error))
     }, 800)
   }
 
@@ -88,8 +93,62 @@ export function useAudioProcessing() {
   // 用户持续说话超过这个时长就先暂停 TTS，不再等语音结束、更不等转写
   const BARGE_IN_WATCHDOG_MS = 500
   const SPEAKING_REDEMPTION_MS = 350 // 播放期间快速收句
-  const LISTENING_REDEMPTION_MS = 1000 // 普通对话：别把一句话切成两段
+  // 单轮最多攒这么多片段：约 80 秒语音，防跑飞和上下文爆掉
+  const VOICE_TURN_MAX_FRAGMENTS = 40
+
+  // ── 按人格名结束说话：本轮状态 ─────────────────────────────────────
+  // 一轮 = 从开口到发送之间的所有转写片段。2 秒收句必然把一句话切成几片，
+  // 所以只累积不发送，等"叫了名字"或"兜底静默到点"再一次性发出去。
+  let voiceTurnFragments: string[] = []
+  let voiceTurnSawName = false
+  /** 每轮自增：在途转写回来时序号对不上就丢弃，避免旧结果污染新一轮 */
+  let voiceTurnSeq = 0
+  let voiceTurnFallbackTimer: ReturnType<typeof setTimeout> | null = null
+  /**
+   * 用户真正停嘴的时刻（估算）。VAD 要等 redemptionMs 才算"说完"，
+   * 所以 onSpeechEnd 时其实早就静了这么久，这里先减掉，后面算静音时长才准。
+   */
+  let voiceTurnSpeechEndedAt = 0
+  /** 防重入：兜底计时器和转写返回可能同时到点 */
+  let isVoiceTurnSending = false
+  /** 兜底到点时还有音频在路上：等它回来再发，且只发一次 */
+  let pendingTurnFlush = false
+  /** 在途转写数量：判断"是不是还有一段没回来" */
+  let inFlightTranscriptions = 0
+
+  const voiceGateEnabled = () =>
+    settingsStore.config.voiceNameTurnGateEnabled !== false
+
+  /** 叫名字后的停顿：低于 800ms 会把一句话拦腰截断，按默认值兜住 */
+  const voiceNamePauseMs = () => {
+    const configured = Number(settingsStore.config.voiceNamePauseMs)
+    return Number.isFinite(configured) && configured >= 800
+      ? configured
+      : DEFAULT_VOICE_NAME_PAUSE_MS
+  }
+
+  /** 没叫名字时的兜底静默（原来是"说完停顿判定"） */
+  const fallbackSilenceMs = () => {
+    const configured = Number(settingsStore.config.voiceSilenceMs)
+    return Number.isFinite(configured) && configured >= 300 ? configured : 10000
+  }
+
+  /**
+   * LISTENING 下 VAD 的收句窗口。
+   * - gate 关闭：等于兜底静默，行为与改造前完全一致（回滚开关）
+   * - 已叫过名字：用短窗口，叫完名字停一下就发
+   * - 还没叫名字：前 3 片仍用短窗口（"嗯…Felix"这种开头还能抓到），
+   *   之后放宽到兜底静默，免得一段长独白被切成五六段去反复转写
+   */
+  const currentListeningRedemptionMs = () => {
+    if (!voiceGateEnabled()) return fallbackSilenceMs()
+    if (voiceTurnSawName) return voiceNamePauseMs()
+    if (voiceTurnFragments.length < 3) return voiceNamePauseMs()
+    return fallbackSilenceMs()
+  }
+
   let playbackStartedAt = 0
+
   let isFirstPlaybackAfterStart = true
   let volumeBeforeDuck = 1
   let bargeInWatchdog: ReturnType<typeof setTimeout> | null = null
@@ -108,7 +167,7 @@ export function useAudioProcessing() {
       redemptionMs:
         state === 'SPEAKING'
           ? SPEAKING_REDEMPTION_MS
-          : LISTENING_REDEMPTION_MS,
+          : currentListeningRedemptionMs(),
     })
   }
 
@@ -251,6 +310,8 @@ export function useAudioProcessing() {
       restorePlaybackVolume()
       eventBus.emit('cancel-llm-stream')
       generalStore.stopPlaybackAndClearQueue()
+      // 接管成功就是新一轮对话：上一轮没发出去的累积必须丢掉
+      resetVoiceTurn('barge-in-takeover')
       setAudioState('PROCESSING_AUDIO')
       generalStore.recognizedText = transcription
       eventBus.emit('processing-complete', transcription)
@@ -369,6 +430,8 @@ export function useAudioProcessing() {
         createVadOptions(assetPath, {
           onSpeechStart: () => {
             isSpeechDetected.value = true
+            // 用户又开口了：兜底不能按上一段停嘴的时间继续算
+            clearVoiceTurnTimer()
             console.log('[VAD Callback] Speech started.')
             eventBus.emit('user-speech-start')
             logEvent('audio', 'vad.speech.start', {
@@ -387,9 +450,7 @@ export function useAudioProcessing() {
                 '[Barge-In] User speech while waiting for response; cancelling LLM stream.'
               )
               eventBus.emit('cancel-llm-stream')
-              setAudioState(
-                isRecordingRequested.value ? 'LISTENING' : 'IDLE'
-              )
+              setAudioState(isRecordingRequested.value ? 'LISTENING' : 'IDLE')
               return
             }
 
@@ -437,6 +498,13 @@ export function useAudioProcessing() {
               void handleBargeInUtterance(audio)
               return
             }
+            // 记下"真正停嘴"的时刻：VAD 已经等掉了当前窗口的静音，先补回去
+            const gatedTurn =
+              voiceGateEnabled() && audioState.value === 'LISTENING'
+            if (gatedTurn) {
+              voiceTurnSpeechEndedAt =
+                Date.now() - currentListeningRedemptionMs()
+            }
             // 以前只有 LISTENING 时才收，上一段还在转写时说的话会被整段丢掉。
             // 现在一律入队，由转写队列串行处理。
             if (audio?.length) {
@@ -444,6 +512,9 @@ export function useAudioProcessing() {
             } else {
               isSpeechDetected.value = false
             }
+            // 兜底从"最后一次语音结束"起算，而不是等转写返回才起算：
+            // 否则 STT 的那 0.5~2 秒会白白加在用户等待上
+            if (gatedTurn) armVoiceTurnFallback()
           },
         })
       )
@@ -482,6 +553,7 @@ export function useAudioProcessing() {
       return
     }
     clearBargeInWatchdog()
+    clearVoiceTurnTimer()
     isBargeInPaused = false
     console.log('[VAD Manager] Destroying VAD instance...')
     const vadInstance = myvad.value
@@ -533,17 +605,187 @@ export function useAudioProcessing() {
     return { hasWakeWord: false, command: transcription }
   }
 
+  /** 这一轮还有音频没走完（还在合并窗口里，或正在转写）：此时发送会漏掉后半句 */
+  const isTurnAudioPending = () =>
+    inFlightTranscriptions > 0 ||
+    pendingSegments.length > 0 ||
+    mergeTimer !== null
+
+  const clearVoiceTurnTimer = () => {
+    if (voiceTurnFallbackTimer) {
+      clearTimeout(voiceTurnFallbackTimer)
+      voiceTurnFallbackTimer = null
+    }
+  }
+
+  /**
+   * 挂上兜底计时器：从"最后一次真正停嘴"起算。
+   * 已经叫过名字的轮次按名字停顿算，没叫过的才等兜底静默。
+   * 减掉 VAD 已经等掉的那段静音，否则实际会等成目标值 + 2 秒。
+   */
+  const armVoiceTurnFallback = () => {
+    if (!voiceGateEnabled()) return
+    if (!isTurnAudioPending() && !voiceTurnFragments.length) return
+    clearVoiceTurnTimer()
+    const elapsed = Date.now() - voiceTurnSpeechEndedAt
+    const target = voiceTurnSawName ? voiceNamePauseMs() : fallbackSilenceMs()
+    const delay = Math.max(200, target - elapsed)
+    voiceTurnFallbackTimer = setTimeout(() => {
+      voiceTurnFallbackTimer = null
+      flushVoiceTurn(
+        voiceTurnSeq,
+        voiceTurnSawName ? 'name-hit' : 'fallback-silence'
+      )
+    }, delay)
+  }
+
+  /** 丢掉本轮累积。任何"这一轮不该再发出去"的时刻都要调它 */
+  const resetVoiceTurn = (reason: string) => {
+    clearVoiceTurnTimer()
+    if (voiceTurnFragments.length || voiceTurnSawName) {
+      logEvent('audio', 'voice.turn.reset', {
+        reason,
+        fragments: voiceTurnFragments.length,
+        sawName: voiceTurnSawName,
+      })
+    }
+    voiceTurnSeq += 1
+    voiceTurnFragments = []
+    voiceTurnSawName = false
+    isVoiceTurnSending = false
+    pendingTurnFlush = false
+    // 窗口回到"本轮开头"的短值，下一句话仍能靠名字 2 秒收句
+    applyVadThresholdForState(audioState.value)
+  }
+
+  /**
+   * 尝试收本轮。三道闸分别对应三种"重复发送"来源：
+   * 过期轮次（旧转写晚到）、重入（计时器与转写同时到点）、音频未走完（会漏半句）。
+   */
+  const flushVoiceTurn = (seq: number, reason: string) => {
+    if (seq !== voiceTurnSeq) return
+    if (isVoiceTurnSending) return
+    if (isTurnAudioPending()) {
+      pendingTurnFlush = true
+      return
+    }
+
+    const persona = getPersona(settingsStore.config.assistantPersonaId)
+    const decision = decideTurnEnd({
+      fragments: voiceTurnFragments,
+      personaHit: voiceTurnSawName,
+      silenceMs: Date.now() - voiceTurnSpeechEndedAt,
+      personaId: persona.id,
+      personaDisplayName: persona.displayName,
+      namePauseMs: voiceNamePauseMs(),
+      fallbackSilenceMs: fallbackSilenceMs(),
+    })
+
+    if (decision.action === 'wait') {
+      // 被挂起的兜底先到点、但静音还不够：重新挂上计时器，别把这条线断掉
+      if (pendingTurnFlush) {
+        pendingTurnFlush = false
+        armVoiceTurnFallback()
+      }
+      return
+    }
+
+    pendingTurnFlush = false
+
+    if (decision.action === 'ignore') {
+      resetVoiceTurn(`ignore-${decision.reason}`)
+      return
+    }
+
+    const text = decision.text.trim()
+    if (!text) {
+      resetVoiceTurn('empty-turn')
+      return
+    }
+
+    // 先清空本轮再发送：Main.vue 也接受 LISTENING 下的转写，
+    // 残留片段被二次 flush 就会重复发一条消息。
+    isVoiceTurnSending = true
+    voiceTurnSeq += 1
+    voiceTurnFragments = []
+    voiceTurnSawName = false
+    clearVoiceTurnTimer()
+
+    logEvent('audio', 'voice.turn.send', {
+      reason,
+      decision: decision.reason,
+      length: text.length,
+    })
+    // Main.vue 只认 PROCESSING_AUDIO / LISTENING，其他状态下会被静默丢弃
+    if (audioState.value !== 'SPEAKING') setAudioState('PROCESSING_AUDIO')
+    generalStore.recognizedText = text
+    eventBus.emit('processing-complete', text)
+    isVoiceTurnSending = false
+    applyVadThresholdForState(audioState.value)
+  }
+
+  /**
+   * gate 模式下的片段处理：只累积，命中名字或兜底到点才发送。
+   * 不在这里改 audioState —— 每 2 秒切一次 PROCESSING_AUDIO 会让头像和状态文案乱闪。
+   */
+  const handleGatedTranscript = (text: string, turnSeq: number) => {
+    isSpeechDetected.value = false
+
+    if (audioState.value !== 'LISTENING') {
+      // 播放中是打断的独立快路径，等待回复时也不该攒；对齐旧行为直接丢
+      logEvent('audio', 'voice.turn.dropped', { audioState: audioState.value })
+      return
+    }
+    if (!text) {
+      // 空转写（极短片段、纯语气词）不清累积：那只是同一句话的中间停顿
+      return
+    }
+
+    voiceTurnFragments.push(text)
+    if (voiceTurnFragments.length > VOICE_TURN_MAX_FRAGMENTS) {
+      voiceTurnFragments.shift()
+    }
+
+    const persona = getPersona(settingsStore.config.assistantPersonaId)
+    const merged = mergeTurnFragments(voiceTurnFragments)
+    const hit = findPersonaName(merged, persona.id, persona.displayName)
+    if (!voiceTurnSawName && hit) {
+      voiceTurnSawName = true
+      // 命中后立刻把窗口收紧：后面的停顿才能被当成"说完了"
+      applyVadThresholdForState(audioState.value)
+    }
+    logEvent('audio', 'voice.turn.fragment', {
+      text: text.slice(0, 80),
+      fragments: voiceTurnFragments.length,
+      sawName: voiceTurnSawName,
+      atStart: hit?.atStart ?? false,
+    })
+
+    if (voiceTurnSawName) {
+      flushVoiceTurn(turnSeq, 'name-hit')
+    } else if (pendingTurnFlush) {
+      flushVoiceTurn(turnSeq, 'fallback-silence')
+    }
+  }
+
   const processAudioRecording = async (audio: Float32Array) => {
     if (!audio || audio.length === 0) {
       isSpeechDetected.value = false
       return
     }
 
-    // 播放中不要抢状态（打断路径另有处理），其余情况照常进入处理态
-    if (audioState.value !== 'SPEAKING') {
+    const gateOn = voiceGateEnabled()
+    // 快照本轮序号：await 回来后对不上，说明这一轮已经结束，结果要丢掉
+    const turnSeq = voiceTurnSeq
+
+    // 播放中不要抢状态（打断路径另有处理），其余情况照常进入处理态。
+    // gate 模式下不能每片都切 PROCESSING_AUDIO：那会让状态文案和头像一路闪，
+    // 也会让 audioState watcher 反复触发，所以状态交给 flush 去改。
+    if (!gateOn && audioState.value !== 'SPEAKING') {
       setAudioState('PROCESSING_AUDIO')
     }
 
+    inFlightTranscriptions += 1
     try {
       const startedAt = Date.now()
       const wavBuffer = float32ArrayToWav(audio, 16000)
@@ -555,12 +797,28 @@ export function useAudioProcessing() {
         text: transcription,
       })
 
-      if (transcription && transcription.trim()) {
+      if (turnSeq !== voiceTurnSeq) {
+        // 用户已经点停止、或这一轮已经发出去：这段是过期结果，不能再用
+        console.log(
+          '[Audio Processing] Dropping stale transcript (turn moved on)'
+        )
+        logEvent('audio', 'voice.turn.stale', {
+          turnSeq,
+          current: voiceTurnSeq,
+        })
+        return
+      }
+
+      const recognized = (transcription || '').trim()
+
+      if (gateOn) {
+        handleGatedTranscript(recognized, turnSeq)
+      } else if (recognized) {
         if (
           settingsStore.config.localSttEnabled &&
           settingsStore.config.sttProvider === 'local'
         ) {
-          const { hasWakeWord, command } = checkForWakeWord(transcription)
+          const { hasWakeWord, command } = checkForWakeWord(recognized)
 
           if (hasWakeWord) {
             generalStore.recognizedText = command
@@ -573,8 +831,8 @@ export function useAudioProcessing() {
             isSpeechDetected.value = false
           }
         } else {
-          generalStore.recognizedText = transcription
-          eventBus.emit('processing-complete', transcription)
+          generalStore.recognizedText = recognized
+          eventBus.emit('processing-complete', recognized)
         }
       } else {
         if (isBargeInPending.value) {
@@ -593,6 +851,20 @@ export function useAudioProcessing() {
       }
       setAudioState(isRecordingRequested.value ? 'LISTENING' : 'IDLE')
       isSpeechDetected.value = false
+    } finally {
+      inFlightTranscriptions -= 1
+      // 兜底到点时这段还在路上：现在回来了，补一次收句（只发一次）
+      if (
+        voiceGateEnabled() &&
+        pendingTurnFlush &&
+        inFlightTranscriptions === 0 &&
+        !isTurnAudioPending()
+      ) {
+        flushVoiceTurn(
+          voiceTurnSeq,
+          voiceTurnSawName ? 'name-hit' : 'fallback-silence'
+        )
+      }
     }
   }
 
@@ -604,6 +876,8 @@ export function useAudioProcessing() {
     () => {
       isBargeInPaused = false
       clearBargeInWatchdog()
+      // 点停止 / 取消本轮 / 切会话：攒着没发的话属于上一轮，不能留到下一轮
+      resetVoiceTurn('playback-epoch')
     }
   )
 
@@ -616,8 +890,42 @@ export function useAudioProcessing() {
       clearBargeInWatchdog()
       isBargeInPaused = false
     }
+    // 只有"这一轮确定结束了"的状态才清累积。
+    // PROCESSING_AUDIO 绝不能清：flush 自己刚把状态置成它，清了就等于自己踩自己。
+    if (
+      newState === 'SPEAKING' ||
+      newState === 'WAITING_FOR_RESPONSE' ||
+      newState === 'IDLE' ||
+      newState === 'CONFIG'
+    ) {
+      resetVoiceTurn(`state-${newState}`)
+      return
+    }
     applyVadThresholdForState(newState)
   })
+
+  // 改设置要立刻生效：以前只靠 audioState 变化才下发 VAD 选项，
+  // 所以"改了收句时长却没反应"一直存在（顺手修掉）。
+  watch(
+    () => [
+      settingsStore.config.voiceSilenceMs,
+      settingsStore.config.voiceNamePauseMs,
+    ],
+    () => applyVadThresholdForState(audioState.value)
+  )
+
+  watch(
+    () => settingsStore.config.voiceNameTurnGateEnabled,
+    () => resetVoiceTurn('gate-changed')
+  )
+
+  watch(
+    () => settingsStore.config.assistantPersonaId,
+    () => {
+      // 别名表跟着人格变：切人格瞬间攒的旧文本不该按旧人格判定
+      resetVoiceTurn('persona-changed')
+    }
+  )
 
   watch(isRecordingRequested, isRequested => {
     console.log(
@@ -643,6 +951,8 @@ export function useAudioProcessing() {
     } else {
       clearBargeInWatchdog()
       isBargeInPaused = false
+      // 关麦：本轮攒的片段不能再留着，否则重开麦会把旧话发出去
+      resetVoiceTurn('mic-off')
       destroyVAD()
       if (audioState.value === 'LISTENING') {
         setAudioState('IDLE')
@@ -662,6 +972,11 @@ export function useAudioProcessing() {
 
   onUnmounted(() => {
     clearBargeInWatchdog()
+    clearVoiceTurnTimer()
+    // 卸载就彻底丢掉，别让计时器在别的会话里把旧话发出去
+    voiceTurnFragments = []
+    voiceTurnSawName = false
+    pendingTurnFlush = false
     isBargeInPaused = false
     if (isBargeInPending.value) {
       restorePlaybackVolume()

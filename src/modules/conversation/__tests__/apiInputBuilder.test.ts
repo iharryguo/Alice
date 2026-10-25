@@ -204,4 +204,53 @@ describe('createApiInputBuilder', () => {
       text: '[User previously sent an image]',
     })
   })
+
+  it('drops the oldest messages once the character budget is exhausted', async () => {
+    const history: ConversationHistoryMessage[] = [
+      {
+        role: 'assistant',
+        content: [{ type: 'app_text', text: '最近的回复' }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'app_text', text: '最近的问题' }],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'app_text', text: '很早以前的内容'.repeat(80) }],
+      },
+    ]
+
+    const builder = createApiInputBuilder(
+      buildDependencies({
+        history,
+        getMaxHistoryMessagesForApi: () => 1000,
+        getMaxHistoryCharsForApi: () => 40,
+      })
+    )
+    const result = await builder.build({ isNewChain: true })
+
+    expect(result).toHaveLength(2)
+    expect(result[0].role).toBe('user')
+    expect(result[1].role).toBe('assistant')
+  })
+
+  it('always keeps the newest message even when it alone exceeds the budget', async () => {
+    const history: ConversationHistoryMessage[] = [
+      {
+        role: 'user',
+        content: [{ type: 'app_text', text: '很长的一句话'.repeat(200) }],
+      },
+    ]
+
+    const builder = createApiInputBuilder(
+      buildDependencies({
+        history,
+        getMaxHistoryMessagesForApi: () => 1000,
+        getMaxHistoryCharsForApi: () => 20,
+      })
+    )
+    const result = await builder.build({ isNewChain: true })
+    expect(result).toHaveLength(1)
+  })
 })

@@ -1,6 +1,7 @@
 import { app, ipcMain } from 'electron'
 import path from 'node:path'
 import Database from 'better-sqlite3'
+import { writeAppLog } from './teaching/logger'
 
 /**
  * 会话历史持久化。
@@ -113,7 +114,14 @@ export function syncSession(payload: {
 }): { success: boolean; messageCount?: number; error?: string } {
   try {
     const sessionId = String(payload?.sessionId || '').trim()
-    if (!sessionId) return { success: false, error: '缺少 sessionId' }
+    if (!sessionId) {
+      writeAppLog({
+        level: 'warn',
+        module: 'history',
+        event: 'sync.missing-session',
+      })
+      return { success: false, error: '缺少 sessionId' }
+    }
 
     const messages = Array.isArray(payload.messages)
       ? payload.messages
@@ -170,6 +178,16 @@ export function syncSession(payload: {
     return { success: true, messageCount: messages.length }
   } catch (error) {
     console.error('[ConversationLog] 同步会话失败:', error)
+    writeAppLog({
+      level: 'error',
+      module: 'history',
+      event: 'sync.failed',
+      data: {
+        sessionId: payload?.sessionId,
+        messages: Array.isArray(payload?.messages) ? payload.messages.length : 0,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    })
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error),

@@ -4,7 +4,7 @@ process.env.ELECTRON_DISABLE_GPU = '1'
 process.env.LIBGL_ALWAYS_SOFTWARE = '1'
 process.env.GALLIUM_DRIVER = 'llvmpipe'
 
-import { app, session, BrowserWindow } from 'electron'
+import { app, session, BrowserWindow, ipcMain } from 'electron'
 
 app.disableHardwareAcceleration()
 
@@ -455,7 +455,7 @@ app.whenReady().then(async () => {
   }
 
   // 上次退出时是什么形态，这次就以什么形态回来。
-  // 之前固定从球开始，用户在设置里点"保存并重载"后会突然回到球，还以为窗口坏了。
+  // 之前固定从球开始，用户改完设置（旧版本会重载）后突然回到球，还以为窗口坏了。
   const startupSettings = await loadSettings().catch(() => null)
   await createMainWindow(startupSettings?.windowMode ?? 'avatar_ball')
   await createOverlayWindow()
@@ -520,6 +520,32 @@ app.whenReady().then(async () => {
   }
 })
 
+/**
+ * 退出前给渲染层一个收尾窗口：聊天记录要落库，这一段的记忆也要整理完。
+ * 渲染层干完活会 send('app:flush-done')，等不到就按超时放行，
+ * 绝不能让保存失败把程序卡住关不掉。
+ */
+function requestRendererFlush(reason: string, timeoutMs: number): Promise<void> {
+  const win = getMainWindow()
+  if (!win || win.isDestroyed()) return Promise.resolve()
+
+  return new Promise<void>(resolve => {
+    let settled = false
+    const finish = (source: string) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      ipcMain.removeListener('app:flush-done', onDone)
+      console.log(`[Main Index] renderer flush (${reason}) finished via ${source}`)
+      resolve()
+    }
+    const onDone = () => finish('renderer')
+    const timer = setTimeout(() => finish('timeout'), timeoutMs)
+    ipcMain.on('app:flush-done', onDone)
+    win.webContents.send('app:flush-state', { reason })
+  })
+}
+
 app.on('before-quit', () => {
   pauseActiveSessions()
 })
@@ -545,7 +571,11 @@ app.on('before-quit', async event => {
 
   try {
     await Promise.race([
-      Promise.all([ensureThoughtStoreSave(), backendManager.stop()]),
+      Promise.all([
+        ensureThoughtStoreSave(),
+        backendManager.stop(),
+        requestRendererFlush('quit', 3500),
+      ]),
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Cleanup timeout')), 4000)
       ),

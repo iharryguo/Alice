@@ -8,6 +8,7 @@ import {
   reinitializeClients,
 } from '../services/apiClients'
 import { DEFAULT_PERSONA_PROMPT } from '../prompts/defaultPersonaPrompt'
+import { PERSONAS } from '../prompts/personas'
 import {
   DEEPSEEK_OPENAI_BASE_URL,
   MINIMAX_OPENAI_BASE_URL,
@@ -43,7 +44,8 @@ export interface AliceSettings {
   VITE_GOOGLE_API_KEY: string
   VITE_DOUBAO_API_KEY: string
   VITE_QWEN_API_KEY: string
-  sttProvider: 'openai' | 'groq' | 'google' | 'doubao' | 'qwen' | 'volcengine' | 'local'
+  sttProvider:
+    'openai' | 'groq' | 'google' | 'doubao' | 'qwen' | 'volcengine' | 'local'
   aiProvider: AIProviderKey
 
   // Local Go Backend STT settings
@@ -51,6 +53,12 @@ export interface AliceSettings {
   localSttLanguage: string
   localSttEnabled: boolean
   localSttWakeWord: string
+  /** 没叫人格名时的兜底静默：这么久没有新声音就把累积的内容发出去，毫秒；默认 10 秒 */
+  voiceSilenceMs: number
+  /** 叫了人格名之后，停顿多久算说完，毫秒；默认 2000，太短会把一句话拦腰截断 */
+  voiceNamePauseMs: number
+  /** 是否启用"按人格名结束说话"；关掉即退回旧的收句行为（回滚开关） */
+  voiceNameTurnGateEnabled: boolean
 
   ollamaBaseUrl: string
   lmStudioBaseUrl: string
@@ -75,6 +83,8 @@ export interface AliceSettings {
 
   assistantModel: string
   assistantSystemPrompt: string
+  /** 当前身份 id：alice / felix … */
+  assistantPersonaId: string
   assistantTemperature: number
   assistantTopP: number
   assistantReasoningEffort: 'minimal' | 'low' | 'medium' | 'high'
@@ -86,6 +96,10 @@ export interface AliceSettings {
   SUMMARIZATION_MESSAGE_COUNT: number
   SUMMARIZATION_MODEL: string
   SUMMARIZATION_SYSTEM_PROMPT: string
+  /** 是否在对话收尾时自动整理长期记忆 */
+  memoryAutoExtract: boolean
+  /** 记忆整理用的模型；留空则跟随对话模型 */
+  memoryExtractModel: string
   ttsProvider: 'openai' | 'google' | 'doubao' | 'qwen' | 'volcengine' | 'local'
   ttsVoice:
     | 'alloy'
@@ -220,6 +234,9 @@ const defaultSettings: AliceSettings = {
   localSttLanguage: 'auto',
   localSttEnabled: false,
   localSttWakeWord: 'alice',
+  voiceSilenceMs: 10000,
+  voiceNamePauseMs: 2000,
+  voiceNameTurnGateEnabled: true,
 
   ollamaBaseUrl: 'http://localhost:11434',
   lmStudioBaseUrl: 'http://localhost:1234',
@@ -243,7 +260,8 @@ const defaultSettings: AliceSettings = {
   codexAccountLabel: '',
 
   assistantModel: 'gpt-4.1-mini',
-  assistantSystemPrompt: DEFAULT_PERSONA_PROMPT,
+  assistantSystemPrompt: '',
+  assistantPersonaId: 'alice',
   assistantTemperature: 0.7,
   assistantTopP: 1.0,
   assistantReasoningEffort: 'medium',
@@ -255,6 +273,7 @@ const defaultSettings: AliceSettings = {
     'save_memory',
     'delete_memory',
     'recall_memories',
+    'remember_self_fact',
   ],
   assistantAvatar: 'alice',
   mcpServersConfig: '[]',
@@ -262,6 +281,8 @@ const defaultSettings: AliceSettings = {
   SUMMARIZATION_MESSAGE_COUNT: 20,
   SUMMARIZATION_MODEL: 'gpt-5.6-luna',
   SUMMARIZATION_SYSTEM_PROMPT: DEFAULT_SUMMARIZATION_SYSTEM_PROMPT,
+  memoryAutoExtract: true,
+  memoryExtractModel: '',
   ttsProvider: 'openai',
   ttsVoice: 'nova',
   googleTtsVoice: 'en-US-Journey-F',
@@ -342,6 +363,9 @@ const settingKeyToLabelMap: Record<keyof AliceSettings, string> = {
   localSttLanguage: 'Language',
   localSttEnabled: 'Enable Wake Word',
   localSttWakeWord: 'Wake Word',
+  voiceSilenceMs: 'Fallback Silence When No Name (ms)',
+  voiceNamePauseMs: 'Name Pause (ms)',
+  voiceNameTurnGateEnabled: 'Name-gated Turn End',
 
   ollamaBaseUrl: 'Ollama Base URL',
   lmStudioBaseUrl: 'LM Studio Base URL',
@@ -365,7 +389,8 @@ const settingKeyToLabelMap: Record<keyof AliceSettings, string> = {
   codexAccountLabel: 'ChatGPT Codex account',
 
   assistantModel: 'Assistant Model',
-  assistantSystemPrompt: 'Assistant Persona Prompt',
+  assistantSystemPrompt: 'Additional Persona Notes',
+  assistantPersonaId: 'Assistant Persona',
   assistantTemperature: 'Assistant Temperature',
   assistantTopP: 'Assistant Top P',
   assistantReasoningEffort: 'Reasoning Effort',
@@ -376,6 +401,8 @@ const settingKeyToLabelMap: Record<keyof AliceSettings, string> = {
   SUMMARIZATION_MESSAGE_COUNT: 'Summarization Message Count',
   SUMMARIZATION_MODEL: 'Summarization Model',
   SUMMARIZATION_SYSTEM_PROMPT: 'Summarization System Prompt',
+  memoryAutoExtract: 'Auto-extract Long-term Memory',
+  memoryExtractModel: 'Memory Extraction Model',
   ttsProvider: 'Text-to-Speech Provider',
   ttsVoice: 'OpenAI TTS Voice',
   googleTtsVoice: 'Google TTS Voice',
@@ -465,20 +492,34 @@ export const useSettingsStore = defineStore('settings', () => {
     let migrated = false
 
     // 把旧的共享 Key 复制进各能力自己的字段：识别、合成、嵌入从此各存各的
-    const splitKeys: Array<[keyof AliceSettings, Array<keyof AliceSettings>]> = [
-      ['VITE_OPENAI_API_KEY', ['sttOpenaiApiKey', 'ttsOpenaiApiKey', 'embeddingOpenaiApiKey']],
-      ['VITE_GROQ_API_KEY', ['sttGroqApiKey']],
-      ['VITE_GOOGLE_API_KEY', ['sttGoogleApiKey', 'ttsGoogleApiKey']],
-      ['VITE_DOUBAO_API_KEY', ['sttDoubaoApiKey', 'ttsDoubaoApiKey', 'embeddingDoubaoApiKey']],
-      ['VITE_QWEN_API_KEY', ['sttQwenApiKey', 'ttsQwenApiKey', 'embeddingQwenApiKey']],
-      ['VOLCENGINE_TTS_API_KEY', ['sttVolcengineApiKey', 'ttsVolcengineApiKey']],
-    ]
+    const splitKeys: Array<[keyof AliceSettings, Array<keyof AliceSettings>]> =
+      [
+        [
+          'VITE_OPENAI_API_KEY',
+          ['sttOpenaiApiKey', 'ttsOpenaiApiKey', 'embeddingOpenaiApiKey'],
+        ],
+        ['VITE_GROQ_API_KEY', ['sttGroqApiKey']],
+        ['VITE_GOOGLE_API_KEY', ['sttGoogleApiKey', 'ttsGoogleApiKey']],
+        [
+          'VITE_DOUBAO_API_KEY',
+          ['sttDoubaoApiKey', 'ttsDoubaoApiKey', 'embeddingDoubaoApiKey'],
+        ],
+        [
+          'VITE_QWEN_API_KEY',
+          ['sttQwenApiKey', 'ttsQwenApiKey', 'embeddingQwenApiKey'],
+        ],
+        [
+          'VOLCENGINE_TTS_API_KEY',
+          ['sttVolcengineApiKey', 'ttsVolcengineApiKey'],
+        ],
+      ]
     for (const [legacyKey, targets] of splitKeys) {
       const legacyValue = String(validated[legacyKey] ?? '').trim()
       if (!legacyValue) continue
       for (const target of targets) {
         if (!String(validated[target] ?? '').trim()) {
-          ;(validated as Record<string, unknown>)[target as string] = legacyValue
+          ;(validated as Record<string, unknown>)[target as string] =
+            legacyValue
           migrated = true
         }
       }
@@ -503,6 +544,41 @@ export const useSettingsStore = defineStore('settings', () => {
       }
     } catch (error) {
       console.warn('工具集迁移跳过（localStorage 不可用）:', error)
+    }
+
+    // Migration: 人设从"一整段提示词"改成"可切换的人格档案 + 补充设定"。
+    // 老配置里的 assistantSystemPrompt 就是 Alice 的旧底稿，留着会和新档案重复；
+    // 只有它恰好等于旧默认值时才清空，用户改过的内容一律保留成补充设定。
+    try {
+      const personaMigratedKey = 'alice:persona-arch:v1'
+      const personaMigrated =
+        window.localStorage.getItem(personaMigratedKey) === '1'
+      if (!personaMigrated) {
+        const tools = Array.isArray(validated.assistantTools)
+          ? validated.assistantTools
+          : []
+        if (!tools.includes('remember_self_fact')) {
+          validated.assistantTools = [...tools, 'remember_self_fact']
+          migrated = true
+        }
+        if (
+          String(validated.assistantSystemPrompt || '').trim() ===
+          DEFAULT_PERSONA_PROMPT.trim()
+        ) {
+          validated.assistantSystemPrompt = ''
+          migrated = true
+        }
+        window.localStorage.setItem(personaMigratedKey, '1')
+      }
+    } catch (error) {
+      console.warn('人格迁移跳过（localStorage 不可用）:', error)
+    }
+
+    if (
+      !PERSONAS.some(persona => persona.id === validated.assistantPersonaId)
+    ) {
+      validated.assistantPersonaId = 'alice'
+      migrated = true
     }
 
     // Migration: Handle old 'transformers' provider
@@ -589,6 +665,30 @@ export const useSettingsStore = defineStore('settings', () => {
 
     if (!Array.isArray(validated.ragPaths)) {
       validated.ragPaths = []
+      migrated = true
+    }
+
+    // 收句时长：兜底静默不能小于 300ms，名字停顿不能小于 800ms，
+    // 否则一句话会被切成碎片（旧配置里没有这两项时由默认值兜住）
+    if (
+      !Number.isFinite(validated.voiceSilenceMs) ||
+      validated.voiceSilenceMs < 300
+    ) {
+      validated.voiceSilenceMs = defaultSettings.voiceSilenceMs
+      migrated = true
+    }
+
+    if (
+      !Number.isFinite(validated.voiceNamePauseMs) ||
+      validated.voiceNamePauseMs < 800
+    ) {
+      validated.voiceNamePauseMs = defaultSettings.voiceNamePauseMs
+      migrated = true
+    }
+
+    if (typeof validated.voiceNameTurnGateEnabled !== 'boolean') {
+      validated.voiceNameTurnGateEnabled =
+        defaultSettings.voiceNameTurnGateEnabled
       migrated = true
     }
 
@@ -959,7 +1059,9 @@ export const useSettingsStore = defineStore('settings', () => {
       key === 'SUMMARIZATION_MESSAGE_COUNT' ||
       key === 'websocketPort' ||
       key === 'ragTopK' ||
-      key === 'ragMaxContextChars'
+      key === 'ragMaxContextChars' ||
+      key === 'voiceSilenceMs' ||
+      key === 'voiceNamePauseMs'
     ) {
       ;(settings.value as any)[key] = Number(value)
     } else if (
@@ -972,12 +1074,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
     if (key === 'sttProvider') {
       settings.value[key] = value as
-        | 'openai'
-        | 'groq'
-        | 'google'
-        | 'doubao'
-        | 'qwen'
-        | 'local'
+        'openai' | 'groq' | 'google' | 'doubao' | 'qwen' | 'local'
     }
     if (key === 'aiProvider') {
       settings.value[key] = value as AIProviderKey
@@ -1017,6 +1114,9 @@ export const useSettingsStore = defineStore('settings', () => {
     if (key === 'localSttEnabled') {
       settings.value[key] = value as boolean
     }
+    if (key === 'voiceNameTurnGateEnabled') {
+      settings.value[key] = value as boolean
+    }
     if (key === 'alwaysOnTop') {
       settings.value[key] = value as boolean
     }
@@ -1025,11 +1125,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
     if (key === 'ttsProvider') {
       settings.value[key] = value as
-        | 'openai'
-        | 'google'
-        | 'doubao'
-        | 'qwen'
-        | 'local'
+        'openai' | 'google' | 'doubao' | 'qwen' | 'local'
     }
     if (key === 'localTtsVoice') {
       settings.value[key] = value as string
@@ -1215,7 +1311,8 @@ export const useSettingsStore = defineStore('settings', () => {
     VITE_MINIMAX_API_KEY?: string
     VITE_DEEPSEEK_API_KEY?: string
     VITE_API_ROUTE_API_KEY?: string
-    sttProvider: 'openai' | 'groq' | 'google' | 'doubao' | 'qwen' | 'volcengine' | 'local'
+    sttProvider:
+      'openai' | 'groq' | 'google' | 'doubao' | 'qwen' | 'volcengine' | 'local'
     ttsProvider?: 'openai' | 'google' | 'doubao' | 'qwen' | 'local'
     embeddingProvider?: 'openai' | 'doubao' | 'qwen' | 'local'
     aiProvider: AIProviderKey
@@ -1331,8 +1428,7 @@ export const useSettingsStore = defineStore('settings', () => {
       settings.value.openaiTtsModel = onboardingData.openaiTtsModel
     }
     if (onboardingData.openaiEmbeddingModel !== undefined) {
-      settings.value.openaiEmbeddingModel =
-        onboardingData.openaiEmbeddingModel
+      settings.value.openaiEmbeddingModel = onboardingData.openaiEmbeddingModel
     }
 
     settings.value.onboardingCompleted = true
@@ -1379,6 +1475,21 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
+  /**
+   * 从磁盘重新读一遍设置。
+   *
+   * 设置窗口保存后，主窗口需要换掉内存里的旧配置，但不该为此重建整个界面。
+   * loadSettings 有"只加载一次"的闸门，这里显式放开一次再合上。
+   */
+  async function reloadFromDisk(): Promise<void> {
+    initialLoadAttempted.value = false
+    try {
+      await loadSettings()
+    } finally {
+      initialLoadAttempted.value = true
+    }
+  }
+
   return {
     settings,
     isLoading,
@@ -1393,6 +1504,7 @@ export const useSettingsStore = defineStore('settings', () => {
     areCoreApiKeysSufficientForTesting,
     config,
     loadSettings,
+    reloadFromDisk,
     updateSetting,
     saveSettingsToFile,
     saveAndTestSettings,
