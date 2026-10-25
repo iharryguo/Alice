@@ -257,6 +257,8 @@ export async function answerInClass(
     'SLOWER = 要求讲慢；CHINESE = 要求用中文；SKIP = 要求跳过当前内容；',
     '都不是就填 NONE。拿不准时填 NONE，不要猜。',
     '即使 directive 不是 NONE，say 也要用一句自然的话回应学生。',
+    '不要承诺你做不到的事：不能答应换音色、换口音、换老师，也不要说"刷新页面"这类网页用语。',
+    '学生抱怨软件时，一句带过，然后把话题拉回正在学的内容。',
     '只输出 JSON：{"say":"...","directive":"NONE"}。',
   ].join('\n')
 

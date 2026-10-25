@@ -272,12 +272,34 @@ const META_MARKERS = [
   /声音/,
   /翻页/,
   /卡住/,
+  /ppt/i,
+  /页面/,
+  /幻灯片/,
+  /slide/i,
+  /按钮/,
+  /界面/,
+  /显示/,
+  /切换/,
 ]
 
 /**
  * 学生用中文对"课上正在发生的事"提意见（哪里不对、为什么没等我、怎么又说中文）。
  * 这类话说的是课堂本身，按跑题处理会累计 strike，最后把老师逼成"要不要下课"。
  */
+/**
+ * 是不是主要用中文说的。
+ *
+ * 全英文课堂的练习要的是英文作答；学生用中文解释软件问题、吐槽体验时，
+ * 把它当成一次"答错"会白白消耗尝试次数，三次之后老师就直接给答案了。
+ */
+export function isMostlyChinese(text: string): boolean {
+  const cleaned = String(text || '')
+  const chinese = (cleaned.match(/[\u4e00-\u9fa5]/g) || []).length
+  if (chinese === 0) return false
+  const latin = (cleaned.match(/[A-Za-z]/g) || []).length
+  return chinese >= 4 && chinese > latin
+}
+
 export function isMetaFeedback(text: string): boolean {
   const cleaned = String(text || '')
   if (!/[一-龥]/.test(cleaned)) return false
@@ -353,8 +375,6 @@ export class LessonRuntime {
    * 号一变，旧循环在下一个检查点自行退出。
    */
   private narrateToken = 0
-  /** 学生输入串行处理：一句话没走完，下一句排队，不并发 */
-  private utteranceChain: Promise<void> = Promise.resolve()
   /**
    * 学生轮次。新一句话一进来就作废上一句还没走完的处理，
    * 否则会出现"两分钟前的回答现在才被采纳"——日志里真发生过。
@@ -363,6 +383,8 @@ export class LessonRuntime {
   private activeUtterance = 0
   /** 正在跑的讲解任务；新讲解必须等旧的退干净，避免同一句念两遍 */
   private narrateRunning: Promise<void> | null = null
+  /** 进入节点的代次：下课或被新输入打断后，旧的节点开场不再播 */
+  private nodeToken = 0
   /** 等学生确认的不可逆动作（下课 / 跳过） */
   private pendingConfirm: { kind: 'end' | 'skip'; asked: number } | null = null
   /** 打断后迟迟没有转写回来时的兜底，避免课堂永久卡住 */
@@ -599,9 +621,27 @@ export class LessonRuntime {
     })
 
     // 讲解句按契约现场生成；生成不出来就退回编译阶段的要点，保证课上得下去
+    const nodeToken = ++this.nodeToken
     const composed = this.deps.composeNarration
       ? await this.deps.composeNarration(node).catch(() => null)
       : null
+
+    // 等模型的这几秒里可能已经下课
+    if (this.finished) {
+      this.log('node.abandoned', { index, reason: 'finished' })
+      return
+    }
+
+    // 被打断：分段还是要留下来，接下来由打断后的流程接着讲这一节；
+    // 只是不再由这里开口，避免和学生的回答抢着说话。
+    if (nodeToken !== this.nodeToken) {
+      if (this.nodeIndex === index && composed?.segments?.length) {
+        this.segments = composed.segments
+        this.segmentIndex = Math.min(this.segmentIndex, this.segments.length - 1)
+      }
+      this.log('node.superseded', { index })
+      return
+    }
 
     this.segments = composed?.segments?.length
       ? composed.segments
@@ -616,15 +656,6 @@ export class LessonRuntime {
   }
 
   private async narrateFrom(start: number): Promise<void> {
-    // 等上一条讲解退干净：两条循环同时跑到同一句，就会出现"同一句话念两遍"
-    if (this.narrateRunning) {
-      try {
-        await this.narrateRunning
-      } catch {
-        // 上一条怎样结束都不影响这一条
-      }
-    }
-
     const token = ++this.narrateToken
     const run = this.runNarration(start, token)
     this.narrateRunning = run
@@ -677,6 +708,7 @@ export class LessonRuntime {
         payload: { text: segment.text, pointIndex: segment.pointIndex },
       })
 
+      if (token !== this.narrateToken) return
       this.segmentStarted = true
       await this.speak(segment.text)
       this.segmentStarted = false
@@ -844,13 +876,10 @@ export class LessonRuntime {
     // 老师不能一边被问问题一边继续念稿，学生也不该等一段讲完才被听见。
     this.interruptNarration()
 
+    // 不再排队：排队会让"上一句在等模型"变成后面所有输入的延迟。
+    // 并发跑没关系——只有最新一轮的回复会被播出去，旧的靠 token 作废。
     const token = ++this.utteranceToken
-    const run = this.utteranceChain.then(
-      () => this.processUtterance(cleaned, token),
-      () => this.processUtterance(cleaned, token)
-    )
-    this.utteranceChain = run.catch(() => undefined)
-    return this.utteranceChain
+    return this.processUtterance(cleaned, token)
   }
 
   /**
@@ -868,6 +897,7 @@ export class LessonRuntime {
   private interruptNarration(): void {
     this.cancelled = true
     this.narrateToken += 1
+    this.nodeToken += 1
     this.clearAskTimer()
   }
 
@@ -951,7 +981,7 @@ export class LessonRuntime {
     // 以前这些会被直接判 needs-review，三次就判"不会"，日志里连着中招。
     if (
       this.answerMode === 'exercise' &&
-      (isMetaFeedback(cleaned) || isQuestionLike(cleaned))
+      (isMetaFeedback(cleaned) || isQuestionLike(cleaned) || isMostlyChinese(cleaned))
     ) {
       await this.handleExerciseSideQuestion(cleaned)
       return
@@ -1112,6 +1142,7 @@ export class LessonRuntime {
   }
 
   private async handleExerciseAnswer(answer: string): Promise<void> {
+    const token = this.activeUtterance
     const node = this.node
     const exercise = node?.exercises[0]
     if (!node || !exercise) {
@@ -1129,6 +1160,12 @@ export class LessonRuntime {
             .evaluate(answer, exercise.prompt, exercise.rubric)
             .catch(() => ({ status: 'needs-review' as const, feedback: '' }))
         : { status: 'needs-review' as const, feedback: '' }
+
+    // 判定期间学生又说了别的：这次作答已经过期，不记账、不推进
+    if (this.isStale(token)) {
+      this.log('exercise.stale', { input: answer })
+      return
+    }
 
     this.log('exercise.answer', {
       attempt: this.exerciseAttempts,
@@ -1203,6 +1240,11 @@ export class LessonRuntime {
         await this.speak(this.phrase('paused'))
         return
       case 'resume':
+        // 本来就在讲的时候说"继续"不应该把当前这句重念一遍
+        if (!this.paused && this.narrateRunning) {
+          this.log('control.ignored', { control: 'resume', reason: 'already-running' })
+          return
+        }
         await this.resumeAfterInterruption()
         return
       case 'repeat': {
@@ -1629,6 +1671,8 @@ export class LessonRuntime {
    */
   pauseByUser(): void {
     if (this.finished) return
+    // 作废正在生成的那一轮答复：否则它几秒后返回，会把"已暂停"这句掐掉
+    this.utteranceToken += 1
     this.interruptNarration()
     this.deps.stopSpeaking()
     this.paused = true
@@ -1653,8 +1697,17 @@ export class LessonRuntime {
   }
 
   async resumeLesson(): Promise<void> {
+    if (this.finished) return
+    if (!this.paused && this.narrateRunning) return
+    // pauseByUser 会把 cancelled 置位用来停住讲解；继续时必须复位，
+    // 否则 narrateFrom 一进门就返回——这就是"点继续没反应"。
+    this.cancelled = false
     this.paused = false
+    this.answerMode = null
+    this.awaitingAnswer = false
     this.persist({ status: 'IN_SESSION', turnState: 'TEACHER_SPEAKING' })
+    this.emit()
+    this.log('control', { control: 'resume', via: 'button' })
     await this.resumeAfterInterruption()
   }
 
@@ -1667,11 +1720,53 @@ export class LessonRuntime {
       currentNodeId: this.node?.nodeId ?? null,
     })
     this.emit()
+
+    // 续课必须重新生成这一节的讲法。
+    // 只构造时的兜底分段是编译阶段的书面要点，直接念出来就是教科书写法，
+    // 而且那些要点没有 page，页码会停在上一节的位置。
+    {
+      const node = this.node
+      if (node && this.deps.composeNarration) {
+        const composed = await this.deps
+          .composeNarration(node)
+          .catch(() => null)
+        if (composed?.segments?.length) {
+          this.segments = composed.segments
+        }
+      }
+    }
+
+    // 上次停在的那一段可能已经不存在（讲法重新生成后段落数会变）
+    this.segmentIndex = Math.max(
+      0,
+      Math.min(this.segmentIndex, Math.max(0, this.segments.length - 1))
+    )
+
+    // 先把屏幕对到这一段，再开口；否则会停在上一节停下的那一页
+    const segment = this.segments[this.segmentIndex]
+    if (segment) {
+      const anchorIds = this.anchorIdsForSegment(segment)
+      const page =
+        this.node?.talkingPoints[segment.pointIndex]?.page ?? segment.page
+      this.deps.showAnchor(anchorIds, segment.pointIndex, page)
+      this.log('resume.segment', {
+        segmentIndex: this.segmentIndex,
+        page: page ?? null,
+        anchorIds,
+      })
+    }
+
+    this.log('lesson.resume.segments', {
+      segments: this.segments.length,
+      segmentIndex: this.segmentIndex,
+    })
+
     await this.resumeAfterInterruption()
   }
 
   async finish(): Promise<void> {
     this.finished = true
+    this.nodeToken += 1
     this.clearAskTimer()
     this.clearAskRecovery()
     this.clearConfirmTimer()

@@ -373,6 +373,7 @@ describe('LessonRuntime', () => {
     })
 
     await harness.runtime.start()
+    await harness.settle()
     harness.spoken.length = 0
 
     await harness.runtime.onUserUtterance('再说一遍')

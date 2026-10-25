@@ -213,6 +213,11 @@ export const useTeachingStore = defineStore('teaching', () => {
    * 没提交就从句首重讲——这也是崩溃恢复的唯一规则，不做半个词拼接。
    */
   async function resumeSession(session: ClassSession): Promise<void> {
+    if (session.status === 'COMPLETED') {
+      compileError.value = '这节课已经结束了，不能再继续。'
+      await refreshResumable()
+      return
+    }
     busy.value = true
     try {
       const courseVersion = await teachingService.getCourseVersion(
@@ -245,6 +250,8 @@ export const useTeachingStore = defineStore('teaching', () => {
         0,
         courseVersion.nodes.findIndex(node => node.nodeId === lastStep?.nodeId)
       )
+
+      resetStagePosition()
 
       runtime = buildRuntime(courseVersion, activeContract, {
         nodeIndex,
@@ -561,6 +568,9 @@ export const useTeachingStore = defineStore('teaching', () => {
         updatedAt: new Date().toISOString(),
       })
 
+      // 新的一节课从第一页开始：上一节停在第 9 页，不重置会一直停在那一页
+      resetStagePosition()
+
       runtime = buildRuntime(activeCourse, activeContract)
 
       step.value = 'classroom'
@@ -664,10 +674,12 @@ export const useTeachingStore = defineStore('teaching', () => {
         },
         onState: next => {
           view.value = next
-          if (next.finished) {
+          if (next.finished && inLesson.value) {
             inLesson.value = false
             stopClassroomMic()
             void buildReport()
+            // 已完成的课不该再出现在"上次还没上完"里
+            void refreshResumable()
           }
         },
             },
@@ -684,6 +696,14 @@ export const useTeachingStore = defineStore('teaching', () => {
    */
   let lessonPageFloor = 0
   let pageFloorNodeIndex = -1
+
+  /** 开课/续课时清掉翻页下限，避免继承上一节的页码 */
+  function resetStagePosition(): void {
+    lessonPageFloor = 0
+    pageFloorNodeIndex = -1
+    currentPage.value = 1
+    currentHighlights.value = []
+  }
 
   function applyHighlight(anchorIds: string[], pageHint?: number): void {
     const boxes = anchorIds
