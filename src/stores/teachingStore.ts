@@ -105,9 +105,15 @@ export const useTeachingStore = defineStore('teaching', () => {
   let runtime: LessonRuntime | null = null
   let speechStartUnsubscribe: (() => void) | null = null
 
-  const isInClass = computed(
-    () => !!runtime && !!view.value && !view.value.finished
-  )
+  /**
+   * 是否在课堂里。
+   * 原来的 computed 依赖非响应式的 runtime 变量，runtime 建好时不会触发重算，
+   * 结果学生一开口被判定"不在上课"，整句话掉进普通聊天——这就是上课上到一半
+   * 突然开始聊天的原因。改成显式 ref，进课时置位、下课时清除。
+   */
+  const inLesson = ref(false)
+  /** 最近一次识别到的学生原话：界面上必须立刻可见，不能被静默吞掉 */
+  const heardText = ref('')
   const anchorById = computed(() => {
     const map = new Map<string, ContentAnchor>()
     for (const anchor of anchors.value) map.set(anchor.anchorId, anchor)
@@ -253,6 +259,7 @@ export const useTeachingStore = defineStore('teaching', () => {
         eventBus.off('cancel-llm-stream', onSpeechStart)
       }
 
+      inLesson.value = true
       startClassroomMic()
       await runtime.continueFromSnapshot()
     } finally {
@@ -498,6 +505,7 @@ export const useTeachingStore = defineStore('teaching', () => {
         eventBus.off('cancel-llm-stream', onSpeechStart)
       }
 
+      inLesson.value = true
       startClassroomMic()
       await runtime.start()
     } finally {
@@ -564,6 +572,7 @@ export const useTeachingStore = defineStore('teaching', () => {
         onState: next => {
           view.value = next
           if (next.finished) {
+            inLesson.value = false
             stopClassroomMic()
             void buildReport()
           }
@@ -657,10 +666,13 @@ export const useTeachingStore = defineStore('teaching', () => {
   }
 
   async function handleUtterance(text: string): Promise<void> {
+    const cleaned = String(text || '').trim()
+    if (!cleaned) return
+    heardText.value = cleaned
     if (!runtime) return
     busy.value = true
     try {
-      await runtime.onUserUtterance(text)
+      await runtime.onUserUtterance(cleaned)
     } finally {
       busy.value = false
     }
@@ -686,6 +698,7 @@ export const useTeachingStore = defineStore('teaching', () => {
   async function endLesson(): Promise<void> {
     if (!runtime) return
     await runtime.endByUser()
+    inLesson.value = false
     stopClassroomMic()
   }
 
@@ -753,11 +766,13 @@ export const useTeachingStore = defineStore('teaching', () => {
     report,
     reportAttempts,
     ttsDegraded,
+    inLesson,
+    heardText,
     resumableSessions,
     preparedCourses,
     listeningState,
     busy,
-    isInClass,
+    isInClass: inLesson,
     open,
     close,
     reset,

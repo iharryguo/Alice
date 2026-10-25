@@ -222,100 +222,142 @@
     </section>
 
     <!-- 课堂 -->
-    <section v-else-if="store.step === 'classroom'" class="tm-body classroom">
-      <div class="tm-doc">
-        <PdfPageView
-          :bytes="store.materialBytes"
-          :is-pdf="store.isPdf"
-          :page-index="store.currentPage"
-          :scale="1.15"
-          :highlights="store.currentHighlights"
-        />
+    <section v-else-if="store.step === 'classroom'" class="classroom">
+      <div class="tm-stage">
+        <div class="tm-stage-bar">
+          <span class="tm-stage-title">{{ store.course?.title }}</span>
+          <div class="tm-stage-tools">
+            <button
+              class="tm-icon-btn"
+              :disabled="store.currentPage <= 1"
+              @click="turnPage(-1)"
+            >
+              ‹
+            </button>
+            <span class="tm-page-no">{{ store.currentPage }} / {{ pageTotal }}</span>
+            <button
+              class="tm-icon-btn"
+              :disabled="store.currentPage >= pageTotal"
+              @click="turnPage(1)"
+            >
+              ›
+            </button>
+            <button
+              v-if="store.view?.presentationState === 'FREE_BROWSE'"
+              class="tm-link"
+              @click="store.followLesson()"
+            >
+              回到授课位置
+            </button>
+          </div>
+        </div>
+        <div class="tm-stage-canvas">
+          <PdfPageView
+            :bytes="store.materialBytes"
+            :is-pdf="store.isPdf"
+            :page-index="store.currentPage"
+            :scale="1"
+            :highlights="store.currentHighlights"
+          />
+        </div>
       </div>
 
-      <aside class="tm-class-panel">
-        <div class="tm-status-row">
-          <span class="tm-phase">{{ phaseLabel }}</span>
-          <span class="tm-node">
-            节点 {{ (store.view?.nodeIndex ?? 0) + 1 }} / {{ store.view?.totalNodes ?? 0 }}
-          </span>
-          <button
-            v-if="store.view?.presentationState === 'FREE_BROWSE'"
-            class="tm-link"
-            @click="store.followLesson()"
-          >
-            回到授课位置
-          </button>
+      <aside class="tm-teacher">
+        <header class="tm-teacher-head">
+          <div class="tm-teacher-avatar">A</div>
+          <div class="tm-teacher-meta">
+            <div class="tm-teacher-name">
+              Alice
+              <span class="tm-phase-pill">{{ phaseLabel }}</span>
+            </div>
+            <div class="tm-teacher-status">
+              <span class="tm-voice-dot" :class="voiceStateClass"></span>
+              {{ voiceStateLabel }}
+            </div>
+          </div>
+          <div class="tm-progress">
+            <span>{{ (store.view?.nodeIndex ?? 0) + 1 }} / {{ store.view?.totalNodes ?? 0 }}</span>
+            <div class="tm-progress-track">
+              <div class="tm-progress-fill" :style="{ width: `${nodeProgress}%` }"></div>
+            </div>
+          </div>
+        </header>
+
+        <div class="tm-objective-card">
+          <span class="tm-objective-label">本节目标</span>
+          <span class="tm-objective-text">{{ store.view?.nodeObjective || '—' }}</span>
+        </div>
+
+        <div v-if="store.view?.sentenceText" class="tm-caption">
+          {{ store.view.sentenceText }}
         </div>
 
         <div v-if="store.ttsDegraded" class="tm-tts-warn">
           语音合成没有成功，这一节只有字幕。可以在设置里换一个 TTS 供应商，或检查网络后重开一课。
         </div>
 
-        <div class="tm-objective">{{ store.view?.nodeObjective }}</div>
-
-        <div class="tm-sentence">
-          {{ store.view?.sentenceText || '…' }}
-        </div>
-
-        <div class="tm-pager">
-          <button class="tm-ghost" :disabled="store.currentPage <= 1" @click="turnPage(-1)">‹ 上一页</button>
-          <span>第 {{ store.currentPage }} 页</span>
-          <button class="tm-ghost" @click="turnPage(1)">下一页 ›</button>
-        </div>
-
-        <div class="tm-debt">
-          <span>计划 {{ Math.round((store.view?.plannedElapsedSec ?? 0) / 60) }} 分钟</span>
-          <span>实际 {{ Math.round((store.view?.actualElapsedSec ?? 0) / 60) }} 分钟</span>
-          <span v-if="(store.view?.timeDebtSec ?? 0) > 60" class="over">
-            超时 {{ Math.round((store.view?.timeDebtSec ?? 0) / 60) }} 分钟
-          </span>
-        </div>
-
-        <div class="tm-transcript" ref="transcriptRef">
-          <div
+        <div class="tm-dialogue" ref="transcriptRef">
+          <template
             v-for="(item, index) in store.view?.transcript || []"
             :key="index"
-            :class="['tm-line', item.role]"
           >
-            <span class="tm-role">{{ item.role === 'teacher' ? 'Alice' : item.role === 'student' ? '你' : '系统' }}</span>
-            <span>{{ item.text }}</span>
-          </div>
+            <div v-if="item.role === 'system'" class="tm-system-line">
+              {{ item.text }}
+            </div>
+            <div v-else class="tm-msg" :class="item.role">
+              <div class="tm-bubble">{{ item.text }}</div>
+              <div class="tm-msg-from">{{ item.role === 'teacher' ? 'Alice' : '你' }}</div>
+            </div>
+          </template>
+        </div>
+
+        <div v-if="store.heardText" class="tm-heard">
+          我听到：{{ store.heardText }}
         </div>
 
         <div v-if="store.view?.parkedTopics?.length" class="tm-parked">
-          停车场：{{ parkedSummary }}
+          课后话题：{{ parkedSummary }}
         </div>
 
-        <div class="tm-voice-row">
-          <span class="tm-voice-dot" :class="voiceStateClass"></span>
-          <span class="tm-voice-label">{{ voiceStateLabel }}</span>
-          <button class="tm-ghost" @click="toggleMic">
-            {{ micOn ? '关麦' : '开麦' }}
-          </button>
-        </div>
-
-        <details class="tm-fallback">
-          <summary>打字插话（麦克风不可用时）</summary>
-          <div class="tm-input">
-            <input
-              v-model="utterance"
-              placeholder="插话、提问，或说「跳过」「再说一遍」"
-              @keydown.enter.prevent="send"
-            />
-            <button class="tm-primary small" :disabled="store.busy" @click="send">
-              发送
+        <footer class="tm-teacher-foot">
+          <div class="tm-foot-row">
+            <button class="tm-ghost small" @click="toggleMic">
+              {{ micOn ? '关闭麦克风' : '打开麦克风' }}
             </button>
+            <span class="tm-hint">
+              {{ Math.round((store.view?.actualElapsedSec ?? 0) / 60) }} 分钟
+              <template v-if="(store.view?.timeDebtSec ?? 0) > 60">
+                · 超时 {{ Math.round((store.view?.timeDebtSec ?? 0) / 60) }} 分钟
+              </template>
+            </span>
           </div>
-        </details>
 
-        <div class="tm-controls">
-          <button class="tm-ghost" @click="store.pause()">暂停</button>
-          <button class="tm-ghost" @click="store.resume()">继续</button>
-          <button class="tm-ghost" @click="store.repeat()">重复</button>
-          <button class="tm-ghost" @click="store.skip()">跳过</button>
-          <button class="tm-danger" @click="store.endLesson()">下课</button>
-        </div>
+          <details class="tm-fallback">
+            <summary>麦克风不可用时，打字插话</summary>
+            <div class="tm-input">
+              <input
+                v-model="utterance"
+                placeholder="插话、提问，或说「跳过」「再说一遍」"
+                @keydown.enter.prevent="send"
+              />
+              <button
+                class="tm-primary small"
+                :disabled="store.busy"
+                @click="send"
+              >
+                发送
+              </button>
+            </div>
+          </details>
+
+          <div class="tm-controls">
+            <button class="tm-ghost" @click="store.pause()">暂停</button>
+            <button class="tm-ghost" @click="store.resume()">继续</button>
+            <button class="tm-ghost" @click="store.repeat()">重复</button>
+            <button class="tm-ghost" @click="store.skip()">跳过</button>
+            <button class="tm-danger" @click="store.endLesson()">下课</button>
+          </div>
+        </footer>
       </aside>
     </section>
 
@@ -459,6 +501,14 @@ const phaseLabel = computed(() => {
     COMPLETED: '已下课',
   }
   return map[store.view?.phase ?? 'OPENING'] ?? '上课'
+})
+
+const pageTotal = computed(() => Math.max(1, store.pages.length))
+
+const nodeProgress = computed(() => {
+  const total = store.view?.totalNodes ?? 0
+  if (total === 0) return 0
+  return Math.min(100, Math.round((((store.view?.nodeIndex ?? 0) + 1) / total) * 100))
 })
 
 const parkedSummary = computed(() =>
@@ -1063,5 +1113,261 @@ watch(
   font-size: 12px;
   font-weight: 600;
   margin: 10px 0 4px;
+}
+
+/* ---- 课堂重排：左课件、右教师，对话框按在线课堂的习惯 ---- */
+.classroom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #eef0f3;
+}
+.tm-stage {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.tm-stage-bar {
+  height: 44px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+}
+.tm-stage-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+.tm-stage-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #6b7280;
+}
+.tm-icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+.tm-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.tm-page-no {
+  min-width: 52px;
+  text-align: center;
+}
+.tm-stage-canvas {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 20px;
+}
+.tm-stage-canvas :deep(.pdf-stage) {
+  max-width: 820px;
+}
+
+.tm-teacher {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #fff;
+  border-left: 1px solid #e5e7eb;
+}
+.tm-teacher-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #f3f4f6;
+}
+.tm-teacher-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #111827;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+.tm-teacher-meta {
+  flex: 1;
+  min-width: 0;
+}
+.tm-teacher-name {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tm-phase-pill {
+  font-size: 10px;
+  font-weight: 500;
+  color: #fff;
+  background: #6b7280;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+.tm-teacher-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 3px;
+}
+.tm-progress {
+  width: 74px;
+  font-size: 11px;
+  color: #6b7280;
+  text-align: right;
+}
+.tm-progress-track {
+  height: 4px;
+  background: #f3f4f6;
+  border-radius: 999px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+.tm-progress-fill {
+  height: 100%;
+  background: #111827;
+  transition: width 0.3s;
+}
+
+.tm-objective-card {
+  margin: 10px 14px 0;
+  padding: 8px 10px;
+  background: #f9fafb;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #374151;
+  display: flex;
+  gap: 8px;
+}
+.tm-objective-label {
+  flex: 0 0 auto;
+  color: #9ca3af;
+}
+.tm-objective-text {
+  flex: 1;
+}
+
+.tm-caption {
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #111827;
+}
+
+.tm-dialogue {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tm-msg {
+  display: flex;
+  flex-direction: column;
+  max-width: 88%;
+}
+.tm-msg.teacher {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+.tm-msg.student {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.tm-bubble {
+  padding: 9px 12px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.tm-msg.teacher .tm-bubble {
+  background: #f3f4f6;
+  color: #111827;
+  border-top-left-radius: 4px;
+}
+.tm-msg.student .tm-bubble {
+  background: #2563eb;
+  color: #fff;
+  border-top-right-radius: 4px;
+}
+.tm-msg-from {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 4px;
+}
+.tm-system-line {
+  align-self: center;
+  font-size: 12px;
+  color: #92400e;
+  background: #fffbeb;
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.tm-heard {
+  margin: 0 14px 6px;
+  font-size: 12px;
+  color: #2563eb;
+}
+.tm-parked {
+  margin: 0 14px 6px;
+  font-size: 11px;
+  color: #92400e;
+  background: #fffbeb;
+  border-radius: 8px;
+  padding: 5px 8px;
+}
+
+.tm-teacher-foot {
+  border-top: 1px solid #f3f4f6;
+  padding: 10px 14px 12px;
+}
+.tm-foot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tm-controls {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tm-ghost.small {
+  padding: 4px 8px;
+  font-size: 11px;
 }
 </style>

@@ -403,6 +403,13 @@ const processRequest = async (
   text: string,
   source: 'VOICE' | 'SIDEBAR_TEXT'
 ) => {
+  // 上课期间任何输入都属于课堂：绝不允许掉进普通聊天，
+  // 否则学生会发现自己"说一句话就被踢出课堂"。
+  if (teachingStore.inLesson) {
+    await teachingStore.handleUtterance(text)
+    return
+  }
+
   if (isProcessingRequest) {
     return
   }
