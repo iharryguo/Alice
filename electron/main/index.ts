@@ -44,6 +44,7 @@ import {
 import { initializeUpdater, checkForUpdates } from './updaterManager'
 import { registerAuthIPCHandlers, stopAuthServer } from './authManager'
 import { registerTeachingHandlers } from './teaching/ipc'
+import { initAppLog } from './teaching/logger'
 import { pauseActiveSessions } from './teaching/store'
 import {
   registerCodexIPCHandlers,
@@ -378,6 +379,15 @@ app.whenReady().then(async () => {
   global.aliceAppState!.appInitialized = true
 
   console.log(`[Main Index ${initId}] Starting app initialization...`)
+
+  // 一次运行一个日志文件：先把本次的文件建好，之后渲染层、主进程都往它写。
+  // 这样排查时"最新那份"就是最近一次运行，不会读到早就修完的旧现象。
+  await initAppLog({
+    initId,
+    pid: process.pid,
+    version: app.getVersion(),
+    platform: `${process.platform} ${process.arch}`,
+  })
 
   // Setup dependencies for out-of-box experience
   console.log(`[Main Index ${initId}] Setting up dependencies...`)

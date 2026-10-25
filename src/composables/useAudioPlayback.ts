@@ -187,26 +187,32 @@ export function useAudioPlayback() {
     }
   }
 
-  const initiatePlaybackIfNeeded = () => {
-    if (
-      audioState.value !== 'SPEAKING' &&
-      !isProcessingQueue.value &&
-      audioQueue.value.length > 0 &&
-      isTTSEnabled.value
-    ) {
-      console.log(
-        '[Playback Initiator] Queue has items and mic is on, setting state to SPEAKING.'
-      )
+  /**
+   * 有新音频入队时把播放推起来。
+   *
+   * 之前的实现只在"当前不是 SPEAKING"时才置 SPEAKING，靠状态变化触发播放。
+   * 但 speakText 会先停旧音频再合成新的一句，状态一直留在 SPEAKING，
+   * 于是 setAudioState('SPEAKING') 是空操作、watcher 不触发，
+   * 队列里的音频再也没人播放——表现就是字幕在走、完全没有声音。
+   * 现在只要队列增长就直接调度播放，不再依赖状态跳变。
+   */
+  const kickPlayback = () => {
+    if (audioQueue.value.length === 0 || !isTTSEnabled.value) return
+    if (audioState.value !== 'SPEAKING') {
+      console.log('[Playback Initiator] Queue has items, setting state to SPEAKING.')
       setAudioState('SPEAKING')
+      return
+    }
+    if (!isProcessingQueue.value) {
+      console.log('[Playback Initiator] State already SPEAKING, scheduling playback.')
+      playNextAudio()
     }
   }
 
   watch(
     () => audioQueue.value.length,
     (newLength, oldLength) => {
-      if (newLength > oldLength) {
-        initiatePlaybackIfNeeded()
-      }
+      if (newLength > oldLength) kickPlayback()
     }
   )
 

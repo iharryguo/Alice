@@ -91,6 +91,36 @@ describe('assembleCourseVersion', () => {
     expect(anchorCoverage).toEqual({ nodesWithAnchors: 2, totalNodes: 2 })
   })
 
+  it('spreads talking points across the node pages when the model puts everything on page one', () => {
+    const { course } = assembleCourseVersion({
+      materialId: 'mat-1',
+      outline: {
+        title: 'Families',
+        objectives: [],
+        prerequisites: [],
+        nodes: [
+          { objective: '看图描述家庭', required: true, minutes: 8, pages: [2, 3, 4] },
+        ],
+      },
+      details: [
+        {
+          index: 0,
+          talkingPoints: [
+            { text: '第一页的内容', source: 'material', page: 2 },
+            { text: '第二页的内容', source: 'material', page: 2 },
+            { text: '第三页的内容', source: 'material', page: 2 },
+          ],
+        },
+      ],
+      anchors,
+    })
+
+    // 老师讲的页码必须往前走，不能全部压在第 2 页
+    const pages = course.nodes[0].talkingPoints.map(point => point.page)
+    expect(pages).toEqual([2, 3, 4])
+    expect(pages).toEqual([...pages].sort((a, b) => a! - b!))
+  })
+
   it('still produces a teachable node when the model returns no talking points', () => {
     const { course } = assembleCourseVersion({
       materialId: 'mat-1',

@@ -297,23 +297,53 @@ export function assembleCourseVersion(params: {
     const detail = details.find(item => Number(item.index) === index)
     const fallbackPage = node.pages[0] ?? 1
 
-    const talkingPoints = (detail?.talkingPoints || []).map(point => {
-      const page = Number(point.page) || fallbackPage
-      const anchor = matchAnchor(anchors, page, String(point.text || ''))
+    // 模型经常把一整节的要点全写成第一页，导致老师讲第三页的内容、屏幕还停在第 1 页。
+    // 这里做三件事：页码限制在节点自己的页码范围里、保证同一节点内单调不回头、
+    // 所有要点挤在同一页时按顺序摊开到该节点的各页。
+    const pageRange =
+      node.pages.length > 0
+        ? Array.from(new Set(node.pages)).sort((a, b) => a - b)
+        : [fallbackPage]
+
+    let lastPage = pageRange[0]
+
+    const talkingPoints: LessonNode['talkingPoints'] = (detail?.talkingPoints || []).map((point, pointIndex) => {
+      let page = Number(point.page) || fallbackPage
+      if (!pageRange.includes(page)) {
+        page = pageRange[Math.min(pointIndex, pageRange.length - 1)]
+      }
+      page = Math.max(page, lastPage)
+      lastPage = page
       return {
         text: String(point.text || '').trim(),
         source:
           point.source === 'teacher-addition'
             ? ('teacher-addition' as const)
             : ('material' as const),
-        anchorIds: anchor ? [anchor.anchorId] : [],
+        page,
       }
     })
+
+    if (talkingPoints.length > 0) {
+      const distinctPages = new Set(talkingPoints.map(point => point.page))
+      if (distinctPages.size === 1 && pageRange.length > 1) {
+        talkingPoints.forEach((point, pointIndex) => {
+          const slot = Math.floor((pointIndex * pageRange.length) / talkingPoints.length)
+          point.page = pageRange[Math.min(slot, pageRange.length - 1)]
+        })
+      }
+    }
+
+    for (const point of talkingPoints) {
+      const anchor = matchAnchor(anchors, point.page ?? fallbackPage, point.text)
+      point.anchorIds = anchor ? [anchor.anchorId] : []
+    }
 
     if (talkingPoints.length === 0) {
       talkingPoints.push({
         text: `${node.objective}。这一节我们先把这个目标讲清楚，再进入练习。`,
         source: 'teacher-addition',
+        page: fallbackPage,
         anchorIds: [],
       })
     }

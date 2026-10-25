@@ -23,9 +23,11 @@ import {
 import {
   answerInClass,
   composeNarration,
+  confirmAction,
   controlPhrase,
   scaffoldAnswer,
 } from '../modules/teaching/teacherVoice'
+import { logLesson } from '../modules/teaching/lessonLog'
 import type {
   ClassContract,
   ClassSession,
@@ -148,6 +150,7 @@ export const useTeachingStore = defineStore('teaching', () => {
 
   function open(): void {
     visible.value = true
+    logLesson('panel.open', { step: step.value })
     void refreshMaterials()
     void refreshResumable()
     void refreshPrepared()
@@ -259,6 +262,23 @@ export const useTeachingStore = defineStore('teaching', () => {
         eventBus.off('cancel-llm-stream', onSpeechStart)
       }
 
+      logLesson('material.context', {
+        resumed: true,
+        materialId: courseVersion.materialId,
+        title: selectedMaterial.value?.title ?? courseVersion.title,
+        sourcePath: selectedMaterial.value?.sourcePath,
+        documentPath: selectedMaterial.value?.documentPath,
+        pageCount: pages.value.length,
+        courseVersionId: courseVersion.courseVersionId,
+        contractVersionId: activeContract.contractVersionId,
+      })
+      logLesson('lesson.resume', {
+        sessionId: session.sessionId,
+        nodeIndex,
+        segmentIndex: lastStep?.sentenceIndex ?? 0,
+        committed: !!lastStep?.sentenceCommitted,
+      })
+
       inLesson.value = true
       startClassroomMic()
       await runtime.continueFromSnapshot()
@@ -270,6 +290,7 @@ export const useTeachingStore = defineStore('teaching', () => {
   function close(): void {
     // 关面板不等于下课：还在上课就保持运行时，回来能继续
     visible.value = false
+    logLesson('panel.close', { inLesson: inLesson.value, step: step.value })
   }
 
   async function refreshMaterials(): Promise<void> {
@@ -442,16 +463,63 @@ export const useTeachingStore = defineStore('teaching', () => {
   function startClassroomMic(): void {
     const generalStore = useGeneralStore()
     micWasEnabled = generalStore.isRecordingRequested
+    logLesson('mic.open.request', { wasEnabled: micWasEnabled })
     generalStore.isRecordingRequested = true
     if (generalStore.audioState === 'IDLE') {
       generalStore.setAudioState('LISTENING')
     }
   }
 
+  /**
+   * 下课后不要悄悄把麦克风关掉。
+   * 之前这里恢复成"上课前的设置"，而上课前麦克风通常是关的——于是用户下课回到
+   * 聊天窗口一说话，既没反应也没有任何提示，看起来就像坏了。
+   * 这个产品说话是主路径，下课后保持开麦，并把音频状态拉回可收音。
+   */
   function stopClassroomMic(): void {
     const generalStore = useGeneralStore()
-    generalStore.isRecordingRequested = micWasEnabled
+    logLesson('mic.after_lesson', {
+      previous: micWasEnabled,
+      keepRecording: true,
+    })
+    generalStore.isRecordingRequested = true
+    generalStore.setAudioState('LISTENING')
     listeningState.value = false
+  }
+
+  /**
+   * 空格打断：不依赖 VAD 的灵敏度，按下就停老师、立刻进入收音。
+   * 麦克风没开时不做静默失败，日志里留一条原因。
+   */
+  let lastBargeinAt = 0
+
+  function interruptByKey(): void {
+    const generalStore = useGeneralStore()
+    if (!runtime || !inLesson.value) return
+    if (!generalStore.isRecordingRequested) {
+      logLesson('bargein.blocked', { reason: 'mic-off' })
+      return
+    }
+    // 连按空格只算一次。日志里出现过 3 秒内连按四次，
+    // 每按一次都把刚合成好的回复掐掉，听起来就是"一直没声音"。
+    const now = Date.now()
+    if (now - lastBargeinAt < 1500) return
+
+    const audioState = generalStore.audioState
+    // 老师本来就没在出声时，按空格只是准备说话，不该去停一个已经停了的播放
+    if (audioState === 'IDLE' || audioState === 'LISTENING') {
+      logLesson('bargein.idle', { audioState })
+      generalStore.setAudioState('LISTENING')
+      return
+    }
+
+    lastBargeinAt = now
+    logLesson('bargein.key', {
+      audioState,
+      nodeIndex: view.value?.nodeIndex ?? 0,
+    })
+    runtime.onUserSpeechStart()
+    generalStore.setAudioState('LISTENING')
   }
 
   async function startLesson(): Promise<void> {
@@ -506,6 +574,19 @@ export const useTeachingStore = defineStore('teaching', () => {
       }
 
       inLesson.value = true
+      logLesson('material.context', {
+        materialId: activeCourse.materialId,
+        title: selectedMaterial.value?.title ?? activeCourse.title,
+        sourceType: selectedMaterial.value?.sourceType,
+        sourcePath: selectedMaterial.value?.sourcePath,
+        documentPath: selectedMaterial.value?.documentPath,
+        pageCount: pages.value.length,
+        anchors: anchors.value.length,
+        courseVersionId: activeCourse.courseVersionId,
+        contractVersionId: activeContract.contractVersionId,
+      })
+
+      inLesson.value = true
       startClassroomMic()
       await runtime.start()
     } finally {
@@ -528,8 +609,8 @@ export const useTeachingStore = defineStore('teaching', () => {
           const conversationStore = useConversationStore()
           conversationStore.stopSpeaking()
         },
-        showAnchor: (anchorIds, _pointIndex) => {
-          applyHighlight(anchorIds)
+        showAnchor: (anchorIds, _pointIndex, page) => {
+          applyHighlight(anchorIds, page)
         },
         setListening: listening => {
           listeningState.value = listening
@@ -539,6 +620,8 @@ export const useTeachingStore = defineStore('teaching', () => {
             course: activeCourse,
             node,
             contract: activeContract,
+            // 只有第一个节点才问好，后续节点用过渡句
+            isFirstNode: node.sequence === 1,
           }),
         scaffold: args =>
           scaffoldAnswer({ ...args, contract: activeContract }),
@@ -554,9 +637,19 @@ export const useTeachingStore = defineStore('teaching', () => {
             sessionId: sessionId.value ?? '',
           })
         },
+        // 每条课堂日志都附上当时讲到的页，出问题时能对齐"说到哪句/看到哪页"
+        log: (event, data) =>
+          logLesson(event, {
+            ...data,
+            page: currentPage.value,
+            pageTotal: pages.value.length,
+          }),
         classify: classifyIntent,
         answer: (text, context) => answerInClass(text, context, activeContract),
-        evaluate: evaluateAnswer,
+        confirm: (kind, context) =>
+          confirmAction({ kind, contract: activeContract, context }),
+        evaluate: (answer, prompt, rubric) =>
+          evaluateAnswer(answer, prompt, rubric, activeContract),
         saveAttempt: attempt => {
           void teachingService.saveAttempt({
             attemptId: `at-${Date.now()}`,
@@ -582,7 +675,17 @@ export const useTeachingStore = defineStore('teaching', () => {
     )
   }
 
-  function applyHighlight(anchorIds: string[]): void {
+  /**
+   * 讲解翻页。
+   *
+   * 教师只在往前讲，所以页面只允许前进：日志里出现过 3 → 1 的回跳，
+   * 那是第二个要点的锚点落在第 1 页导致的，学生看到的就是"讲第三页、屏幕还在第一页"。
+   * 手动翻页走 setViewport，不受这里的限制。
+   */
+  let lessonPageFloor = 0
+  let pageFloorNodeIndex = -1
+
+  function applyHighlight(anchorIds: string[], pageHint?: number): void {
     const boxes = anchorIds
       .map(id => anchorById.value.get(id))
       .filter((anchor): anchor is ContentAnchor => !!anchor)
@@ -593,10 +696,31 @@ export const useTeachingStore = defineStore('teaching', () => {
         height: anchor.height,
       }))
     currentHighlights.value = boxes
-    const page = anchorIds
+
+    if (view.value && view.value.nodeIndex !== pageFloorNodeIndex) {
+      pageFloorNodeIndex = view.value.nodeIndex
+      lessonPageFloor = 0
+    }
+
+    const anchorPage = anchorIds
       .map(id => anchorPageById.value.get(id))
       .find(pageIndex => typeof pageIndex === 'number')
-    if (page) currentPage.value = page
+
+    // 锚点来自 PDF 解析，页码是硬证据；模型现场生成的 page 只是猜测。
+    // 两者取较大值：既纠正"讲第 4 页却显示第 1 页"，也不会因为猜小而倒退。
+    const wanted = Math.max(pageHint ?? 0, anchorPage ?? 0)
+    if (!wanted || wanted <= 0) return
+
+    const next = Math.max(wanted, lessonPageFloor)
+    lessonPageFloor = next
+    if (next !== currentPage.value) {
+      currentPage.value = next
+      logLesson('stage.page', {
+        page: next,
+        of: pages.value.length,
+        wanted,
+      })
+    }
   }
 
   /**
@@ -619,20 +743,36 @@ export const useTeachingStore = defineStore('teaching', () => {
       return
     }
 
-    try {
-      await conversationStore.speakText(text)
-      ttsDegraded.value = false
-    } catch {
+    // 被打断和合成失败要分开处理：
+    // 学生一开口就会 abort 正在合成的句子，那不是故障，不能因此把整节课标成"只有字幕"。
+    const first = await conversationStore
+      .speakText(text)
+      .catch(error => ({ ok: false, aborted: false, error: String(error) }))
+    if (!first.ok) {
+      if (first.aborted) {
+        logLesson('tts.aborted', { text })
+        return
+      }
       // 一次重试：云端 TTS 偶发超时，直接放弃会让整段没声
-      try {
-        await conversationStore.speakText(text)
-        ttsDegraded.value = false
-      } catch {
+      const second = await conversationStore
+        .speakText(text)
+        .catch(error => ({ ok: false, aborted: false, error: String(error) }))
+      if (!second.ok) {
+        if (second.aborted) {
+          logLesson('tts.aborted', { text })
+          return
+        }
         ttsDegraded.value = true
+        logLesson('tts.failed', {
+          text,
+          estimate,
+          error: second.error ?? first.error,
+        })
         await delay(estimate)
         return
       }
     }
+    ttsDegraded.value = false
 
     const startedAt = Date.now()
     const deadline = startedAt + estimate + 15000
@@ -679,7 +819,8 @@ export const useTeachingStore = defineStore('teaching', () => {
   }
 
   async function pause(): Promise<void> {
-    await handleUtterance('暂停')
+    if (!runtime) return
+    runtime.pauseByUser()
   }
 
   async function resume(): Promise<void> {
@@ -786,6 +927,7 @@ export const useTeachingStore = defineStore('teaching', () => {
     refreshPrepared,
     openPrepared,
     stopClassroomMic,
+    interruptByKey,
     handleUtterance,
     pause,
     resume,

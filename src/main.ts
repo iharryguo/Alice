@@ -1,6 +1,7 @@
 import './assets/styles.css'
 
 import { createApp } from 'vue'
+import { installLogConsoleApi } from './utils/logger'
 import { createPinia } from 'pinia'
 import router from './router/main.ts'
 import { initializeClients } from './services/apiClients'
@@ -8,6 +9,7 @@ import { registerCodexToolBridge } from './services/llmProviders/codexToolBridge
 
 import App from './App.vue'
 
+installLogConsoleApi()
 const app = createApp(App)
 
 app.use(createPinia())

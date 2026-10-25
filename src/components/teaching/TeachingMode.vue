@@ -288,8 +288,18 @@
           <span class="tm-objective-text">{{ store.view?.nodeObjective || '—' }}</span>
         </div>
 
-        <div v-if="store.view?.sentenceText" class="tm-caption">
-          {{ store.view.sentenceText }}
+        <div v-if="store.view?.awaitingConfirmation" class="tm-confirm">
+          <div class="tm-confirm-text">
+            {{
+              store.view.awaitingConfirmation === 'end'
+                ? '要现在下课吗？说「是」或「不用」。'
+                : '要跳过这一节吗？说「是」或「不用」。'
+            }}
+          </div>
+          <div class="tm-confirm-actions">
+            <button class="tm-primary small" @click="answerConfirmation(true)">确认</button>
+            <button class="tm-ghost small" @click="answerConfirmation(false)">继续上课</button>
+          </div>
         </div>
 
         <div v-if="store.ttsDegraded" class="tm-tts-warn">
@@ -350,12 +360,17 @@
             </div>
           </details>
 
+          <div class="tm-shortcut-hint">
+            空格键：立刻打断老师，然后直接说话
+          </div>
+
           <div class="tm-controls">
             <button class="tm-ghost" @click="store.pause()">暂停</button>
             <button class="tm-ghost" @click="store.resume()">继续</button>
             <button class="tm-ghost" @click="store.repeat()">重复</button>
             <button class="tm-ghost" @click="store.skip()">跳过</button>
             <button class="tm-danger" @click="store.endLesson()">下课</button>
+            <button class="tm-ghost" @click="openLogs">打开日志</button>
           </div>
         </footer>
       </aside>
@@ -430,10 +445,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import PdfPageView from './PdfPageView.vue'
 import { useTeachingStore } from '../../stores/teachingStore'
 import { useGeneralStore } from '../../stores/generalStore'
+import { logLesson } from '../../modules/teaching/lessonLog'
 
 const store = useTeachingStore()
 const utterance = ref('')
@@ -580,6 +596,41 @@ function toggleMic(): void {
     generalStore.setAudioState('LISTENING')
   }
 }
+
+function answerConfirmation(yes: boolean): void {
+  void store.handleUtterance(yes ? 'yes' : '不用，继续')
+}
+
+function openLogs(): void {
+  window.aliceIPC
+    ?.invoke('teaching:open-log-folder')
+    .catch(error => console.warn('[Teaching] 打开日志目录失败:', error))
+}
+
+/**
+ * 空格打断：麦克风一直开着，但 VAD 未必第一时间反应过来；
+ * 按空格等于替学生"抢话"，先停老师，再进入收音。
+ */
+function handleKeydown(event: KeyboardEvent): void {
+  if (event.code !== 'Space' || event.repeat) return
+  const target = event.target as HTMLElement | null
+  if (
+    target &&
+    (target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.isContentEditable)
+  ) {
+    return
+  }
+  if (!store.visible || store.step !== 'classroom') return
+  event.preventDefault()
+  store.interruptByKey()
+}
+
+// 麦克风与音频状态已由聊天侧统一记录（模块 mic / audio），这里不再重复写一遍
+
+onMounted(() => window.addEventListener('keydown', handleKeydown))
+onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 
 function turnPage(delta: number): void {
   const next = Math.max(1, store.currentPage + delta)
@@ -1272,6 +1323,20 @@ watch(
   flex: 1;
 }
 
+.tm-confirm {
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #92400e;
+}
+.tm-confirm-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
 .tm-caption {
   margin: 10px 14px 0;
   padding: 10px 12px;
@@ -1369,5 +1434,132 @@ watch(
 .tm-ghost.small {
   padding: 4px 8px;
   font-size: 11px;
+}
+
+/* ---- 可读性调整：面板加宽、字号整体上调 ---- */
+.classroom {
+  grid-template-columns: minmax(0, 1fr) 520px;
+  /* 课堂是根容器的直接子元素，必须自己吃满剩余高度，
+     否则内容少的时候底部会留一大片空白，等聊天变长才被撑开 */
+  flex: 1;
+  min-height: 0;
+}
+.teaching-root {
+  font-size: 14px;
+}
+.tm-body {
+  font-size: 14px;
+}
+.tm-head {
+  height: 56px;
+}
+.tm-title {
+  font-size: 15px;
+}
+.tm-sub {
+  font-size: 12px;
+}
+.tm-head-right .tm-live {
+  font-size: 12px;
+}
+.tm-ghost,
+.tm-danger,
+.tm-primary {
+  font-size: 13px;
+}
+.tm-ghost.small,
+.tm-primary.small {
+  font-size: 12px;
+}
+.tm-hint {
+  font-size: 13px;
+}
+.tm-stage-bar {
+  height: 48px;
+}
+.tm-stage-title {
+  font-size: 14px;
+}
+.tm-stage-tools,
+.tm-page-no {
+  font-size: 13px;
+}
+.tm-icon-btn {
+  width: 30px;
+  height: 30px;
+  font-size: 16px;
+}
+.tm-teacher-avatar {
+  width: 36px;
+  height: 36px;
+  font-size: 15px;
+}
+.tm-teacher-name {
+  font-size: 15px;
+}
+.tm-phase-pill {
+  font-size: 11px;
+}
+.tm-teacher-status {
+  font-size: 13px;
+}
+.tm-progress {
+  width: 86px;
+  font-size: 12px;
+}
+.tm-objective-card {
+  font-size: 13px;
+}
+.tm-objective-label {
+  font-size: 12px;
+}
+.tm-confirm {
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #92400e;
+}
+.tm-confirm-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.tm-caption {
+  font-size: 16px;
+  line-height: 1.7;
+}
+.tm-bubble {
+  font-size: 15px;
+  line-height: 1.7;
+  padding: 10px 13px;
+}
+.tm-msg {
+  max-width: 92%;
+}
+.tm-msg-from {
+  font-size: 12px;
+}
+.tm-system-line {
+  font-size: 13px;
+}
+.tm-heard {
+  font-size: 13px;
+}
+.tm-parked {
+  font-size: 12px;
+}
+.tm-teacher-foot .tm-controls {
+  gap: 8px;
+}
+.tm-shortcut-hint {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 8px;
+}
+.tm-input input {
+  font-size: 13px;
 }
 </style>

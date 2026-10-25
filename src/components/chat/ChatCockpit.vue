@@ -7,6 +7,14 @@
           <span class="state-dot"></span>{{ stateLabel }}
         </span>
         <span v-if="englishMode" class="head-badge">EN</span>
+        <button
+          v-if="inLesson"
+          class="head-teaching"
+          title="回到正在进行的课堂"
+          @click="openTeaching"
+        >
+          课堂进行中 · 返回
+        </button>
       </div>
       <div class="head-actions">
         <button class="head-btn" title="英语课堂" @click="openTeaching">
@@ -104,6 +112,7 @@ import { useConversationStore } from '../../stores/conversationStore'
 import { useConversationLogStore } from '../../stores/conversationLogStore'
 import { useApprovalStore } from '../../stores/approvalStore'
 import eventBus from '../../utils/eventBus'
+import { useTeachingStore } from '../../stores/teachingStore'
 import { collapseToAvatar } from '../../utils/windowModeActions'
 import {
   buildChatDisplayItems,
@@ -308,6 +317,9 @@ const openSettings = () => {
 const openTeaching = () => {
   eventBus.emit('open-teaching')
 }
+
+const teachingStore = useTeachingStore()
+const inLesson = computed(() => teachingStore.inLesson)
 
 const handleNewSession = async () => {
   await logStore.startNewSession()
@@ -549,5 +561,14 @@ onUnmounted(() => {
   height: 4px;
   border-radius: 999px;
   background: rgb(100 116 139);
+}
+.head-teaching {
+  font-size: 11px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  padding: 2px 8px;
+  cursor: pointer;
 }
 </style>

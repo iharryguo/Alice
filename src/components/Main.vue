@@ -80,6 +80,7 @@ import {
   onMounted,
   onUnmounted,
   ref as vueRef,
+  watch,
 } from 'vue'
 import type { CSSProperties } from 'vue'
 import { storeToRefs } from 'pinia'
@@ -105,6 +106,7 @@ import { useAudioPlayback } from '../composables/useAudioPlayback'
 import { useScreenshot } from '../composables/useScreenshot'
 import eventBus from '../utils/eventBus'
 import { getConversationSessionId } from '../utils/conversationSession'
+import { logEvent } from '../utils/logger'
 
 const audioProcessing = useAudioProcessing()
 const { toggleRecordingRequest } = audioProcessing
@@ -309,6 +311,29 @@ onMounted(async () => {
   eventBus.on('open-teaching', teachingStore.open)
 })
 
+watch(
+  () => generalStore.windowMode,
+  mode => logEvent('window', 'mode.changed', { mode })
+)
+
+watch(
+  () => generalStore.isRecordingRequested,
+  recording =>
+    logEvent('mic', 'state.changed', {
+      recording,
+      audioState: generalStore.audioState,
+    })
+)
+
+watch(
+  () => generalStore.audioState,
+  state =>
+    logEvent('audio', 'state.changed', {
+      state,
+      recording: generalStore.isRecordingRequested,
+    }, 'debug')
+)
+
 onUnmounted(() => {
   if (isElectron) {
     cleanupScreenshotListeners()
@@ -340,17 +365,37 @@ const handleProcessingComplete = (transcription: string) => {
   const meaningfulTranscription =
     transcription && transcription.trim().length > 1
 
+  logEvent('chat', 'transcript.received', {
+    transcription,
+    meaningful: meaningfulTranscription,
+    inLesson: teachingStore.inLesson,
+    audioState: audioState.value,
+    isProcessingRequest,
+    recording: generalStore.isRecordingRequested,
+  })
+
   // 上课时学生的话属于课堂，不进普通聊天链路：
   // 交给自己判断意图（提问/控制/跑题），而不是让 ChatOrchestrator 回答。
   if (teachingStore.isInClass) {
     if (meaningfulTranscription) {
       generalStore.recognizedText = transcription
+      logEvent('chat', 'transcript.routed', { to: 'teaching' })
       void teachingStore.handleUtterance(transcription)
+    } else {
+      logEvent('chat', 'transcript.dropped', {
+        reason: 'not-meaningful',
+        transcription,
+      })
     }
     return
   }
 
   if (isProcessingRequest) {
+    logEvent('chat', 'transcript.dropped', {
+      reason: 'busy',
+      transcription,
+      audioState: audioState.value,
+    })
     return
   }
 
@@ -359,9 +404,15 @@ const handleProcessingComplete = (transcription: string) => {
     (audioState.value === 'PROCESSING_AUDIO' ||
       audioState.value === 'LISTENING')
   ) {
+    logEvent('chat', 'transcript.routed', { to: 'chat' })
     generalStore.recognizedText = transcription
     processRequest(transcription, 'VOICE')
   } else {
+    logEvent('chat', 'transcript.dropped', {
+      reason: 'not-routable',
+      transcription,
+      audioState: audioState.value,
+    })
     if (
       audioState.value !== 'SPEAKING' &&
       audioState.value !== 'WAITING_FOR_RESPONSE'
@@ -403,9 +454,17 @@ const processRequest = async (
   text: string,
   source: 'VOICE' | 'SIDEBAR_TEXT'
 ) => {
+  logEvent('chat', 'request.received', {
+    source,
+    length: text.length,
+    inLesson: teachingStore.inLesson,
+    audioState: generalStore.audioState,
+  })
+
   // 上课期间任何输入都属于课堂：绝不允许掉进普通聊天，
   // 否则学生会发现自己"说一句话就被踢出课堂"。
   if (teachingStore.inLesson) {
+    logEvent('chat', 'request.routed', { to: 'teaching' })
     await teachingStore.handleUtterance(text)
     return
   }

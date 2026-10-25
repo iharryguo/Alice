@@ -69,6 +69,10 @@ export interface NarrationSegment {
   text: string
   /** 对应 node.talkingPoints 的下标，用来决定展示哪一页、亮哪一段 */
   pointIndex: number
+  /** say = 陈述；ask = 提问，说完必须停下来等回答 */
+  kind: 'say' | 'ask'
+  /** 学生此刻应该看到的页码 */
+  page?: number
 }
 
 export interface NarrationResult {
@@ -86,6 +90,8 @@ export async function composeNarration(params: {
   course: CourseVersionRecord
   node: LessonNode
   contract: ClassContract
+  /** 是否本课第一个节点：只有第一次才允许问好 */
+  isFirstNode?: boolean
 }): Promise<NarrationResult | null> {
   const { node, contract, course } = params
 
@@ -95,11 +101,22 @@ export async function composeNarration(params: {
     '口语化：短句，每句不超过 18 个词；可以用 "So"、"Right"、"Look at this" 这类真实的课堂用语。',
     '不要念教材、不要写教案腔（禁止"本节的教学目标是""通过本课学习"这类句子）。',
     '不要描述图片内容之外的排版，不要出现"如图所示"这种读出来没意义的词。',
+    params.isFirstNode
+      ? '这是本课第一段，可以简单问好并说明今天做什么。'
+      : '这已经不是第一次开口了：绝对不要再说 Hello / Good to see you / 又见面了，用一个过渡句直接进入这一节。',
+    '每个 segment 必须标明 kind：陈述用 say，向学生提问用 ask。',
+    '每个 segment 必须标明 page：讲这一段时学生应该看材料第几页，只能取给你的页码范围。',
+    '如果讲到新的图片、表格或另一页的内容，page 必须跟着往后走；不要整节都用第一页。',
+    'ask 只能是一句问句，而且这句话说完老师会停下来等学生回答，所以 ask 后面不要接别的内容。',
+    '每个节点最多两个 ask；不要让所有段落都变成提问。',
     '只输出 JSON。',
   ].join('\n')
 
   const points = node.talkingPoints
-    .map((point, index) => `${index}. ${point.text}`)
+    .map(
+      (point, index) =>
+        `${index}. （第 ${point.page ?? '?'} 页）${point.text}`
+    )
     .join('\n')
 
   const userPrompt = [
@@ -110,7 +127,7 @@ export async function composeNarration(params: {
     '',
     `课时长度：${contract.targetDurationMin} 分钟。`,
     '输出结构：',
-    '{"opening":"开场的一两句话","segments":[{"text":"要说的一到两句话","pointIndex":0}]}',
+    '{"opening":"开场的一两句话","segments":[{"text":"要说的一到两句话","pointIndex":0,"kind":"say|ask","page":1}]}',
     '要求：segments 覆盖全部要点，顺序不变；每个要点 1—2 段；开场要像老师真的在跟学生打招呼并说明今天做什么。',
   ].join('\n')
 
@@ -122,7 +139,12 @@ export async function composeNarration(params: {
 
   const parsed = parseJson<{
     opening?: string
-    segments?: Array<{ text?: string; pointIndex?: number }>
+    segments?: Array<{
+      text?: string
+      pointIndex?: number
+      kind?: string
+      page?: number
+    }>
   }>(raw)
 
   if (!parsed?.segments?.length) return null
@@ -133,6 +155,8 @@ export async function composeNarration(params: {
       pointIndex: Number.isFinite(Number(segment.pointIndex))
         ? Number(segment.pointIndex)
         : Math.min(index, node.talkingPoints.length - 1),
+      kind: segment.kind === 'ask' ? ('ask' as const) : ('say' as const),
+      page: Number(segment.page) > 0 ? Number(segment.page) : undefined,
     }))
     .filter(segment => segment.text.length > 0)
 
@@ -144,20 +168,99 @@ export async function composeNarration(params: {
   }
 }
 
-/** 课堂提问的回答：仍然受语言策略约束，且要回扣当前目标 */
+/**
+ * "确定要下课/跳过吗"的问句。
+ * 这句话的语气比内容重要：不能像系统弹窗，也不能借机挽留。
+ */
+export async function confirmAction(params: {
+  kind: 'end' | 'skip'
+  contract: ClassContract
+  context: string
+}): Promise<string | null> {
+  const { kind, contract, context } = params
+
+  const systemPrompt = [
+    '你是正在上课的英语老师，学生刚说想结束或跳过，你要先确认一次。',
+    languageDirective(contract),
+    kind === 'end'
+      ? '用一句话问清楚：今天这节课就到这里吗？'
+      : '用一句话问清楚：这一节要跳过吗？',
+    '只要一句，不超过 20 个词。不要挽留，不要解释，不要道别。',
+    '问句必须能用一个 yes / no 回答。',
+    '只输出这句话本身，不要引号，不要 JSON。',
+  ].join('\n')
+
+  const raw = await createSummarizationResponse(
+    [{ role: 'user', content: context }],
+    model(),
+    systemPrompt
+  )
+
+  const line = stripFence(raw || '').replace(/^["'“”]+|["'“”]+$/g, '').trim()
+  return line || null
+}
+
+/** 老师回复里携带的控制指令。由模型显式给出，不靠关键词猜。 */
+export type TeacherDirective =
+  | 'NONE'
+  | 'END_LESSON'
+  | 'PAUSE'
+  | 'RESUME'
+  | 'REPEAT'
+  | 'SLOWER'
+  | 'CHINESE'
+  | 'SKIP'
+
+export interface ClassReply {
+  say: string
+  directive: TeacherDirective
+}
+
+const DIRECTIVES: TeacherDirective[] = [
+  'NONE',
+  'END_LESSON',
+  'PAUSE',
+  'RESUME',
+  'REPEAT',
+  'SLOWER',
+  'CHINESE',
+  'SKIP',
+]
+
+function normalizeDirective(raw: unknown): TeacherDirective {
+  const value = String(raw || '').trim().toUpperCase()
+  return (DIRECTIVES as string[]).includes(value)
+    ? (value as TeacherDirective)
+    : 'NONE'
+}
+
+/**
+ * 课堂提问的回答。
+ *
+ * 关键点：意图不靠关键词匹配，而是要求模型在回复里额外给出 directive 字段。
+ * 学生说 "I'd like to stop"、"咱们今天就到这吧"、"能不能换中文"，
+ * 模型必须把这些映射成 END_LESSON / CHINESE，运行时照指令执行。
+ * 正则只在"暂停/继续"这种要立刻响应的极短命令上做快速通道。
+ */
 export async function answerInClass(
   question: string,
   context: string,
   contract: ClassContract
-): Promise<string | null> {
+): Promise<ClassReply | null> {
   const systemPrompt = [
-    '你是正在上课的英语老师，学生刚刚打断你提问。',
+    '你是正在上课的英语老师，学生刚刚打断你说话。',
     languageDirective(contract),
-    '两到三句话：先直接回答，再拉回当前教学目标。',
-    '口语化，不要书面语，不要"如图所示"。',
+    '两到三句话：先直接回答，再拉回当前教学目标。口语化，不要书面语。',
+    '还要判断学生是不是在下达课堂控制指令，并把它写进 directive 字段：',
+    'END_LESSON = 明确要结束这节课（不学了、就到这、I want to stop、let us stop here）；',
+    'PAUSE = 要求暂停；RESUME = 要求继续；REPEAT = 要求再说一遍；',
+    'SLOWER = 要求讲慢；CHINESE = 要求用中文；SKIP = 要求跳过当前内容；',
+    '都不是就填 NONE。拿不准时填 NONE，不要猜。',
+    '即使 directive 不是 NONE，say 也要用一句自然的话回应学生。',
+    '只输出 JSON：{"say":"...","directive":"NONE"}。',
   ].join('\n')
 
-  return createSummarizationResponse(
+  const raw = await createSummarizationResponse(
     [
       {
         role: 'user',
@@ -167,6 +270,16 @@ export async function answerInClass(
     model(),
     systemPrompt
   )
+
+  if (!raw?.trim()) return null
+
+  const parsed = parseJson<{ say?: string; directive?: string }>(raw)
+  if (parsed?.say?.trim()) {
+    return { say: parsed.say.trim(), directive: normalizeDirective(parsed.directive) }
+  }
+
+  // 模型没按 JSON 回：把正文当回答，指令按 NONE 处理，不能因此不回应
+  return { say: stripFence(raw), directive: 'NONE' }
 }
 
 export interface ScaffoldResult {

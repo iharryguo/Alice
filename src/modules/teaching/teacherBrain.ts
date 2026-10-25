@@ -1,6 +1,7 @@
 import { createSummarizationResponse } from '../../services/apiService'
 import { useSettingsStore } from '../../stores/settingsStore'
 import type { IntentResult } from './lessonRuntime'
+import type { ClassContract } from '../../../electron/main/teaching/types'
 
 /**
  * 课堂里的三个模型调用：意图分类、答疑、练评估。
@@ -92,12 +93,23 @@ export async function answerInClass(
 export async function evaluateAnswer(
   answer: string,
   prompt: string,
-  rubric: Array<{ criterion: string; weight: number }>
+  rubric: Array<{ criterion: string; weight: number }>,
+  contract?: ClassContract
 ): Promise<{ status: 'passed' | 'needs-review' | 'skipped'; feedback: string }> {
+  // 反馈会被直接朗读，所以必须跟随课堂契约的语言。
+  // 之前这里写死"中文加英文示范"，全英文课堂里只要判对一次就会冒出中文。
+  const languageRule =
+    contract?.languagePolicy === 'immersion'
+      ? '反馈必须全部用简单英文，不许出现中文，即使学生用中文说话也一样。'
+      : contract?.languagePolicy === 'chinese-led'
+        ? '反馈用中文，英文只用于示范句。'
+        : '反馈以英文为主，最多用一个中文短句解释。'
+
   const systemPrompt = [
     '你是英语老师，正在按量规判一次课堂练习。只输出 JSON。',
     'passed 表示达到量规；needs-review 表示还需要再讲一次；skipped 表示没有作答。',
-    'feedback 用一到两句中文加英文示范，语气直接、不夸张。',
+    languageRule,
+    'feedback 一到两句，语气直接、不夸张；不要重复题目，不要列出多条纠错。',
   ].join('\n')
 
   const raw = await createSummarizationResponse(

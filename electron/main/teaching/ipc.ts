@@ -1,7 +1,12 @@
-import { dialog, ipcMain } from 'electron'
+import { dialog, ipcMain, shell } from 'electron'
 import fs from 'node:fs/promises'
 import { getMainWindow } from '../windowManager'
 import { importTeachingMaterial } from './materials'
+import {
+  teachingLogDir,
+  teachingLogPath,
+  writeAppLog,
+} from './logger'
 import {
   appendStep,
   confirmCourseVersion,
@@ -50,6 +55,55 @@ export function registerTeachingHandlers(): void {
   registered = true
 
   initializeTeachingDB()
+
+  /**
+   * 渲染层的课堂日志入口。界面把它当"写一行日志"用，不关心文件位置；
+   * 出错时用户只要把 logs 目录里的文件发出来即可。
+   */
+  ipcMain.handle(
+    'app:log',
+    async (
+      _event,
+      payload: {
+        level?: 'debug' | 'info' | 'warn' | 'error'
+        module?: string
+        event: string
+        seq?: number
+        data?: Record<string, unknown>
+      }
+    ) => {
+      if (!payload?.event) return { success: false }
+      writeAppLog(payload)
+      return { success: true }
+    }
+  )
+
+  // 兼容旧通道名，课堂模块仍在用
+  ipcMain.handle(
+    'teaching:log',
+    async (_event, payload: { event: string; data?: Record<string, unknown> }) => {
+      if (!payload?.event) return { success: false }
+      writeAppLog({ module: 'teaching', event: payload.event, data: payload.data })
+      return { success: true }
+    }
+  )
+
+  ipcMain.handle('teaching:log-path', async () => {
+    try {
+      return { success: true, data: teachingLogPath() }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('teaching:open-log-folder', async () => {
+    try {
+      await shell.openPath(teachingLogDir())
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
 
   ipcMain.handle('teaching:material:pick-and-import', async () => {
     const win = getMainWindow()

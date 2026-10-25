@@ -7,6 +7,7 @@ import { useConversationStore } from '../stores/conversationStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { storeToRefs } from 'pinia'
 import eventBus from '../utils/eventBus'
+import { logEvent } from '../utils/logger'
 import {
   isLikelyMeaningfulSpeech,
   isMeaninglessFiller,
@@ -19,6 +20,47 @@ export function useAudioProcessing() {
   const generalStore = useGeneralStore()
   const conversationStore = useConversationStore()
   const settingsStore = useSettingsStore()
+
+  /**
+   * 语音分段的合并窗口。
+   *
+   * VAD 遇到短停就会切一段，一段长回答会被切成三四段。以前后几段在
+   * "上一段还在转写"时被直接丢掉，表现就是"我说了一大段英语，完全没识别"。
+   * 现在先把相邻片段攒起来，静默 800ms 再合并成一次转写。
+   */
+  let pendingSegments: Float32Array[] = []
+  let mergeTimer: ReturnType<typeof setTimeout> | null = null
+  /** 转写串行执行，避免两段同时打后端互相踩 */
+  let transcriptionChain: Promise<void> = Promise.resolve()
+
+  function concatAudio(chunks: Float32Array[]): Float32Array {
+    const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
+    const merged = new Float32Array(total)
+    let offset = 0
+    for (const chunk of chunks) {
+      merged.set(chunk, offset)
+      offset += chunk.length
+    }
+    return merged
+  }
+
+  function enqueueSpeechSegment(audio: Float32Array): void {
+    if (!audio?.length) return
+    pendingSegments.push(audio)
+    if (mergeTimer) clearTimeout(mergeTimer)
+    mergeTimer = setTimeout(() => {
+      mergeTimer = null
+      const merged = concatAudio(pendingSegments)
+      pendingSegments = []
+      if (!merged.length) return
+      logEvent('audio', 'stt.segment', { samples: merged.length })
+      transcriptionChain = transcriptionChain
+        .then(() => processAudioRecording(merged))
+        .catch(error =>
+          console.warn('[Audio Processing] 转写队列失败:', error)
+        )
+    }, 800)
+  }
 
   const {
     audioState,
@@ -180,10 +222,19 @@ export function useAudioProcessing() {
         await conversationStore.transcribeAudioMessage(wavBuffer)
       const transcription = (rawTranscription || '').trim()
 
+      logEvent('audio', 'bargein.transcribed', {
+        transcription,
+        spokenTextLen: spokenText.length,
+      })
+
       if (!isLikelyMeaningfulSpeech(transcription, spokenText)) {
         console.log(
           `[Barge-In] Ignoring noise/echo: "${transcription.slice(0, 60)}"`
         )
+        logEvent('audio', 'bargein.ignored', {
+          reason: 'noise-or-echo',
+          transcription,
+        })
         if (isMeaninglessFiller(transcription)) {
           console.log('[Barge-In] Utterance classified as filler.')
         }
@@ -302,6 +353,7 @@ export function useAudioProcessing() {
     }
 
     console.log('[VAD Manager] Initializing VAD...')
+    logEvent('audio', 'vad.init.start', { assetPath: vadAssetBasePath.value })
     isVadInitializing.value = true
     isSpeechDetected.value = false
 
@@ -318,6 +370,10 @@ export function useAudioProcessing() {
           onSpeechStart: () => {
             isSpeechDetected.value = true
             console.log('[VAD Callback] Speech started.')
+            logEvent('audio', 'vad.speech.start', {
+              audioState: audioState.value,
+              recording: isRecordingRequested.value,
+            })
           },
           // 只在“持续语音”达到 minSpeechMs 后才认定为打断：
           // 咳嗽、键盘声、短促噪音等不会走到这里。
@@ -344,6 +400,9 @@ export function useAudioProcessing() {
               return
             }
 
+            logEvent('audio', 'bargein.detected', {
+              audioState: audioState.value,
+            })
             // 先压低 TTS 音量继续播放，避免“突然暂停”的机器人感；
             // 等转写结果出来再决定恢复音量还是接管。
             isBargeInPending.value = true
@@ -366,17 +425,22 @@ export function useAudioProcessing() {
             console.log(
               `[VAD Callback] Speech ended. Audio length: ${audio?.length}. Current state: ${audioState.value}`
             )
+            logEvent('audio', 'vad.speech.end', {
+              samples: audio?.length ?? 0,
+              audioState: audioState.value,
+              recording: isRecordingRequested.value,
+              bargeInPending: isBargeInPending.value,
+            })
             if (isBargeInPending.value) {
               clearBargeInWatchdog()
               void handleBargeInUtterance(audio)
               return
             }
-            if (audioState.value === 'LISTENING' && isSpeechDetected.value) {
-              processAudioRecording(audio)
+            // 以前只有 LISTENING 时才收，上一段还在转写时说的话会被整段丢掉。
+            // 现在一律入队，由转写队列串行处理。
+            if (audio?.length) {
+              enqueueSpeechSegment(audio)
             } else {
-              console.log(
-                '[VAD Callback] Speech ended, but not processing (state changed or no speech detected).'
-              )
               isSpeechDetected.value = false
             }
           },
@@ -393,6 +457,10 @@ export function useAudioProcessing() {
 
       myvad.value = vadInstance
       await myvad.value.start()
+      logEvent('audio', 'vad.started', {
+        audioState: audioState.value,
+        recording: isRecordingRequested.value,
+      })
       // 新建的麦克风流意味着回声消除又要重新收敛，首次播放需要更长的保护窗口
       isFirstPlaybackAfterStart = true
       applyVadThresholdForState(audioState.value)
@@ -465,20 +533,26 @@ export function useAudioProcessing() {
   }
 
   const processAudioRecording = async (audio: Float32Array) => {
-    if (audioState.value !== 'LISTENING' || !audio || audio.length === 0) {
-      console.warn(
-        '[Audio Processing] Processing aborted (invalid state or no audio).'
-      )
+    if (!audio || audio.length === 0) {
       isSpeechDetected.value = false
       return
     }
 
-    setAudioState('PROCESSING_AUDIO')
+    // 播放中不要抢状态（打断路径另有处理），其余情况照常进入处理态
+    if (audioState.value !== 'SPEAKING') {
+      setAudioState('PROCESSING_AUDIO')
+    }
 
     try {
+      const startedAt = Date.now()
       const wavBuffer = float32ArrayToWav(audio, 16000)
       const transcription =
         await conversationStore.transcribeAudioMessage(wavBuffer)
+      logEvent('audio', 'stt.result', {
+        ms: Date.now() - startedAt,
+        length: (transcription || '').length,
+        text: transcription,
+      })
 
       if (transcription && transcription.trim()) {
         if (

@@ -807,9 +807,30 @@ export const useConversationStore = defineStore('conversation', () => {
   }
 
   /** 朗读指定文本（历史消息回放 / 单条消息朗读按钮） */
-  const speakText = async (text: string) => {
+  /**
+   * 朗读一段文本，返回是否真的排上了音频。
+   *
+   * 返回值让课堂能区分"这段话播出去了"和"合成失败、只有字幕"，
+   * 而不是对着没声音的课干等。
+   */
+  const speakText = async (
+    text: string
+  ): Promise<{ ok: boolean; aborted: boolean; error?: string }> => {
     const cleaned = String(text || '').trim()
-    if (!cleaned) return
+    if (!cleaned) return { ok: false, aborted: false, error: 'empty' }
+    if (!generalStore.isTTSEnabled) {
+      return { ok: false, aborted: false, error: 'tts-disabled' }
+    }
+
+    // 先作废上一句还在合成的请求：否则旧音频晚到之后会插到新句子前面，
+    // 听起来就是"声音忽有忽无、说的不是屏幕上的那句"。
+    if (ttsAbortController.value) {
+      try {
+        ttsAbortController.value.abort()
+      } catch {
+        // 已结束的请求忽略
+      }
+    }
 
     generalStore.stopPlaybackAndClearQueue()
 
@@ -820,18 +841,39 @@ export const useConversationStore = defineStore('conversation', () => {
 
     try {
       const response = await api.ttsStream(clipped, controller.signal)
-      if (controller.signal.aborted) return
-      if (queueAudioForPlayback(response)) {
-        setAudioState('SPEAKING')
+      if (controller.signal.aborted) return { ok: false, aborted: true }
+      if (!queueAudioForPlayback(response)) {
+        return { ok: false, aborted: false, error: 'empty-audio' }
       }
+      setAudioState('SPEAKING')
+      return { ok: true, aborted: false }
     } catch (error) {
-      if (!controller.signal.aborted && !isExpectedAbortError(error)) {
-        console.error('[TTS] 朗读消息失败:', error)
+      const aborted = controller.signal.aborted || isExpectedAbortError(error)
+      if (!aborted) console.error('[TTS] 朗读消息失败:', error)
+      return {
+        ok: false,
+        aborted,
+        error: aborted
+          ? 'aborted'
+          : (error as Error)?.message ?? String(error),
+      }
+    } finally {
+      if (ttsAbortController.value === controller) {
+        ttsAbortController.value = null
       }
     }
   }
 
   const stopSpeaking = () => {
+    // 停止播放要连正在合成的请求一起作废，否则它回来时又冒出一段旧音频。
+    if (ttsAbortController.value) {
+      try {
+        ttsAbortController.value.abort()
+      } catch {
+        // 忽略
+      }
+      ttsAbortController.value = null
+    }
     generalStore.stopPlaybackAndClearQueue()
     if (audioState.value === 'SPEAKING') {
       setAudioState(isRecordingRequested.value ? 'LISTENING' : 'IDLE')

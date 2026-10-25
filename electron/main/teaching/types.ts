@@ -94,6 +94,8 @@ export interface LessonNode {
     text: string
     source: 'material' | 'inference' | 'teacher-addition'
     anchorIds?: string[]
+    /** 这个要点出现在材料第几页；讲解时用它决定翻页 */
+    page?: number
   }>
   exercises: LessonExerciseDraft[]
   completionRule: 'narration-committed' | 'exercise-passed' | 'user-confirmed'
