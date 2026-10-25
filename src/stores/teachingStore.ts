@@ -80,6 +80,8 @@ export const useTeachingStore = defineStore('teaching', () => {
   >([])
   const report = ref<ReturnType<LessonRuntime['report']> | null>(null)
   const resumableSessions = ref<ClassSession[]>([])
+  /** TTS 连续失败时置位：界面据此提示"只有字幕"，而不是让人对着没声音的课猜 */
+  const ttsDegraded = ref(false)
   const reportAttempts = ref<
     Array<{
       attemptId: string
@@ -497,31 +499,68 @@ export const useTeachingStore = defineStore('teaching', () => {
   }
 
   /**
-   * 逐句朗读：先让 TTS 排队播放，再等音频真的停下来。
-   * TTS 不可用时按字符数估一个时长，课堂照样往前走（只有字幕没有声音）。
+   * 逐句朗读。
+   *
+   * 关键在"什么时候算这句讲完了"：必须真的看到进入 SPEAKING、再看到回到空闲。
+   * 之前只判断"当前不是 SPEAKING"，而 TTS 还没出声时状态本来就是 IDLE，
+   * 于是每句只等 360ms 就往下走，下一句的 speakText 又会先清空播放队列，
+   * 结果每一句都被下一句掐掉——听起来就是响了一下然后彻底没声。
    */
   async function speakSentence(text: string): Promise<void> {
     const conversationStore = useConversationStore()
     const generalStore = useGeneralStore()
-    const estimate = Math.min(30000, Math.max(1200, text.length * 90))
+    const estimate = Math.min(45000, Math.max(1500, text.length * 90))
+    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-    try {
-      await conversationStore.speakText(text)
-    } catch {
-      await new Promise(resolve => setTimeout(resolve, estimate))
+    // 关掉朗读时不要白发请求，按语速估时推进（纯字幕课堂）
+    if (!generalStore.isTTSEnabled) {
+      await delay(estimate)
       return
     }
 
-    const deadline = Date.now() + estimate + 8000
-    let idleTicks = 0
-    while (Date.now() < deadline) {
-      await new Promise(resolve => setTimeout(resolve, 120))
-      if (generalStore.audioState === 'SPEAKING') {
-        idleTicks = 0
-      } else {
-        idleTicks += 1
-        if (idleTicks >= 3) return
+    try {
+      await conversationStore.speakText(text)
+      ttsDegraded.value = false
+    } catch {
+      // 一次重试：云端 TTS 偶发超时，直接放弃会让整段没声
+      try {
+        await conversationStore.speakText(text)
+        ttsDegraded.value = false
+      } catch {
+        ttsDegraded.value = true
+        await delay(estimate)
+        return
       }
+    }
+
+    const startedAt = Date.now()
+    const deadline = startedAt + estimate + 15000
+    let sawSpeaking = false
+    let idleTicks = 0
+
+    while (Date.now() < deadline) {
+      await delay(100)
+      const state = generalStore.audioState
+
+      if (state === 'SPEAKING') {
+        sawSpeaking = true
+        idleTicks = 0
+        continue
+      }
+
+      if (!sawSpeaking) {
+        // 三秒还没出声，多半是合成失败或服务没返回，别再等
+        if (Date.now() - startedAt > 3000) return
+        continue
+      }
+
+      if (state === 'PROCESSING_AUDIO' || state === 'WAITING_FOR_RESPONSE') {
+        idleTicks = 0
+        continue
+      }
+
+      idleTicks += 1
+      if (idleTicks >= 4) return
     }
   }
 
@@ -620,6 +659,7 @@ export const useTeachingStore = defineStore('teaching', () => {
     currentHighlights,
     report,
     reportAttempts,
+    ttsDegraded,
     resumableSessions,
     busy,
     isInClass,

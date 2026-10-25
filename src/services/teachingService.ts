@@ -27,11 +27,30 @@ function bridge() {
   return window.aliceIPC
 }
 
+/**
+ * IPC 只能传结构化可克隆的数据。
+ *
+ * 界面里绑定到表单的对象是 Vue 的响应式代理，直接扔给 invoke 会抛
+ * "An object could not be cloned"——这就是第二次开课点了没反应的原因。
+ * 统一在入口转成普通对象，调用方不必到处记得 toRaw。
+ */
+export function toCloneable<T>(value: T): T {
+  if (value === null || value === undefined) return value
+  try {
+    return JSON.parse(JSON.stringify(value)) as T
+  } catch {
+    return value
+  }
+}
+
 async function invoke<T>(
   channel: string,
   payload?: Record<string, unknown>
 ): Promise<InvokeResult<T>> {
-  return (await bridge().invoke(channel, payload)) as InvokeResult<T>
+  return (await bridge().invoke(
+    channel,
+    payload === undefined ? undefined : toCloneable(payload)
+  )) as InvokeResult<T>
 }
 
 export interface ImportMaterialResult {

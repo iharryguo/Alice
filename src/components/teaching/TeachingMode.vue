@@ -224,6 +224,10 @@
           </button>
         </div>
 
+        <div v-if="store.ttsDegraded" class="tm-tts-warn">
+          语音合成没有成功，这一节只有字幕。可以在设置里换一个 TTS 供应商，或检查网络后重开一课。
+        </div>
+
         <div class="tm-objective">{{ store.view?.nodeObjective }}</div>
 
         <div class="tm-sentence">
@@ -799,6 +803,16 @@ watch(
   color: #fff;
   border-radius: 999px;
   padding: 2px 8px;
+}
+.tm-tts-warn {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  margin-top: 8px;
+  line-height: 1.5;
 }
 .tm-objective {
   margin: 10px 0 6px;
