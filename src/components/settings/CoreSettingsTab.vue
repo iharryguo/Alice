@@ -17,13 +17,9 @@
             v-model="currentSettings.aiProvider"
             class="select select-bordered w-full focus:select-primary"
           >
-            <option value="openai">OpenAI</option>
-            <option value="openrouter">OpenRouter</option>
             <option value="zai">Z.ai (Coding Plan)</option>
             <option value="minimax">MiniMax</option>
             <option value="deepseek">DeepSeek</option>
-            <option value="api-route">API Route</option>
-            <option value="codex">ChatGPT Codex</option>
             <option value="ollama">Ollama (Local)</option>
             <option value="lm-studio">LM Studio (Local)</option>
           </select>
@@ -316,14 +312,63 @@
               e => $emit('update:setting', 'sttProvider', getTargetValue(e))
             "
           >
-            <option value="openai">OpenAI</option>
-            <option value="groq">Groq</option>
-            <option value="google">Google</option>
             <option value="doubao">豆包 Doubao (火山方舟)</option>
             <option value="qwen">通义 Qwen (阿里百炼)</option>
+            <option value="volcengine">火山引擎（录音文件识别）</option>
             <option value="local">本地 (Go 后端 Whisper)</option>
           </select>
         </div>
+        <p class="md:col-span-2 text-xs text-gray-400">
+          这里的凭据只用于语音识别，改动不会影响语音合成与向量嵌入。
+        </p>
+
+
+        <!-- 火山引擎识别（凭据独立，不复用合成那一份） -->
+        <template v-if="currentSettings.sttProvider === 'volcengine'">
+          <div class="md:col-span-2">
+            <p class="text-xs text-gray-300 bg-gray-800/60 rounded p-2">
+              识别走录音文件识别（异步），3 秒左右的一句话通常 1 秒出结果。
+            </p>
+          </div>
+          <div>
+            <label for="stt-volcengine-key" class="block mb-1 text-sm"
+              >API Key *</label
+            >
+            <input
+              id="stt-volcengine-key"
+              type="password"
+              v-model="currentSettings.sttVolcengineApiKey"
+              class="input focus:outline-none w-full"
+              autocomplete="new-password"
+              placeholder="火山引擎控制台 > API Key 管理"
+            />
+          </div>
+          <div>
+            <label for="volcengine-asr-resource" class="block mb-1 text-sm"
+              >模型版本</label
+            >
+            <select
+              id="volcengine-asr-resource"
+              v-model="currentSettings.volcengineAsrResourceId"
+              class="select select-bordered w-full focus:select-primary"
+            >
+              <option value="volc.seedasr.auc">volc.seedasr.auc（录音文件识别 2.0）</option>
+              <option value="volc.bigasr.auc">volc.bigasr.auc（1.0，历史版本）</option>
+            </select>
+          </div>
+          <div>
+            <label for="volcengine-asr-language" class="block mb-1 text-sm"
+              >识别语种</label
+            >
+            <input
+              id="volcengine-asr-language"
+              type="text"
+              v-model="currentSettings.volcengineAsrLanguage"
+              class="input focus:outline-none w-full"
+              placeholder="留空自动（中英及方言），或填 en-US / zh-CN"
+            />
+          </div>
+        </template>
 
         <!-- OpenAI -->
         <template v-if="currentSettings.sttProvider === 'openai'">
@@ -334,7 +379,7 @@
             <input
               id="stt-openai-key"
               type="password"
-              v-model="currentSettings.VITE_OPENAI_API_KEY"
+              v-model="currentSettings.sttOpenaiApiKey"
               class="input focus:outline-none w-full"
               autocomplete="new-password"
               placeholder="sk-..."
@@ -355,26 +400,23 @@
         </template>
 
         <!-- Groq -->
+        <!-- Google -->
         <template v-if="currentSettings.sttProvider === 'groq'">
           <div>
-            <label for="groq-key" class="block mb-1 text-sm"
+            <label for="stt-groq-key" class="block mb-1 text-sm"
               >API Key *</label
             >
             <input
-              id="groq-key"
+              id="stt-groq-key"
               type="password"
-              v-model="currentSettings.VITE_GROQ_API_KEY"
+              v-model="currentSettings.sttGroqApiKey"
               class="input focus:outline-none w-full"
               autocomplete="new-password"
               placeholder="gsk_..."
             />
-            <p class="text-xs text-gray-400 mt-1">
-              使用内置模型 whisper-large-v3。
-            </p>
           </div>
         </template>
 
-        <!-- Google -->
         <template v-if="currentSettings.sttProvider === 'google'">
           <div>
             <label for="stt-google-key" class="block mb-1 text-sm"
@@ -383,34 +425,11 @@
             <input
               id="stt-google-key"
               type="password"
-              v-model="currentSettings.VITE_GOOGLE_API_KEY"
+              v-model="currentSettings.sttGoogleApiKey"
               class="input focus:outline-none w-full"
               autocomplete="new-password"
               placeholder="AIza..."
             />
-          </div>
-          <div>
-            <label for="stt-language" class="block mb-1 text-sm"
-              >Language</label
-            >
-            <select
-              id="stt-language"
-              v-model="currentSettings.localSttLanguage"
-              class="select select-bordered w-full focus:select-primary"
-              @change="
-                e =>
-                  $emit('update:setting', 'localSttLanguage', getTargetValue(e))
-              "
-            >
-              <option value="auto">Auto-detect</option>
-              <option value="en">English</option>
-              <option value="zh">Chinese</option>
-              <option value="ja">Japanese</option>
-              <option value="ko">Korean</option>
-              <option value="es">Spanish</option>
-              <option value="fr">French</option>
-              <option value="de">German</option>
-            </select>
           </div>
         </template>
 
@@ -423,10 +442,22 @@
             <input
               id="stt-doubao-key"
               type="password"
-              v-model="currentSettings.VITE_DOUBAO_API_KEY"
+              v-model="currentSettings.sttDoubaoApiKey"
               class="input focus:outline-none w-full"
               autocomplete="new-password"
-              placeholder="火山方舟 API Key"
+              placeholder="Ark API Key"
+            />
+          </div>
+          <div>
+            <label for="stt-doubao-url" class="block mb-1 text-sm"
+              >Base URL</label
+            >
+            <input
+              id="stt-doubao-url"
+              type="text"
+              v-model="currentSettings.sttDoubaoBaseUrl"
+              class="input focus:outline-none w-full"
+              placeholder="https://ark.cn-beijing.volces.com/api/v3"
             />
           </div>
           <div>
@@ -441,19 +472,9 @@
               placeholder="例如 ep-2024xxxxxx 或模型名称"
             />
           </div>
-          <div class="md:col-span-2">
-            <label for="doubao-stt-url" class="block mb-1 text-sm"
-              >请求地址 (Base URL)</label
-            >
-            <input
-              id="doubao-stt-url"
-              type="text"
-              v-model="currentSettings.doubaoBaseUrl"
-              class="input focus:outline-none w-full"
-              placeholder="https://ark.cn-beijing.volces.com/api/v3"
-            />
-          </div>
         </template>
+
+
 
         <!-- Qwen -->
         <template v-if="currentSettings.sttProvider === 'qwen'">
@@ -464,10 +485,22 @@
             <input
               id="stt-qwen-key"
               type="password"
-              v-model="currentSettings.VITE_QWEN_API_KEY"
+              v-model="currentSettings.sttQwenApiKey"
               class="input focus:outline-none w-full"
               autocomplete="new-password"
               placeholder="sk-..."
+            />
+          </div>
+          <div>
+            <label for="stt-qwen-url" class="block mb-1 text-sm"
+              >Base URL</label
+            >
+            <input
+              id="stt-qwen-url"
+              type="text"
+              v-model="currentSettings.sttQwenBaseUrl"
+              class="input focus:outline-none w-full"
+              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
             />
           </div>
           <div>
@@ -480,18 +513,6 @@
               v-model="currentSettings.qwenSttModel"
               class="input focus:outline-none w-full"
               placeholder="qwen3-asr-flash"
-            />
-          </div>
-          <div class="md:col-span-2">
-            <label for="qwen-stt-url" class="block mb-1 text-sm"
-              >请求地址 (Base URL)</label
-            >
-            <input
-              id="qwen-stt-url"
-              type="text"
-              v-model="currentSettings.qwenBaseUrl"
-              class="input focus:outline-none w-full"
-              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
             />
           </div>
         </template>
@@ -542,6 +563,29 @@
             <p class="text-xs text-gray-400 mt-1">
               Larger models provide better accuracy but require more resources.
             </p>
+          </div>
+          <div>
+            <label for="stt-language" class="block mb-1 text-sm"
+              >Language</label
+            >
+            <select
+              id="stt-language"
+              v-model="currentSettings.localSttLanguage"
+              class="select select-bordered w-full focus:select-primary"
+              @change="
+                e =>
+                  $emit('update:setting', 'localSttLanguage', getTargetValue(e))
+              "
+            >
+              <option value="auto">Auto-detect</option>
+              <option value="en">English</option>
+              <option value="zh">Chinese</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+            </select>
           </div>
           <div>
             <label for="stt-wake-enable" class="block mb-1 text-sm"
@@ -610,13 +654,15 @@
             v-model="currentSettings.ttsProvider"
             class="select select-bordered w-full focus:select-primary"
           >
-            <option value="openai">OpenAI</option>
-            <option value="google">Google</option>
             <option value="doubao">豆包 Doubao (火山方舟)</option>
+            <option value="volcengine">火山引擎（豆包语音 · 支持情绪语气）</option>
             <option value="qwen">通义 Qwen (阿里百炼)</option>
             <option value="local">本地 (Piper)</option>
           </select>
         </div>
+        <p class="md:col-span-2 text-xs text-gray-400">
+          这里的凭据只用于语音合成，改动不会影响语音识别与向量嵌入。
+        </p>
 
         <!-- Doubao -->
         <template v-if="currentSettings.ttsProvider === 'doubao'">
@@ -627,10 +673,22 @@
             <input
               id="tts-doubao-key"
               type="password"
-              v-model="currentSettings.VITE_DOUBAO_API_KEY"
+              v-model="currentSettings.ttsDoubaoApiKey"
               class="input focus:outline-none w-full"
               autocomplete="new-password"
-              placeholder="火山方舟 API Key"
+              placeholder="Ark API Key"
+            />
+          </div>
+          <div>
+            <label for="tts-doubao-url" class="block mb-1 text-sm"
+              >Base URL</label
+            >
+            <input
+              id="tts-doubao-url"
+              type="text"
+              v-model="currentSettings.ttsDoubaoBaseUrl"
+              class="input focus:outline-none w-full"
+              placeholder="https://ark.cn-beijing.volces.com/api/v3"
             />
           </div>
           <div>
@@ -643,18 +701,6 @@
               v-model="currentSettings.doubaoTtsModel"
               class="input focus:outline-none w-full"
               placeholder="例如 ep-2024xxxxxx 或模型名称"
-            />
-          </div>
-          <div class="md:col-span-2">
-            <label for="doubao-tts-url" class="block mb-1 text-sm"
-              >请求地址 (Base URL)</label
-            >
-            <input
-              id="doubao-tts-url"
-              type="text"
-              v-model="currentSettings.doubaoBaseUrl"
-              class="input focus:outline-none w-full"
-              placeholder="https://ark.cn-beijing.volces.com/api/v3"
             />
           </div>
           <div class="md:col-span-2">
@@ -674,6 +720,86 @@
           </div>
         </template>
 
+
+        <!-- 火山引擎（豆包语音）-->
+        <template v-if="currentSettings.ttsProvider === 'volcengine'">
+          <div>
+            <label for="tts-volcengine-key" class="block mb-1 text-sm"
+              >API Key *</label
+            >
+            <input
+              id="tts-volcengine-key"
+              type="password"
+              v-model="currentSettings.ttsVolcengineApiKey"
+              class="input focus:outline-none w-full"
+              autocomplete="new-password"
+              placeholder="火山引擎控制台 > API Key 管理"
+            />
+          </div>
+          <div>
+            <label for="volcengine-resource" class="block mb-1 text-sm"
+              >模型版本</label
+            >
+            <select
+              id="volcengine-resource"
+              v-model="currentSettings.volcengineTtsResourceId"
+              class="select select-bordered w-full focus:select-primary"
+            >
+              <option value="seed-tts-2.0">seed-tts-2.0（合成大模型 2.0）</option>
+              <option value="seed-icl-2.0">seed-icl-2.0（声音复刻 2.0）</option>
+            </select>
+            <p class="text-xs text-gray-400 mt-1">
+              复刻音色（ICL_ 开头）如果没开通 seed-icl-2.0，会自动回落到 seed-tts-2.0，
+              不影响出声。
+            </p>
+          </div>
+          <div>
+            <label for="volcengine-speaker" class="block mb-1 text-sm"
+              >音色 ID *</label
+            >
+            <input
+              id="volcengine-speaker"
+              type="text"
+              v-model="currentSettings.volcengineTtsSpeaker"
+              class="input focus:outline-none w-full"
+              placeholder="en_female_dacey_uranus_bigtts"
+            />
+            <p class="text-xs text-gray-400 mt-1">
+              从控制台「音色库」复制音色 ID。英语课建议用英文 2.0 音色（en_ 开头）；
+              纯单语音色遇到另一种语言会合不出音频，主进程会自动回落到中英双语音色，不会没声音。
+            </p>
+          </div>
+          <div class="md:col-span-2">
+            <label for="volcengine-emotion" class="block mb-1 text-sm"
+              >语气指令（语音指令 / context_texts）</label
+            >
+            <textarea
+              id="volcengine-emotion"
+              v-model="currentSettings.volcengineTtsEmotion"
+              class="textarea textarea-bordered w-full"
+              rows="3"
+              placeholder="用情绪饱满、语气强烈的语气朗读：开心时明亮上扬，难过时低沉，愤怒时有力。"
+            ></textarea>
+            <p class="text-xs text-gray-400 mt-1">
+              这一条会随每句文本一起发给模型，用来控制情绪强度与色彩；不参与计费。
+              仅 2.0 音色支持，写具体一点效果更明显。
+            </p>
+          </div>
+          <div class="md:col-span-2">
+            <label for="volcengine-rate" class="block mb-1 text-sm"
+              >语速（-50 ~ 100）</label
+            >
+            <input
+              id="volcengine-rate"
+              type="number"
+              min="-50"
+              max="100"
+              v-model.number="currentSettings.volcengineTtsSpeechRate"
+              class="input focus:outline-none w-full"
+            />
+          </div>
+        </template>
+
         <!-- Qwen -->
         <template v-if="currentSettings.ttsProvider === 'qwen'">
           <div>
@@ -683,10 +809,22 @@
             <input
               id="tts-qwen-key"
               type="password"
-              v-model="currentSettings.VITE_QWEN_API_KEY"
+              v-model="currentSettings.ttsQwenApiKey"
               class="input focus:outline-none w-full"
               autocomplete="new-password"
               placeholder="sk-..."
+            />
+          </div>
+          <div>
+            <label for="tts-qwen-url" class="block mb-1 text-sm"
+              >Base URL</label
+            >
+            <input
+              id="tts-qwen-url"
+              type="text"
+              v-model="currentSettings.ttsQwenBaseUrl"
+              class="input focus:outline-none w-full"
+              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
             />
           </div>
           <div>
@@ -700,22 +838,6 @@
               class="input focus:outline-none w-full"
               placeholder="qwen-tts-latest / qwen3-tts-flash / qwen-audio-3.0-tts-flash"
             />
-          </div>
-          <div class="md:col-span-2">
-            <label for="qwen-tts-url" class="block mb-1 text-sm"
-              >请求地址 (Base URL)</label
-            >
-            <input
-              id="qwen-tts-url"
-              type="text"
-              v-model="currentSettings.qwenBaseUrl"
-              class="input focus:outline-none w-full"
-              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
-            />
-            <p class="text-xs text-gray-400 mt-1">
-              Qwen-Audio-TTS / CosyVoice 系列模型需填写工作空间专属地址，例如
-              https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/api/v1
-            </p>
           </div>
           <div class="md:col-span-2">
             <label for="qwen-tts-voice" class="block mb-1 text-sm"
@@ -749,7 +871,7 @@
             <input
               id="tts-openai-key"
               type="password"
-              v-model="currentSettings.VITE_OPENAI_API_KEY"
+              v-model="currentSettings.ttsOpenaiApiKey"
               class="input focus:outline-none w-full"
               autocomplete="new-password"
               placeholder="sk-..."
@@ -795,14 +917,14 @@
 
         <!-- Google -->
         <template v-if="currentSettings.ttsProvider === 'google'">
-          <div class="md:col-span-2">
+          <div>
             <label for="tts-google-key" class="block mb-1 text-sm"
               >API Key *</label
             >
             <input
               id="tts-google-key"
               type="password"
-              v-model="currentSettings.VITE_GOOGLE_API_KEY"
+              v-model="currentSettings.ttsGoogleApiKey"
               class="input focus:outline-none w-full"
               autocomplete="new-password"
               placeholder="AIza..."
@@ -971,7 +1093,6 @@
             v-model="currentSettings.embeddingProvider"
             class="select select-bordered w-full focus:select-primary"
           >
-            <option value="openai">OpenAI</option>
             <option value="doubao">豆包 Doubao (火山方舟)</option>
             <option value="qwen">通义 Qwen (阿里百炼)</option>
             <option value="local">本地 (Go 后端 E5)</option>
@@ -981,6 +1102,9 @@
             向量共用索引）；本地使用多语言 E5 模型。
           </p>
         </div>
+        <p class="md:col-span-2 text-xs text-gray-400">
+          这里的凭据只用于向量嵌入，改动不会影响语音识别与语音合成。
+        </p>
 
         <!-- Doubao -->
         <template v-if="currentSettings.embeddingProvider === 'doubao'">
@@ -991,10 +1115,22 @@
             <input
               id="emb-doubao-key"
               type="password"
-              v-model="currentSettings.VITE_DOUBAO_API_KEY"
+              v-model="currentSettings.embeddingDoubaoApiKey"
               class="input focus:outline-none w-full"
               autocomplete="new-password"
-              placeholder="火山方舟 API Key"
+              placeholder="Ark API Key"
+            />
+          </div>
+          <div>
+            <label for="emb-doubao-url" class="block mb-1 text-sm"
+              >Base URL</label
+            >
+            <input
+              id="emb-doubao-url"
+              type="text"
+              v-model="currentSettings.embeddingDoubaoBaseUrl"
+              class="input focus:outline-none w-full"
+              placeholder="https://ark.cn-beijing.volces.com/api/v3"
             />
           </div>
           <div>
@@ -1012,19 +1148,9 @@
               走 /embeddings/multimodal 端点，使用模型原生维度。
             </p>
           </div>
-          <div class="md:col-span-2">
-            <label for="emb-doubao-url" class="block mb-1 text-sm"
-              >请求地址 (Base URL)</label
-            >
-            <input
-              id="emb-doubao-url"
-              type="text"
-              v-model="currentSettings.doubaoBaseUrl"
-              class="input focus:outline-none w-full"
-              placeholder="https://ark.cn-beijing.volces.com/api/v3"
-            />
-          </div>
         </template>
+
+
 
         <!-- Qwen -->
         <template v-if="currentSettings.embeddingProvider === 'qwen'">
@@ -1035,10 +1161,22 @@
             <input
               id="emb-qwen-key"
               type="password"
-              v-model="currentSettings.VITE_QWEN_API_KEY"
+              v-model="currentSettings.embeddingQwenApiKey"
               class="input focus:outline-none w-full"
               autocomplete="new-password"
               placeholder="sk-..."
+            />
+          </div>
+          <div>
+            <label for="emb-qwen-url" class="block mb-1 text-sm"
+              >Base URL</label
+            >
+            <input
+              id="emb-qwen-url"
+              type="text"
+              v-model="currentSettings.embeddingQwenBaseUrl"
+              class="input focus:outline-none w-full"
+              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
             />
           </div>
           <div>
@@ -1056,18 +1194,6 @@
               Defaults to 1536 dimensions.
             </p>
           </div>
-          <div class="md:col-span-2">
-            <label for="emb-qwen-url" class="block mb-1 text-sm"
-              >请求地址 (Base URL)</label
-            >
-            <input
-              id="emb-qwen-url"
-              type="text"
-              v-model="currentSettings.qwenBaseUrl"
-              class="input focus:outline-none w-full"
-              placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
-            />
-          </div>
         </template>
 
         <!-- OpenAI -->
@@ -1079,7 +1205,7 @@
             <input
               id="emb-openai-key"
               type="password"
-              v-model="currentSettings.VITE_OPENAI_API_KEY"
+              v-model="currentSettings.embeddingOpenaiApiKey"
               class="input focus:outline-none w-full"
               autocomplete="new-password"
               placeholder="sk-..."
@@ -1110,7 +1236,7 @@
     <fieldset
       class="fieldset bg-gray-900/90 border-blue-500/50 rounded-box w-full border p-4"
     >
-      <legend class="fieldset-legend">Local Documents (RAG)</legend>
+      <legend class="fieldset-legend">⑤ 本地文档检索 (RAG)</legend>
       <div class="grid grid-cols-1 gap-4 p-2">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
@@ -1214,7 +1340,7 @@
     <fieldset
       class="fieldset bg-gray-900/90 border-blue-500/50 rounded-box w-full border p-4"
     >
-      <legend class="fieldset-legend">窗口行为 (Window Behavior)</legend>
+      <legend class="fieldset-legend">⑥ 窗口行为 (Window Behavior)</legend>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-2">
         <div>
           <label for="always-on-top" class="block mb-1 text-sm"

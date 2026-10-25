@@ -2,6 +2,7 @@ import { app, safeStorage } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import {
+  SECRET_SETTING_KEYS,
   hasSecretValues,
   mergeSecretSettings,
   splitSecretSettings,
@@ -67,6 +68,36 @@ export interface AppSettings {
   doubaoTtsModel?: string
   qwenTtsModel?: string
   doubaoTtsVoice?: string
+  /** 火山引擎（豆包语音）TTS：新版控制台 API Key，存在加密区 */
+  sttOpenaiApiKey?: string
+  sttGroqApiKey?: string
+  sttGoogleApiKey?: string
+  sttDoubaoApiKey?: string
+  sttDoubaoBaseUrl?: string
+  sttQwenApiKey?: string
+  sttQwenBaseUrl?: string
+  sttVolcengineApiKey?: string
+  ttsOpenaiApiKey?: string
+  ttsGoogleApiKey?: string
+  ttsDoubaoApiKey?: string
+  ttsDoubaoBaseUrl?: string
+  ttsQwenApiKey?: string
+  ttsQwenBaseUrl?: string
+  ttsVolcengineApiKey?: string
+  embeddingOpenaiApiKey?: string
+  embeddingDoubaoApiKey?: string
+  embeddingDoubaoBaseUrl?: string
+  embeddingQwenApiKey?: string
+  embeddingQwenBaseUrl?: string
+  VOLCENGINE_TTS_API_KEY?: string
+  /** seed-tts-2.0 / seed-icl-2.0 */
+  volcengineTtsResourceId?: string
+  volcengineTtsSpeaker?: string
+  /** 语音指令：描述希望的语气，2.0 音色支持，不参与计费 */
+  volcengineTtsEmotion?: string
+  volcengineTtsSpeechRate?: number
+  volcengineAsrResourceId?: string
+  volcengineAsrLanguage?: string
   qwenTtsVoice?: string
   doubaoEmbeddingModel?: string
   qwenEmbeddingModel?: string
@@ -86,7 +117,7 @@ export interface AppSettings {
   SUMMARIZATION_MESSAGE_COUNT?: number
   SUMMARIZATION_MODEL?: string
   SUMMARIZATION_SYSTEM_PROMPT?: string
-  ttsProvider?: 'openai' | 'google' | 'doubao' | 'qwen' | 'local'
+  ttsProvider?: 'openai' | 'google' | 'doubao' | 'qwen' | 'volcengine' | 'local'
   ttsVoice?:
     | 'alloy'
     | 'ash'
@@ -135,26 +166,39 @@ export interface AppSettings {
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
   try {
-    const { publicSettings, secrets, hadSecretFields } = splitSecretSettings(
-      settings as Record<string, unknown>
-    )
-    const secretValues = secrets as Record<string, unknown>
+    const record = settings as Record<string, unknown>
+    const { publicSettings } = splitSecretSettings(record)
 
-    if (hasSecretValues(secrets)) {
+    /**
+     * 合并而不是覆盖。
+     *
+     * 旧逻辑是"这次带了密钥字段就整份写"，只要有一个密钥字段是空的，
+     * 就会把磁盘上所有密钥一起清掉（例如清空火山 Key 会顺手抹掉 DeepSeek、豆包的 Key）。
+     * 现在的规则：显式给了非空值的字段覆盖，显式给空值只清这一个字段，
+     * 完全没提到的字段保持原样。
+     */
+    const existing = await loadEncryptedSecrets().catch(() => ({}))
+    const merged: Record<string, unknown> = { ...existing }
+    let touched = false
+
+    for (const key of SECRET_SETTING_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(record, key)) continue
+      touched = true
+      const value = record[key]
+      if (typeof value === 'string' && value.length > 0) {
+        merged[key] = value
+      } else {
+        delete merged[key]
+      }
+    }
+
+    if (touched) {
       if (protectedSecretsLoadFailed) {
         throw new Error(
           'Protected secret storage is unavailable. Unlock the system keychain before changing credentials.'
         )
       }
-      await saveEncryptedSecrets(secretValues)
-    } else if (hadSecretFields && (await fileExists(secretsFilePath))) {
-      if (protectedSecretsLoadFailed) {
-        console.warn(
-          '[Settings Security] Preserving protected secrets because the previous load failed.'
-        )
-      } else {
-        await saveEncryptedSecrets({})
-      }
+      await saveEncryptedSecrets(merged)
     }
 
     await writePrivateFile(

@@ -44,6 +44,8 @@ import {
 import { initializeUpdater, checkForUpdates } from './updaterManager'
 import { registerAuthIPCHandlers, stopAuthServer } from './authManager'
 import { registerTeachingHandlers } from './teaching/ipc'
+import { registerVolcengineTtsHandlers } from './tts/ipc'
+import { registerVolcengineAsrHandlers } from './asr/ipc'
 import { initAppLog } from './teaching/logger'
 import { pauseActiveSessions } from './teaching/store'
 import {
@@ -163,6 +165,8 @@ function initializeManagers(): void {
   registerAuthIPCHandlers()
   registerCodexIPCHandlers()
   registerTeachingHandlers()
+  registerVolcengineTtsHandlers()
+  registerVolcengineAsrHandlers()
   console.log(`[Main Index ${initId}] Managers initialization complete.`)
 }
 

@@ -7,7 +7,8 @@ import { float32ArrayToWav } from '../../utils/audioProcess'
 describe('transcribeWithGoogle', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    useSettingsStore().updateSetting('VITE_GOOGLE_API_KEY', 'test-key')
+    // 语音识别用自己的 Key，不再借用对话模型的全局 Key
+    useSettingsStore().updateSetting('sttGoogleApiKey', 'test-key')
   })
 
   it('rejects recordings longer than Google synchronous recognition allows', async () => {

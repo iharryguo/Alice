@@ -8,6 +8,7 @@ import { useSettingsStore } from './settingsStore'
 import { executeFunction } from '../utils/functionCaller'
 import eventBus from '../utils/eventBus'
 import { isExpectedAbortError } from '../utils/isAbortError'
+import { logEvent } from '../utils/logger'
 import { getConversationSessionId } from '../utils/conversationSession'
 import { createStreamHandler } from '../modules/conversation/streamHandler'
 import { createToolCallHandler } from '../modules/conversation/toolCallHandler'
@@ -814,7 +815,8 @@ export const useConversationStore = defineStore('conversation', () => {
    * 而不是对着没声音的课干等。
    */
   const speakText = async (
-    text: string
+    text: string,
+    options?: { emotion?: string }
   ): Promise<{ ok: boolean; aborted: boolean; error?: string }> => {
     const cleaned = String(text || '').trim()
     if (!cleaned) return { ok: false, aborted: false, error: 'empty' }
@@ -840,7 +842,7 @@ export const useConversationStore = defineStore('conversation', () => {
       cleaned.length > 1500 ? `${cleaned.slice(0, 1500)}…` : cleaned
 
     try {
-      const response = await api.ttsStream(clipped, controller.signal)
+      const response = await api.ttsStream(clipped, controller.signal, options)
       if (controller.signal.aborted) return { ok: false, aborted: true }
       if (!queueAudioForPlayback(response)) {
         return { ok: false, aborted: false, error: 'empty-audio' }
@@ -849,7 +851,21 @@ export const useConversationStore = defineStore('conversation', () => {
       return { ok: true, aborted: false }
     } catch (error) {
       const aborted = controller.signal.aborted || isExpectedAbortError(error)
-      if (!aborted) console.error('[TTS] 朗读消息失败:', error)
+      if (!aborted) {
+        console.error('[TTS] 朗读消息失败:', error)
+        // 聊天里的合成失败以前只出现在控制台，日志里看不到，
+        // 于是"没声音"永远只能靠猜。这里补一条带原因的记录。
+        logEvent(
+          'tts',
+          'synthesize.failed',
+          {
+            provider: useSettingsStore().config.ttsProvider,
+            message: (error as Error)?.message ?? String(error),
+            text: clipped.slice(0, 60),
+          },
+          'warn'
+        )
+      }
       return {
         ok: false,
         aborted,
@@ -1098,6 +1114,8 @@ export const useConversationStore = defineStore('conversation', () => {
         api.transcribeWithDoubao(audio),
       transcribeWithQwen: (audio: ArrayBuffer) =>
         api.transcribeWithQwen(audio),
+      transcribeWithVolcengine: (audio: ArrayBuffer) =>
+        api.transcribeWithVolcengine(audio),
       transcribeWithBackend: (audio: ArrayBuffer) =>
         api.transcribeWithBackend(audio),
       logInfo: (...args: any[]) => console.log(...args),

@@ -1,6 +1,36 @@
 import OpenAI from 'openai'
 import { toFile } from 'openai/uploads'
 import { useSettingsStore } from '../stores/settingsStore'
+import { buildEmotionInstruction } from './ttsEmotion'
+
+/**
+ * 用指定 Key 建一个客户端；传空则退回全局客户端。
+ *
+ * 语音识别、语音合成、向量嵌入各自保存自己的 Key，
+ * 这里的 key 参数就是各能力自己那份，不再互相借用。
+ */
+function clientWithKey(key?: string): OpenAI {
+  const trimmed = key?.trim()
+  if (!trimmed) return getOpenAIClient()
+  return new OpenAI({
+    apiKey: trimmed,
+    dangerouslyAllowBrowser: true,
+    timeout: 60 * 1000,
+  })
+}
+
+/** Groq 用的是 OpenAI 兼容接口，所以直接用 OpenAI 客户端指向它 */
+function groqClientWithKey(key?: string): OpenAI {
+  const apiKey =
+    key?.trim() || useSettingsStore().config.VITE_GROQ_API_KEY?.trim() || ''
+  if (!apiKey) throw new Error('语音识别 · Groq API Key 还没填')
+  return new OpenAI({
+    apiKey,
+    baseURL: 'https://api.groq.com/openai/v1',
+    dangerouslyAllowBrowser: true,
+    timeout: 60 * 1000,
+  })
+}
 import {
   getOpenAIClient,
   getOpenRouterClient,
@@ -270,7 +300,8 @@ function removeLinksFromText(text: string): string {
 
 export const ttsStream = async (
   text: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  options?: { emotion?: string }
 ): Promise<Response> => {
   const settings = useSettingsStore().config
   const cleanedText = removeLinksFromText(text).trim()
@@ -322,12 +353,91 @@ export const ttsStream = async (
       console.error('Google TTS failed, falling back to OpenAI:', error)
       return fallbackToOpenAITTS(cleanedText, signal)
     }
+  } else if (settings.ttsProvider === 'volcengine') {
+    return volcengineTTS(cleanedText, signal, options)
   } else if (settings.ttsProvider === 'doubao') {
     return doubaoTTS(cleanedText, signal)
   } else if (settings.ttsProvider === 'qwen') {
     return qwenTTS(cleanedText, signal)
   } else {
     return fallbackToOpenAITTS(cleanedText, signal)
+  }
+}
+
+/**
+ * 火山引擎（豆包语音）双向流式 TTS。
+ *
+ * 浏览器 WebSocket 带不了自定义请求头，所以合成放在主进程做，
+ * 这里只负责把文本与音色设定传下去、把音频包成 Response 交给播放队列。
+ * 语气由 context_texts 这条“语音指令”控制，默认写得比较强烈。
+ */
+const volcengineTTS = async (
+  text: string,
+  signal: AbortSignal,
+  options?: { emotion?: string }
+): Promise<Response> => {
+  const settings = useSettingsStore().config
+  const apiKey = settings.ttsVolcengineApiKey?.trim()
+  if (!apiKey) {
+    throw new Error('语音合成 · 火山引擎 API Key 还没填，请在 设置 → 文字转语音 里填写')
+  }
+
+  const speaker =
+    settings.volcengineTtsSpeaker?.trim() || 'en_female_dacey_uranus_bigtts'
+  const resourceId = settings.volcengineTtsResourceId?.trim() || 'seed-tts-2.0'
+  const emotion = buildEmotionInstruction(
+    settings.volcengineTtsEmotion?.trim() ||
+      '用情绪饱满、语气强烈的语气朗读：开心时明亮上扬，难过时低沉，愤怒时有力。',
+    options?.emotion
+  )
+  const speechRate = Number(settings.volcengineTtsSpeechRate ?? 0)
+
+  if (signal.aborted) {
+    throw new Error('Aborted before requesting Volcengine TTS')
+  }
+
+  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const cancel = () => {
+    void window.aliceIPC
+      ?.invoke('tts:volcengine:cancel', { requestId })
+      .catch(() => undefined)
+  }
+  signal.addEventListener('abort', cancel, { once: true })
+
+  try {
+    const result = await window.aliceIPC?.invoke('tts:volcengine:synthesize', {
+      requestId,
+      text,
+      apiKey,
+      resourceId,
+      speaker,
+      emotion,
+      speechRate,
+      format: 'mp3',
+      sampleRate: 24000,
+    })
+
+    if (!result?.success) {
+      throw new Error(result?.error || '火山引擎 TTS 没有返回音频')
+    }
+    if (signal.aborted) {
+      throw new Error('Aborted during Volcengine TTS')
+    }
+
+    const raw = result.audio
+    const bytes =
+      raw instanceof Uint8Array
+        ? raw
+        : raw instanceof ArrayBuffer
+          ? new Uint8Array(raw)
+          : new Uint8Array(raw?.data ?? [])
+
+    return new Response(new Blob([bytes.buffer as ArrayBuffer], { type: result.mime || 'audio/mpeg' }), {
+      status: 200,
+      headers: { 'Content-Type': result.mime || 'audio/mpeg' },
+    })
+  } finally {
+    signal.removeEventListener('abort', cancel)
   }
 }
 
@@ -342,14 +452,16 @@ const doubaoTTS = async (
       'Doubao TTS model ID is not configured. Set "Doubao TTS Model ID" in Settings (e.g. an Ark endpoint ID like ep-xxx or a model name).'
     )
   }
-  const apiKey = settings.VITE_DOUBAO_API_KEY?.trim()
+  const apiKey = settings.ttsDoubaoApiKey?.trim()
   if (!apiKey) {
-    throw new Error('Doubao API Key is not configured.')
+    throw new Error('语音合成 · 豆包 API Key 还没填')
   }
   if (signal.aborted) {
     throw new Error('Aborted before requesting Doubao TTS')
   }
-  const base = trimTrailingSlash(settings.doubaoBaseUrl || DOUBAO_OPENAI_BASE_URL)
+  const base = trimTrailingSlash(
+    settings.ttsDoubaoBaseUrl || DOUBAO_OPENAI_BASE_URL
+  )
 
   // Routed through the main-process bridge: Ark does not send CORS headers.
   const { status, data } = await bridgeRequest({
@@ -391,9 +503,9 @@ const qwenTTS = async (
   signal: AbortSignal
 ): Promise<Response> => {
   const settingsStore = useSettingsStore()
-  const apiKey = settingsStore.config.VITE_QWEN_API_KEY?.trim()
+  const apiKey = settingsStore.config.ttsQwenApiKey?.trim()
   if (!apiKey) {
-    throw new Error('Qwen API Key is not configured')
+    throw new Error('语音合成 · 通义 API Key 还没填')
   }
   const model = settingsStore.config.qwenTtsModel || 'qwen-tts-latest'
   const voice = settingsStore.config.qwenTtsVoice || 'Cherry'
@@ -409,7 +521,7 @@ const qwenTTS = async (
   // the OpenAI-compatible base (…/compatible-mode/v1) which STT/embedding
   // use; convert it to the native /api/v1 base for TTS calls.
   const rawBase =
-    settingsStore.config.qwenBaseUrl || QWEN_DASHSCOPE_NATIVE_BASE_URL
+    settingsStore.config.ttsQwenBaseUrl || QWEN_DASHSCOPE_NATIVE_BASE_URL
   const baseUrl = rawBase.endsWith('/compatible-mode/v1')
     ? `${rawBase.slice(0, -'/compatible-mode/v1'.length)}/api/v1`
     : rawBase.replace(/\/compatible-mode\/?$/, '/api/v1')
@@ -522,7 +634,7 @@ const googleTTS = async (
   signal: AbortSignal
 ): Promise<Response> => {
   const settingsStore = useSettingsStore()
-  const apiKey = settingsStore.config.VITE_GOOGLE_API_KEY
+  const apiKey = settingsStore.config.ttsGoogleApiKey
 
   if (!apiKey) {
     throw new Error('Google API Key is not configured')
@@ -576,8 +688,8 @@ const fallbackToOpenAITTS = async (
   text: string,
   signal: AbortSignal
 ): Promise<Response> => {
-  const openai = getOpenAIClient()
   const settings = useSettingsStore().config
+  const openai = clientWithKey(settings.ttsOpenaiApiKey)
 
   return openai.audio.speech.create(
     {
@@ -643,7 +755,7 @@ export const transcribeWithGoogle = async (
   audioBuffer: ArrayBuffer
 ): Promise<string> => {
   const settingsStore = useSettingsStore()
-  const apiKey = settingsStore.config.VITE_GOOGLE_API_KEY
+  const apiKey = settingsStore.config.sttGoogleApiKey
 
   if (!apiKey) {
     throw new Error('Google API Key is not configured')
@@ -714,7 +826,7 @@ export const transcribeWithGoogle = async (
 export const transcribeWithGroq = async (
   audioBuffer: ArrayBuffer
 ): Promise<string> => {
-  const groq = getGroqClient()
+  const groq = groqClientWithKey(useSettingsStore().config.sttGroqApiKey)
   const file = await toFile(audioBuffer, 'audio.wav', {
     type: 'audio/wav',
   })
@@ -789,11 +901,11 @@ export const transcribeWithBackend = async (
 export const transcribeWithOpenAI = async (
   audioBuffer: ArrayBuffer
 ): Promise<string> => {
-  const openai = getOpenAIClient()
+  const settings = useSettingsStore().config
+  const openai = clientWithKey(settings.sttOpenaiApiKey)
   const file = await toFile(audioBuffer, 'audio.wav', {
     type: 'audio/wav',
   })
-  const settings = useSettingsStore().config
   const transcription = await openai.audio.transcriptions.create({
     file,
     model: settings.openaiSttModel?.trim() || 'gpt-4o-transcribe',
@@ -901,11 +1013,13 @@ export const transcribeWithDoubao = async (
       'Doubao STT model ID is not configured. Set "Doubao STT Model ID" in Settings (e.g. an Ark endpoint ID like ep-xxx or a model name).'
     )
   }
-  const apiKey = settings.VITE_DOUBAO_API_KEY?.trim()
+  const apiKey = settings.sttDoubaoApiKey?.trim()
   if (!apiKey) {
-    throw new Error('Doubao API Key is not configured.')
+    throw new Error('语音识别 · 豆包 API Key 还没填')
   }
-  const base = trimTrailingSlash(settings.doubaoBaseUrl || DOUBAO_OPENAI_BASE_URL)
+  const base = trimTrailingSlash(
+    settings.sttDoubaoBaseUrl || DOUBAO_OPENAI_BASE_URL
+  )
   const boundary = `----alice${Date.now()}${Math.floor(Math.random() * 1e6)}`
   const body = buildMultipartBody(
     { model, response_format: 'json' },
@@ -929,6 +1043,12 @@ export const transcribeWithDoubao = async (
     responseType: 'json',
   })
 
+  // Ark 并没有 /audio/transcriptions 这个端点（实测 404）。豆包 2.0 系列本身
+  // 是多模态模型，能直接吃音频，所以这里退到 chat/completions 让模型转写。
+  if (status === 404) {
+    return await transcribeWithDoubaoChat(audioBuffer, model, apiKey, base)
+  }
+
   if (status >= 400) {
     throw new Error(
       `Doubao STT Error ${status}: ${JSON.stringify(data).slice(0, 300)}`
@@ -937,21 +1057,113 @@ export const transcribeWithDoubao = async (
   return data?.text || ''
 }
 
+/**
+ * 豆包/方舟的多模态转写。
+ *
+ * 与通义那条路径同一思路：把 WAV 以 data URI 塞进 input_audio，
+ * 让模型直接输出文本，而不是期待一个并不存在的转写端点。
+ */
+async function transcribeWithDoubaoChat(
+  audioBuffer: ArrayBuffer,
+  model: string,
+  apiKey: string,
+  base: string
+): Promise<string> {
+  const audioBytes = new Uint8Array(audioBuffer)
+  let binary = ''
+  const CHUNK = 0x8000
+  for (let i = 0; i < audioBytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...audioBytes.subarray(i, i + CHUNK))
+  }
+  const dataUri = `data:audio/wav;base64,${btoa(binary)}`
+
+  const { status, data } = await bridgeRequest({
+    url: `${base}/chat/completions`,
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    data: {
+      model,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_audio',
+              input_audio: { data: dataUri, format: 'wav' },
+            },
+            {
+              type: 'text',
+              text: '只输出这段录音的原文，不要解释、不要加引号。若没有人声，输出空字符串。',
+            },
+          ],
+        },
+      ],
+      temperature: 0,
+    },
+    timeout: 60000,
+    responseType: 'json',
+  })
+
+  if (status >= 400) {
+    throw new Error(
+      `Doubao STT Error ${status}: ${JSON.stringify(data).slice(0, 300)}`
+    )
+  }
+
+  const text =
+    data?.choices?.[0]?.message?.content ??
+    data?.output_text ??
+    ''
+  return typeof text === 'string' ? text.trim() : ''
+}
+
 // Qwen3-ASR-Flash is called through the OpenAI-compatible chat.completions
 // endpoint with the audio inlined as a base64 Data URL (DashScope does not
 // expose an /audio/transcriptions endpoint, and the Filetrans models are
 // async jobs that only accept public audio URLs — neither fits short mic
 // recordings). Local WAV clips are well under the 10MB / 5-minute limits.
+/**
+ * 火山「录音文件识别」。
+ *
+ * 音频要在主进程提交（浏览器侧拿不到自定义请求头），而且这个接口只认
+ * 公网 URL 或 base64 的 audio.data 字段，后者是唯一适合本地麦克风的方式。
+ * 3 秒音频实测约 1 秒出结果，课堂上够用。
+ */
+export const transcribeWithVolcengine = async (
+  audioBuffer: ArrayBuffer
+): Promise<string> => {
+  const settings = useSettingsStore().config
+  const apiKey = settings.sttVolcengineApiKey?.trim()
+  if (!apiKey) {
+    throw new Error('语音识别 · 火山引擎 API Key 还没填，请在 设置 → 语音转文字 里填写')
+  }
+
+  const result = await window.aliceIPC?.invoke('asr:volcengine:transcribe', {
+    apiKey,
+    audio: new Uint8Array(audioBuffer),
+    resourceId: settings.volcengineAsrResourceId?.trim() || 'volc.seedasr.auc',
+    language: settings.volcengineAsrLanguage?.trim() || undefined,
+  })
+
+  if (!result?.success) {
+    throw new Error(result?.error || '火山识别没有返回结果')
+  }
+  return String(result.text || '')
+}
+
 export const transcribeWithQwen = async (
   audioBuffer: ArrayBuffer
 ): Promise<string> => {
   const settings = useSettingsStore().config
   const model = settings.qwenSttModel?.trim() || 'qwen3-asr-flash'
-  const apiKey = settings.VITE_QWEN_API_KEY?.trim()
+  const apiKey = settings.sttQwenApiKey?.trim()
   if (!apiKey) {
     throw new Error('Qwen API Key is not configured.')
   }
-  const base = trimTrailingSlash(settings.qwenBaseUrl || QWEN_OPENAI_BASE_URL)
+  const base = trimTrailingSlash(settings.sttQwenBaseUrl || QWEN_OPENAI_BASE_URL)
 
   const audioBytes = new Uint8Array(audioBuffer)
   let binary = ''
@@ -1058,7 +1270,9 @@ export const createEmbedding = async (
     return await qwenEmbedding(textToEmbed)
   }
 
-  const hasOpenAIKey = !!settings.VITE_OPENAI_API_KEY?.trim()
+  const hasOpenAIKey = !!(
+    settings.embeddingOpenaiApiKey?.trim() || settings.VITE_OPENAI_API_KEY?.trim()
+  )
   const shouldPreferLocal =
     settings.embeddingProvider === 'local' ||
     (!hasOpenAIKey && settings.aiProvider !== 'openai')
@@ -1094,7 +1308,9 @@ export const createDualEmbeddings = async (
 
   if (!textToEmbed.trim()) return {}
 
-  const hasOpenAIKey = !!settings.VITE_OPENAI_API_KEY?.trim()
+  const hasOpenAIKey = !!(
+    settings.embeddingOpenaiApiKey?.trim() || settings.VITE_OPENAI_API_KEY?.trim()
+  )
   const results: { openai?: number[]; local?: number[]; doubao?: number[] } = {}
 
   try {
@@ -1138,7 +1354,7 @@ const fallbackToOpenAIEmbedding = async (
   textToEmbed: string
 ): Promise<number[]> => {
   const settings = useSettingsStore().config
-  const openai = getOpenAIClient()
+  const openai = clientWithKey(settings.embeddingOpenaiApiKey)
   const response = await openai.embeddings.create({
     model: settings.openaiEmbeddingModel?.trim() || 'text-embedding-ada-002',
     input: textToEmbed,
@@ -1163,11 +1379,13 @@ const doubaoEmbedding = async (textToEmbed: string): Promise<number[]> => {
       'Doubao embedding model ID is not configured. Set "Doubao Embedding Model ID" in Settings.'
     )
   }
-  const apiKey = settings.VITE_DOUBAO_API_KEY?.trim()
+  const apiKey = settings.embeddingDoubaoApiKey?.trim()
   if (!apiKey) {
-    throw new Error('Doubao API Key is not configured.')
+    throw new Error('向量嵌入 · 豆包 API Key 还没填')
   }
-  const base = trimTrailingSlash(settings.doubaoBaseUrl || DOUBAO_OPENAI_BASE_URL)
+  const base = trimTrailingSlash(
+    settings.embeddingDoubaoBaseUrl || DOUBAO_OPENAI_BASE_URL
+  )
   const { status, data } = await bridgeRequest({
     url: `${base}/embeddings/multimodal`,
     method: 'POST',
@@ -1196,11 +1414,13 @@ const doubaoEmbedding = async (textToEmbed: string): Promise<number[]> => {
 const qwenEmbedding = async (textToEmbed: string): Promise<number[]> => {
   const settings = useSettingsStore().config
   const model = settings.qwenEmbeddingModel?.trim() || 'text-embedding-v4'
-  const apiKey = settings.VITE_QWEN_API_KEY?.trim()
+  const apiKey = settings.embeddingQwenApiKey?.trim()
   if (!apiKey) {
-    throw new Error('Qwen API Key is not configured.')
+    throw new Error('向量嵌入 · 通义 API Key 还没填')
   }
-  const base = trimTrailingSlash(settings.qwenBaseUrl || QWEN_OPENAI_BASE_URL)
+  const base = trimTrailingSlash(
+    settings.embeddingQwenBaseUrl || QWEN_OPENAI_BASE_URL
+  )
   const { status, data } = await bridgeRequest({
     url: `${base}/embeddings`,
     method: 'POST',

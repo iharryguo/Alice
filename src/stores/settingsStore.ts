@@ -43,7 +43,7 @@ export interface AliceSettings {
   VITE_GOOGLE_API_KEY: string
   VITE_DOUBAO_API_KEY: string
   VITE_QWEN_API_KEY: string
-  sttProvider: 'openai' | 'groq' | 'google' | 'doubao' | 'qwen' | 'local'
+  sttProvider: 'openai' | 'groq' | 'google' | 'doubao' | 'qwen' | 'volcengine' | 'local'
   aiProvider: AIProviderKey
 
   // Local Go Backend STT settings
@@ -86,7 +86,7 @@ export interface AliceSettings {
   SUMMARIZATION_MESSAGE_COUNT: number
   SUMMARIZATION_MODEL: string
   SUMMARIZATION_SYSTEM_PROMPT: string
-  ttsProvider: 'openai' | 'google' | 'doubao' | 'qwen' | 'local'
+  ttsProvider: 'openai' | 'google' | 'doubao' | 'qwen' | 'volcengine' | 'local'
   ttsVoice:
     | 'alloy'
     | 'ash'
@@ -103,6 +103,37 @@ export interface AliceSettings {
     | 'cedar'
   googleTtsVoice: string
   localTtsVoice: string
+  /** 语音识别专用凭据（与合成、嵌入互不影响） */
+  sttOpenaiApiKey?: string
+  sttGroqApiKey?: string
+  sttGoogleApiKey?: string
+  sttDoubaoApiKey?: string
+  sttDoubaoBaseUrl?: string
+  sttQwenApiKey?: string
+  sttQwenBaseUrl?: string
+  sttVolcengineApiKey?: string
+  /** 语音合成专用凭据 */
+  ttsOpenaiApiKey?: string
+  ttsGoogleApiKey?: string
+  ttsDoubaoApiKey?: string
+  ttsDoubaoBaseUrl?: string
+  ttsQwenApiKey?: string
+  ttsQwenBaseUrl?: string
+  ttsVolcengineApiKey?: string
+  /** 向量嵌入专用凭据 */
+  embeddingOpenaiApiKey?: string
+  embeddingDoubaoApiKey?: string
+  embeddingDoubaoBaseUrl?: string
+  embeddingQwenApiKey?: string
+  embeddingQwenBaseUrl?: string
+  /** 火山引擎语音合成 */
+  VOLCENGINE_TTS_API_KEY?: string
+  volcengineTtsResourceId?: string
+  volcengineTtsSpeaker?: string
+  volcengineTtsEmotion?: string
+  volcengineTtsSpeechRate?: number
+  volcengineAsrResourceId?: string
+  volcengineAsrLanguage?: string
   embeddingProvider: 'openai' | 'doubao' | 'qwen' | 'local'
   ragEnabled: boolean
   ragPaths: string[]
@@ -235,6 +266,34 @@ const defaultSettings: AliceSettings = {
   ttsVoice: 'nova',
   googleTtsVoice: 'en-US-Journey-F',
   localTtsVoice: 'en_US-amy-medium',
+  sttOpenaiApiKey: '',
+  sttGroqApiKey: '',
+  sttGoogleApiKey: '',
+  sttDoubaoApiKey: '',
+  sttDoubaoBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+  sttQwenApiKey: '',
+  sttQwenBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  sttVolcengineApiKey: '',
+  ttsOpenaiApiKey: '',
+  ttsGoogleApiKey: '',
+  ttsDoubaoApiKey: '',
+  ttsDoubaoBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+  ttsQwenApiKey: '',
+  ttsQwenBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  ttsVolcengineApiKey: '',
+  embeddingOpenaiApiKey: '',
+  embeddingDoubaoApiKey: '',
+  embeddingDoubaoBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+  embeddingQwenApiKey: '',
+  embeddingQwenBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  VOLCENGINE_TTS_API_KEY: '',
+  volcengineTtsResourceId: 'seed-tts-2.0',
+  volcengineTtsSpeaker: 'en_female_dacey_uranus_bigtts',
+  volcengineTtsEmotion:
+    '用情绪饱满、语气强烈的语气朗读：开心时明亮上扬，难过时低沉，愤怒时有力。',
+  volcengineTtsSpeechRate: 0,
+  volcengineAsrResourceId: 'volc.seedasr.auc',
+  volcengineAsrLanguage: '',
   embeddingProvider: 'openai',
   ragEnabled: false,
   ragPaths: [],
@@ -321,6 +380,33 @@ const settingKeyToLabelMap: Record<keyof AliceSettings, string> = {
   ttsVoice: 'OpenAI TTS Voice',
   googleTtsVoice: 'Google TTS Voice',
   localTtsVoice: 'Local TTS Voice',
+  sttOpenaiApiKey: '语音识别 · OpenAI API Key',
+  sttGroqApiKey: '语音识别 · Groq API Key',
+  sttGoogleApiKey: '语音识别 · Google API Key',
+  sttDoubaoApiKey: '语音识别 · 豆包 API Key',
+  sttDoubaoBaseUrl: '语音识别 · 豆包 Base URL',
+  sttQwenApiKey: '语音识别 · 通义 API Key',
+  sttQwenBaseUrl: '语音识别 · 通义 Base URL',
+  sttVolcengineApiKey: '语音识别 · 火山引擎 API Key',
+  ttsOpenaiApiKey: '语音合成 · OpenAI API Key',
+  ttsGoogleApiKey: '语音合成 · Google API Key',
+  ttsDoubaoApiKey: '语音合成 · 豆包 API Key',
+  ttsDoubaoBaseUrl: '语音合成 · 豆包 Base URL',
+  ttsQwenApiKey: '语音合成 · 通义 API Key',
+  ttsQwenBaseUrl: '语音合成 · 通义 Base URL',
+  ttsVolcengineApiKey: '语音合成 · 火山引擎 API Key',
+  embeddingOpenaiApiKey: '向量嵌入 · OpenAI API Key',
+  embeddingDoubaoApiKey: '向量嵌入 · 豆包 API Key',
+  embeddingDoubaoBaseUrl: '向量嵌入 · 豆包 Base URL',
+  embeddingQwenApiKey: '向量嵌入 · 通义 API Key',
+  embeddingQwenBaseUrl: '向量嵌入 · 通义 Base URL',
+  VOLCENGINE_TTS_API_KEY: '火山引擎 API Key',
+  volcengineTtsResourceId: '火山引擎模型版本',
+  volcengineTtsSpeaker: '火山引擎音色',
+  volcengineTtsEmotion: '火山引擎语气指令',
+  volcengineTtsSpeechRate: '火山引擎语速',
+  volcengineAsrResourceId: '火山引擎识别模型版本',
+  volcengineAsrLanguage: '火山引擎识别语种',
   embeddingProvider: 'Embedding Provider',
   ragEnabled: 'Local Documents (RAG) Enabled',
   ragPaths: 'Local Documents Paths',
@@ -359,12 +445,7 @@ const ESSENTIAL_CORE_API_KEYS: (keyof AliceSettings)[] = [
 ]
 
 function requiresOpenAIKey(config: AliceSettings): boolean {
-  return (
-    config.aiProvider === 'openai' ||
-    config.sttProvider === 'openai' ||
-    config.ttsProvider === 'openai' ||
-    config.embeddingProvider === 'openai'
-  )
+  return config.aiProvider === 'openai'
 }
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -382,6 +463,26 @@ export const useSettingsStore = defineStore('settings', () => {
   ): { settings: AliceSettings; migrated: boolean } => {
     const validated = { ...defaultSettings, ...loadedSettings }
     let migrated = false
+
+    // 把旧的共享 Key 复制进各能力自己的字段：识别、合成、嵌入从此各存各的
+    const splitKeys: Array<[keyof AliceSettings, Array<keyof AliceSettings>]> = [
+      ['VITE_OPENAI_API_KEY', ['sttOpenaiApiKey', 'ttsOpenaiApiKey', 'embeddingOpenaiApiKey']],
+      ['VITE_GROQ_API_KEY', ['sttGroqApiKey']],
+      ['VITE_GOOGLE_API_KEY', ['sttGoogleApiKey', 'ttsGoogleApiKey']],
+      ['VITE_DOUBAO_API_KEY', ['sttDoubaoApiKey', 'ttsDoubaoApiKey', 'embeddingDoubaoApiKey']],
+      ['VITE_QWEN_API_KEY', ['sttQwenApiKey', 'ttsQwenApiKey', 'embeddingQwenApiKey']],
+      ['VOLCENGINE_TTS_API_KEY', ['sttVolcengineApiKey', 'ttsVolcengineApiKey']],
+    ]
+    for (const [legacyKey, targets] of splitKeys) {
+      const legacyValue = String(validated[legacyKey] ?? '').trim()
+      if (!legacyValue) continue
+      for (const target of targets) {
+        if (!String(validated[target] ?? '').trim()) {
+          ;(validated as Record<string, unknown>)[target as string] = legacyValue
+          migrated = true
+        }
+      }
+    }
 
     // Migration: 老配置里没有 take_screenshot（看屏幕），补一次；只补一次，
     // 之后用户手动关掉不会再被强行加回来。
@@ -438,31 +539,34 @@ export const useSettingsStore = defineStore('settings', () => {
       console.log('✅ Settings migration completed successfully')
     }
 
-    const validSTTProviders = [
-      'openai',
-      'groq',
-      'google',
-      'doubao',
-      'qwen',
-      'local',
-    ] as const
+    const validSTTProviders = ['doubao', 'qwen', 'volcengine', 'local'] as const
     if (!validSTTProviders.includes(validated.sttProvider as any)) {
-      validated.sttProvider = 'openai'
+      validated.sttProvider = 'volcengine'
+      migrated = true
+    }
+
+    const validTTSProviders = ['doubao', 'qwen', 'volcengine', 'local'] as const
+    if (!validTTSProviders.includes(validated.ttsProvider as any)) {
+      validated.ttsProvider = 'volcengine'
+      migrated = true
+    }
+
+    const validEmbeddingProviders = ['doubao', 'qwen', 'local'] as const
+    if (!validEmbeddingProviders.includes(validated.embeddingProvider as any)) {
+      validated.embeddingProvider = 'local'
+      migrated = true
     }
 
     const validAIProviders = [
-      'openai',
-      'openrouter',
-      'ollama',
-      'lm-studio',
+      'deepseek',
       'zai',
       'minimax',
-      'deepseek',
-      'api-route',
-      'codex',
+      'ollama',
+      'lm-studio',
     ] as const
     if (!validAIProviders.includes(validated.aiProvider as any)) {
-      validated.aiProvider = 'openai'
+      validated.aiProvider = 'deepseek'
+      migrated = true
     }
 
     const safeAssistantModel = getSafeProviderModel(
@@ -480,31 +584,6 @@ export const useSettingsStore = defineStore('settings', () => {
     )
     if (safeSummarizationModel !== validated.SUMMARIZATION_MODEL) {
       validated.SUMMARIZATION_MODEL = safeSummarizationModel
-      migrated = true
-    }
-
-    if (
-      !validated.VITE_OPENAI_API_KEY?.trim() &&
-      validated.aiProvider !== 'openai' &&
-      validated.embeddingProvider === 'openai'
-    ) {
-      validated.embeddingProvider = 'local'
-      migrated = true
-    }
-
-    if (
-      validated.embeddingProvider === 'doubao' &&
-      !validated.VITE_DOUBAO_API_KEY?.trim()
-    ) {
-      validated.embeddingProvider = 'local'
-      migrated = true
-    }
-
-    if (
-      validated.embeddingProvider === 'qwen' &&
-      !validated.VITE_QWEN_API_KEY?.trim()
-    ) {
-      validated.embeddingProvider = 'local'
       migrated = true
     }
 
@@ -1010,85 +1089,13 @@ export const useSettingsStore = defineStore('settings', () => {
     isSaving.value = true
     error.value = null
     try {
-      const plainSettings: AliceSettings = {
-        VITE_OPENAI_API_KEY: settings.value.VITE_OPENAI_API_KEY,
-        VITE_OPENROUTER_API_KEY: settings.value.VITE_OPENROUTER_API_KEY,
-        VITE_ZAI_API_KEY: settings.value.VITE_ZAI_API_KEY,
-        VITE_MINIMAX_API_KEY: settings.value.VITE_MINIMAX_API_KEY,
-        VITE_DEEPSEEK_API_KEY: settings.value.VITE_DEEPSEEK_API_KEY,
-        VITE_API_ROUTE_API_KEY: settings.value.VITE_API_ROUTE_API_KEY,
-        VITE_GROQ_API_KEY: settings.value.VITE_GROQ_API_KEY,
-        VITE_GOOGLE_API_KEY: settings.value.VITE_GOOGLE_API_KEY,
-        VITE_DOUBAO_API_KEY: settings.value.VITE_DOUBAO_API_KEY,
-        VITE_QWEN_API_KEY: settings.value.VITE_QWEN_API_KEY,
-        sttProvider: settings.value.sttProvider,
-        aiProvider: settings.value.aiProvider,
-
-        localSttModel: settings.value.localSttModel,
-        localSttLanguage: settings.value.localSttLanguage,
-        localSttEnabled: settings.value.localSttEnabled,
-        localSttWakeWord: settings.value.localSttWakeWord,
-
-        ollamaBaseUrl: settings.value.ollamaBaseUrl,
-        lmStudioBaseUrl: settings.value.lmStudioBaseUrl,
-        zaiBaseUrl: settings.value.zaiBaseUrl,
-        minimaxBaseUrl: settings.value.minimaxBaseUrl,
-        deepseekBaseUrl: settings.value.deepseekBaseUrl,
-        doubaoBaseUrl: settings.value.doubaoBaseUrl,
-        qwenBaseUrl: settings.value.qwenBaseUrl,
-        doubaoSttModel: settings.value.doubaoSttModel,
-        qwenSttModel: settings.value.qwenSttModel,
-        doubaoTtsModel: settings.value.doubaoTtsModel,
-        qwenTtsModel: settings.value.qwenTtsModel,
-        doubaoTtsVoice: settings.value.doubaoTtsVoice,
-        qwenTtsVoice: settings.value.qwenTtsVoice,
-        doubaoEmbeddingModel: settings.value.doubaoEmbeddingModel,
-        qwenEmbeddingModel: settings.value.qwenEmbeddingModel,
-        openaiSttModel: settings.value.openaiSttModel,
-        openaiTtsModel: settings.value.openaiTtsModel,
-        openaiEmbeddingModel: settings.value.openaiEmbeddingModel,
-        codexAuthConnected: settings.value.codexAuthConnected,
-        codexAccountLabel: settings.value.codexAccountLabel,
-        assistantModel: settings.value.assistantModel,
-        assistantSystemPrompt: settings.value.assistantSystemPrompt,
-        assistantTemperature: settings.value.assistantTemperature,
-        assistantTopP: settings.value.assistantTopP,
-        assistantReasoningEffort: settings.value.assistantReasoningEffort,
-        assistantVerbosity: settings.value.assistantVerbosity,
-        assistantTools: Array.from(settings.value.assistantTools || []),
-        assistantAvatar: settings.value.assistantAvatar,
-        mcpServersConfig: settings.value.mcpServersConfig,
-        MAX_HISTORY_MESSAGES_FOR_API:
-          settings.value.MAX_HISTORY_MESSAGES_FOR_API,
-        SUMMARIZATION_MESSAGE_COUNT: settings.value.SUMMARIZATION_MESSAGE_COUNT,
-        SUMMARIZATION_MODEL: settings.value.SUMMARIZATION_MODEL,
-        SUMMARIZATION_SYSTEM_PROMPT: settings.value.SUMMARIZATION_SYSTEM_PROMPT,
-        ttsProvider: settings.value.ttsProvider,
-        ttsVoice: settings.value.ttsVoice,
-        googleTtsVoice: settings.value.googleTtsVoice,
-        localTtsVoice: settings.value.localTtsVoice,
-        embeddingProvider: settings.value.embeddingProvider,
-        ragEnabled: settings.value.ragEnabled,
-        ragPaths: Array.from(settings.value.ragPaths || []),
-        ragTopK: settings.value.ragTopK,
-        ragMaxContextChars: settings.value.ragMaxContextChars,
-        microphoneToggleHotkey: settings.value.microphoneToggleHotkey,
-        mutePlaybackHotkey: settings.value.mutePlaybackHotkey,
-        takeScreenshotHotkey: settings.value.takeScreenshotHotkey,
-
-        alwaysOnTop: settings.value.alwaysOnTop,
-        VITE_JACKETT_API_KEY: settings.value.VITE_JACKETT_API_KEY,
-        VITE_JACKETT_URL: settings.value.VITE_JACKETT_URL,
-        VITE_QB_URL: settings.value.VITE_QB_URL,
-        VITE_QB_USERNAME: settings.value.VITE_QB_USERNAME,
-        VITE_QB_PASSWORD: settings.value.VITE_QB_PASSWORD,
-        VITE_TAVILY_API_KEY: settings.value.VITE_TAVILY_API_KEY,
-        VITE_SEARXNG_URL: settings.value.VITE_SEARXNG_URL,
-        VITE_SEARXNG_API_KEY: settings.value.VITE_SEARXNG_API_KEY,
-        websocketPort: settings.value.websocketPort,
-        approvedCommands: Array.from(settings.value.approvedCommands || []),
-        onboardingCompleted: settings.value.onboardingCompleted,
-      }
+      /**
+       * 整份序列化，不再手写字段清单。
+       * 手写清单最大的问题是"新加字段忘了登记就静默丢失"。
+       */
+      const plainSettings = JSON.parse(
+        JSON.stringify(settings.value)
+      ) as AliceSettings
 
       const saveResult = await window.settingsAPI.saveSettings(plainSettings)
 
@@ -1124,140 +1131,8 @@ export const useSettingsStore = defineStore('settings', () => {
 
     const currentConfigForTest = config.value
 
-    if (
-      requiresOpenAIKey(currentConfigForTest) &&
-      !currentConfigForTest.VITE_OPENAI_API_KEY?.trim()
-    ) {
-      error.value = `Essential setting '${settingKeyToLabelMap.VITE_OPENAI_API_KEY}' is missing.`
-      generalStore.statusMessage = 'OpenAI API Key is required.'
-      isSaving.value = false
-      return
-    }
-
-    if (currentConfigForTest.aiProvider === 'openrouter') {
-      if (!currentConfigForTest.VITE_OPENROUTER_API_KEY?.trim()) {
-        error.value = `Essential setting '${settingKeyToLabelMap.VITE_OPENROUTER_API_KEY}' is missing.`
-        generalStore.statusMessage = 'OpenRouter API Key is required.'
-        isSaving.value = false
-        return
-      }
-    } else if (currentConfigForTest.aiProvider === 'zai') {
-      if (!currentConfigForTest.VITE_ZAI_API_KEY?.trim()) {
-        error.value = `Essential setting '${settingKeyToLabelMap.VITE_ZAI_API_KEY}' is missing.`
-        generalStore.statusMessage = 'Z.ai API Key is required.'
-        isSaving.value = false
-        return
-      }
-      if (!currentConfigForTest.zaiBaseUrl?.trim()) {
-        error.value = `Essential setting '${settingKeyToLabelMap.zaiBaseUrl}' is missing.`
-        generalStore.statusMessage = 'Z.ai Base URL is required.'
-        isSaving.value = false
-        return
-      }
-    } else if (currentConfigForTest.aiProvider === 'minimax') {
-      if (!currentConfigForTest.VITE_MINIMAX_API_KEY?.trim()) {
-        error.value = `Essential setting '${settingKeyToLabelMap.VITE_MINIMAX_API_KEY}' is missing.`
-        generalStore.statusMessage = 'MiniMax API Key is required.'
-        isSaving.value = false
-        return
-      }
-      if (!currentConfigForTest.minimaxBaseUrl?.trim()) {
-        error.value = `Essential setting '${settingKeyToLabelMap.minimaxBaseUrl}' is missing.`
-        generalStore.statusMessage = 'MiniMax Base URL is required.'
-        isSaving.value = false
-        return
-      }
-    } else if (currentConfigForTest.aiProvider === 'deepseek') {
-      if (!currentConfigForTest.VITE_DEEPSEEK_API_KEY?.trim()) {
-        error.value = `Essential setting '${settingKeyToLabelMap.VITE_DEEPSEEK_API_KEY}' is missing.`
-        generalStore.statusMessage = 'DeepSeek API Key is required.'
-        isSaving.value = false
-        return
-      }
-      if (!currentConfigForTest.deepseekBaseUrl?.trim()) {
-        error.value = `Essential setting '${settingKeyToLabelMap.deepseekBaseUrl}' is missing.`
-        generalStore.statusMessage = 'DeepSeek Base URL is required.'
-        isSaving.value = false
-        return
-      }
-    } else if (currentConfigForTest.aiProvider === 'api-route') {
-      if (!currentConfigForTest.VITE_API_ROUTE_API_KEY?.trim()) {
-        error.value = `Essential setting '${settingKeyToLabelMap.VITE_API_ROUTE_API_KEY}' is missing.`
-        generalStore.statusMessage = 'API Route API Key is required.'
-        isSaving.value = false
-        return
-      }
-    } else if (currentConfigForTest.aiProvider === 'codex') {
-      if (!currentConfigForTest.codexAuthConnected) {
-        error.value = `Essential setting '${settingKeyToLabelMap.codexAuthConnected}' is missing.`
-        generalStore.statusMessage = 'ChatGPT Codex authorization is required.'
-        isSaving.value = false
-        return
-      }
-    } else if (currentConfigForTest.aiProvider === 'ollama') {
-      if (!currentConfigForTest.ollamaBaseUrl?.trim()) {
-        error.value = `Essential setting '${settingKeyToLabelMap.ollamaBaseUrl}' is missing.`
-        generalStore.statusMessage = 'Ollama Base URL is required.'
-        isSaving.value = false
-        return
-      }
-    } else if (currentConfigForTest.aiProvider === 'lm-studio') {
-      if (!currentConfigForTest.lmStudioBaseUrl?.trim()) {
-        error.value = `Essential setting '${settingKeyToLabelMap.lmStudioBaseUrl}' is missing.`
-        generalStore.statusMessage = 'LM Studio Base URL is required.'
-        isSaving.value = false
-        return
-      }
-    }
-
-    if (
-      currentConfigForTest.sttProvider === 'groq' &&
-      !currentConfigForTest.VITE_GROQ_API_KEY?.trim()
-    ) {
-      error.value = `Groq STT is selected, but '${settingKeyToLabelMap.VITE_GROQ_API_KEY}' is missing.`
-      generalStore.statusMessage = 'Groq API Key is required for Groq STT.'
-      isSaving.value = false
-      return
-    }
-
-    if (
-      (currentConfigForTest.sttProvider === 'google' ||
-        currentConfigForTest.ttsProvider === 'google') &&
-      !currentConfigForTest.VITE_GOOGLE_API_KEY?.trim()
-    ) {
-      error.value = `Google is selected, but '${settingKeyToLabelMap.VITE_GOOGLE_API_KEY}' is missing.`
-      generalStore.statusMessage =
-        'Google API Key is required for Google services.'
-      isSaving.value = false
-      return
-    }
-
-    if (
-      (currentConfigForTest.sttProvider === 'doubao' ||
-        currentConfigForTest.ttsProvider === 'doubao' ||
-        currentConfigForTest.embeddingProvider === 'doubao') &&
-      !currentConfigForTest.VITE_DOUBAO_API_KEY?.trim()
-    ) {
-      error.value = `Doubao is selected, but '${settingKeyToLabelMap.VITE_DOUBAO_API_KEY}' is missing.`
-      generalStore.statusMessage =
-        'Doubao (Volcengine Ark) API Key is required.'
-      isSaving.value = false
-      return
-    }
-
-    if (
-      (currentConfigForTest.sttProvider === 'qwen' ||
-        currentConfigForTest.ttsProvider === 'qwen' ||
-        currentConfigForTest.embeddingProvider === 'qwen') &&
-      !currentConfigForTest.VITE_QWEN_API_KEY?.trim()
-    ) {
-      error.value = `Qwen is selected, but '${settingKeyToLabelMap.VITE_QWEN_API_KEY}' is missing.`
-      generalStore.statusMessage =
-        'Qwen (Alibaba DashScope) API Key is required.'
-      isSaving.value = false
-      return
-    }
-
+    // 允许只填一部分设置就保存：这里不做任何"缺项拦截"，
+    // 哪个能力没配好，等真正用到它的时候再报错。
     const settingsPersistedInitially = await saveSettingsToFile()
     if (!settingsPersistedInitially) {
       generalStore.statusMessage = 'Error saving settings to file.'
@@ -1340,7 +1215,7 @@ export const useSettingsStore = defineStore('settings', () => {
     VITE_MINIMAX_API_KEY?: string
     VITE_DEEPSEEK_API_KEY?: string
     VITE_API_ROUTE_API_KEY?: string
-    sttProvider: 'openai' | 'groq' | 'google' | 'doubao' | 'qwen' | 'local'
+    sttProvider: 'openai' | 'groq' | 'google' | 'doubao' | 'qwen' | 'volcengine' | 'local'
     ttsProvider?: 'openai' | 'google' | 'doubao' | 'qwen' | 'local'
     embeddingProvider?: 'openai' | 'doubao' | 'qwen' | 'local'
     aiProvider: AIProviderKey

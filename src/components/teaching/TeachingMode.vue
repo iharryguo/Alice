@@ -303,7 +303,8 @@
         </div>
 
         <div v-if="store.ttsDegraded" class="tm-tts-warn">
-          语音合成没有成功，这一节只有字幕。可以在设置里换一个 TTS 供应商，或检查网络后重开一课。
+          语音合成没有成功，这一节只有字幕。
+          <template v-if="store.ttsError">原因：{{ store.ttsError }}</template>
         </div>
 
         <div class="tm-dialogue" ref="transcriptRef">

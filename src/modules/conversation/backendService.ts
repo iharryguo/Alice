@@ -1,4 +1,5 @@
 import type { AudioState } from '../../stores/generalStore'
+import { logEvent } from '../../utils/logger'
 
 export interface BackendServiceDependencies {
   getConfig(): {
@@ -25,6 +26,7 @@ export interface BackendServiceDependencies {
   transcribeWithGoogle(audio: ArrayBuffer): Promise<string>
   transcribeWithDoubao(audio: ArrayBuffer): Promise<string>
   transcribeWithQwen(audio: ArrayBuffer): Promise<string>
+  transcribeWithVolcengine(audio: ArrayBuffer): Promise<string>
   transcribeWithBackend(audio: ArrayBuffer): Promise<string>
   logInfo(...args: any[]): void
   logError(...args: any[]): void
@@ -53,11 +55,28 @@ export function createBackendService(
         return await deps.transcribeWithDoubao(audioArrayBuffer)
       } else if (sttProvider === 'qwen') {
         return await deps.transcribeWithQwen(audioArrayBuffer)
+      } else if (sttProvider === 'volcengine') {
+        return await deps.transcribeWithVolcengine(audioArrayBuffer)
       } else if (sttProvider === 'local') {
         return await deps.transcribeWithBackend(audioArrayBuffer)
       }
-      throw new Error(`Unknown STT provider: ${sttProvider}`)
+      // 旧配置里可能残留一个已经不存在的提供商（例如曾经误存的 volcengine）。
+      // 直接抛英文报错对用户没用，这里给一句能照着做的。
+      throw new Error(
+        `语音识别提供商「${sttProvider}」不可用，请到 设置 → 语音识别 重新选一个（豆包 / 通义 / 本地）`
+      )
     } catch (error: any) {
+      // 这条以前只进 console，日志里只剩一个 length:0，根本看不出是"没实现"、
+      // 欠费还是 Key 不对。识别失败必须带原因落盘，否则等于没有线索。
+      logEvent(
+        'audio',
+        'stt.failed',
+        {
+          provider: sttProvider,
+          message: error?.message ?? String(error),
+        },
+        'warn'
+      )
       deps.setStatusMessage('Error: Transcription failed')
       deps.logError('Transcription service error:', error)
 

@@ -89,6 +89,8 @@ export const useTeachingStore = defineStore('teaching', () => {
   const resumableSessions = ref<ClassSession[]>([])
   /** TTS 连续失败时置位：界面据此提示"只有字幕"，而不是让人对着没声音的课猜 */
   const ttsDegraded = ref(false)
+  /** 最近一次合成失败的原因，直接显示在课堂顶部，省得每次都要翻日志 */
+  const ttsError = ref('')
   /** 老师此刻是否在收音：课堂界面要明确显示"在听你说" */
   const listeningState = ref(false)
   /** 已保存的课程版本：重启后不必重新备课 */
@@ -601,7 +603,7 @@ export const useTeachingStore = defineStore('teaching', () => {
       {
         course: activeCourse,
         contract: activeContract,
-        speak: speakSentence,
+        speak: (text, _turnId, emotion) => speakSentence(text, emotion),
         stopSpeaking: () => {
           const conversationStore = useConversationStore()
           conversationStore.stopSpeaking()
@@ -760,7 +762,7 @@ export const useTeachingStore = defineStore('teaching', () => {
    * 于是每句只等 360ms 就往下走，下一句的 speakText 又会先清空播放队列，
    * 结果每一句都被下一句掐掉——听起来就是响了一下然后彻底没声。
    */
-  async function speakSentence(text: string): Promise<void> {
+  async function speakSentence(text: string, emotion?: string): Promise<void> {
     const conversationStore = useConversationStore()
     const generalStore = useGeneralStore()
     const estimate = Math.min(45000, Math.max(1500, text.length * 90))
@@ -775,7 +777,7 @@ export const useTeachingStore = defineStore('teaching', () => {
     // 被打断和合成失败要分开处理：
     // 学生一开口就会 abort 正在合成的句子，那不是故障，不能因此把整节课标成"只有字幕"。
     const first = await conversationStore
-      .speakText(text)
+      .speakText(text, { emotion })
       .catch(error => ({ ok: false, aborted: false, error: String(error) }))
     if (!first.ok) {
       if (first.aborted) {
@@ -784,7 +786,7 @@ export const useTeachingStore = defineStore('teaching', () => {
       }
       // 一次重试：云端 TTS 偶发超时，直接放弃会让整段没声
       const second = await conversationStore
-        .speakText(text)
+        .speakText(text, { emotion })
         .catch(error => ({ ok: false, aborted: false, error: String(error) }))
       if (!second.ok) {
         if (second.aborted) {
@@ -792,6 +794,7 @@ export const useTeachingStore = defineStore('teaching', () => {
           return
         }
         ttsDegraded.value = true
+        ttsError.value = String(second.error ?? first.error ?? '未知原因')
         logLesson('tts.failed', {
           text,
           estimate,
@@ -802,6 +805,7 @@ export const useTeachingStore = defineStore('teaching', () => {
       }
     }
     ttsDegraded.value = false
+    ttsError.value = ''
 
     const startedAt = Date.now()
     const deadline = startedAt + estimate + 15000
@@ -950,6 +954,7 @@ export const useTeachingStore = defineStore('teaching', () => {
     report,
     reportAttempts,
     ttsDegraded,
+    ttsError,
     inLesson,
     heardText,
     resumableSessions,

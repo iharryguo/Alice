@@ -73,6 +73,8 @@ export interface NarrationSegment {
   kind: 'say' | 'ask'
   /** 学生此刻应该看到的页码 */
   page?: number
+  /** 这一句该用什么情绪说：neutral / happy / sad / angry / excited */
+  emotion?: string
 }
 
 export interface NarrationResult {
@@ -106,6 +108,9 @@ export async function composeNarration(params: {
       : '这已经不是第一次开口了：绝对不要再说 Hello / Good to see you / 又见面了，用一个过渡句直接进入这一节。',
     '每个 segment 必须标明 kind：陈述用 say，向学生提问用 ask。',
     '每个 segment 必须标明 page：讲这一段时学生应该看材料第几页，只能取给你的页码范围。',
+    '每个 segment 还要标明 emotion，取 neutral / happy / sad / angry / excited。',
+    'emotion 要跟着内容走：讲开心的事就 happy，讲难过的事就 sad，纠正错误或强调规则可以 angry，鼓励和惊喜用 excited。',
+    '语气要有起伏，整节课一个调子是最糟糕的。',
     '如果讲到新的图片、表格或另一页的内容，page 必须跟着往后走；不要整节都用第一页。',
     'ask 只能是一句问句，而且这句话说完老师会停下来等学生回答，所以 ask 后面不要接别的内容。',
     '每个节点最多两个 ask；不要让所有段落都变成提问。',
@@ -127,7 +132,7 @@ export async function composeNarration(params: {
     '',
     `课时长度：${contract.targetDurationMin} 分钟。`,
     '输出结构：',
-    '{"opening":"开场的一两句话","segments":[{"text":"要说的一到两句话","pointIndex":0,"kind":"say|ask","page":1}]}',
+    '{"opening":"开场的一两句话","segments":[{"text":"要说的一到两句话","pointIndex":0,"kind":"say|ask","page":1,"emotion":"happy"}]}',
     '要求：segments 覆盖全部要点，顺序不变；每个要点 1—2 段；开场要像老师真的在跟学生打招呼并说明今天做什么。',
   ].join('\n')
 
@@ -144,6 +149,7 @@ export async function composeNarration(params: {
       pointIndex?: number
       kind?: string
       page?: number
+      emotion?: string
     }>
   }>(raw)
 
@@ -165,6 +171,7 @@ export async function composeNarration(params: {
         : Math.min(index, node.talkingPoints.length - 1),
       kind: segment.kind === 'ask' ? ('ask' as const) : ('say' as const),
       page: Number(segment.page) > 0 ? Number(segment.page) : undefined,
+      emotion: normalizeEmotion(segment.emotion),
     }))
     .filter(segment => segment.text.length > 0)
 
@@ -174,6 +181,14 @@ export async function composeNarration(params: {
     opening: String(parsed.opening || '').trim(),
     segments,
   }
+}
+
+const EMOTIONS = ['neutral', 'happy', 'sad', 'angry', 'excited'] as const
+
+/** 只接受约定的几种情绪，其余一律按 neutral 处理 */
+function normalizeEmotion(raw: unknown): string {
+  const value = String(raw || '').trim().toLowerCase()
+  return (EMOTIONS as readonly string[]).includes(value) ? value : 'neutral'
 }
 
 /** 把模型返回的纯文本按句子拆成讲解分段 */

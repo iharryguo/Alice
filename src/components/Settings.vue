@@ -439,7 +439,12 @@ onMounted(async () => {
 watch(
   settings,
   newSettings => {
-    currentSettings.value = { ...newSettings }
+    // 只有内容真的变了才替换对象。
+    // 之前每次按键都会把 currentSettings 换成新对象，输入框光标会跳到末尾，
+    // 连续输入时表现为"打字打一半被吞掉"。
+    if (JSON.stringify(newSettings) !== JSON.stringify(currentSettings.value)) {
+      currentSettings.value = { ...newSettings }
+    }
   },
   { deep: true, immediate: true }
 )
@@ -463,57 +468,8 @@ watch(
 )
 
 const handleSaveAndTestSettings = async () => {
-  if (
-    currentSettings.value.mcpServersConfig &&
-    currentSettings.value.mcpServersConfig.trim() !== '' &&
-    currentSettings.value.mcpServersConfig.trim() !== '[]'
-  ) {
-    try {
-      const parsedMcpConfig = JSON.parse(currentSettings.value.mcpServersConfig)
-      if (!Array.isArray(parsedMcpConfig)) {
-        settingsStore.error =
-          'MCP Servers Configuration must be a valid JSON array.'
-        settingsStore.successMessage = null
-        settingsStore.isSaving = false
-        return
-      }
-    } catch (e) {
-      settingsStore.error =
-        'MCP Servers Configuration is not valid JSON. Please check for errors like trailing commas or unquoted keys.'
-      settingsStore.successMessage = null
-      settingsStore.isSaving = false
-      return
-    }
-  }
-
-  if (
-    settingsStore.error &&
-    settingsStore.error.startsWith('MCP Servers Configuration')
-  ) {
-    settingsStore.error = null
-  }
-
-  if (
-    currentSettings.value.sttProvider === 'groq' &&
-    !currentSettings.value.VITE_GROQ_API_KEY?.trim()
-  ) {
-    settingsStore.error = `Groq STT is selected, but the Groq API Key is missing.`
-    settingsStore.successMessage = null
-    settingsStore.isSaving = false
-    return
-  }
-
-  if (
-    (currentSettings.value.sttProvider === 'google' ||
-      currentSettings.value.ttsProvider === 'google') &&
-    !currentSettings.value.VITE_GOOGLE_API_KEY?.trim()
-  ) {
-    settingsStore.error = `Google is selected, but the Google API Key is missing.`
-    settingsStore.successMessage = null
-    settingsStore.isSaving = false
-    return
-  }
-
+  // 不再做任何"缺项 / 配置不全就不许保存"的拦截：
+  // 用户只想改一部分设置时，剩下的保持原样即可，缺什么等用到时再报。
   await settingsStore.saveAndTestSettings()
 
   if (window.aliceIPC && window.location.hash === '#settings') {

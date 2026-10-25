@@ -70,13 +70,15 @@ export interface NarrationSegment {
   kind: 'say' | 'ask'
   /** 讲这一段时学生应该看到的页码；缺省时由锚点决定 */
   page?: number
+  /** 这一句的情绪，用于语音合成的语气指令 */
+  emotion?: string
 }
 
 export interface LessonRuntimeDeps {
   course: CourseVersionRecord
   contract: ClassContract
   now?: () => number
-  speak: (text: string, teacherTurnId: string) => Promise<void>
+  speak: (text: string, teacherTurnId: string, emotion?: string) => Promise<void>
   stopSpeaking: () => void
   /** 展示某段对应的页面与高亮；运行时只给锚点，具体怎么渲染由界面决定 */
   showAnchor: (anchorIds: string[], pointIndex: number, page?: number) => void
@@ -555,7 +557,7 @@ export class LessonRuntime {
     this.launch(this.enterNode(0))
   }
 
-  private async speak(text: string): Promise<void> {
+  private async speak(text: string, emotion?: string): Promise<void> {
     const trimmed = String(text || '').trim()
     if (!trimmed) return
     // 纯标点/纯引号（分句留下的碎片）既没有朗读价值，送进 TTS 还会直接失败
@@ -574,7 +576,7 @@ export class LessonRuntime {
     this.emit()
 
     try {
-      await this.deps.speak(trimmed, turnId)
+      await this.deps.speak(trimmed, turnId, emotion)
     } finally {
       if (this.currentTeacherTurnId === turnId) {
         this.currentTeacherTurnId = null
@@ -722,7 +724,7 @@ export class LessonRuntime {
 
       if (token !== this.narrateToken) return
       this.segmentStarted = true
-      await this.speak(segment.text)
+      await this.speak(segment.text, segment.emotion)
       this.segmentStarted = false
       if (token !== this.narrateToken) return
       if (this.cancelled) return
