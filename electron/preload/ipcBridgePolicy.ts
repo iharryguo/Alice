@@ -110,6 +110,7 @@ export const INVOKE_CHANNELS = new Set([
   'teaching:material:update-page-text',
   'teaching:material:delete',
   'teaching:course:version',
+  'teaching:course:list',
   'teaching:course:create',
   'teaching:course:confirm',
   'teaching:contract:save',

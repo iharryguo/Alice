@@ -193,6 +193,7 @@ export async function compileNodeDetails(
     '只输出 JSON。每个要点一到两句，必须能单独朗读，不要出现"如图所示"这类无法朗读的描述。',
     '要点如果来自材料原文，source 填 material 并给出页码；如果是你补充的例子或解释，source 填 teacher-addition。',
     '每个节点配一个练习：跟读用 repeat，问答题用 short-answer，选择题用 multiple-choice。',
+    '练习的 prompt 必须用英文书写——它会被直接朗读给学生；talkingPoints 是内容笔记，用什么语言都可以。',
   ].join('\n')
 
   const userPrompt = [

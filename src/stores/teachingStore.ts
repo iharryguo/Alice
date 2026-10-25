@@ -13,7 +13,6 @@ import {
   type LessonViewState,
 } from '../modules/teaching/lessonRuntime'
 import {
-  answerInClass,
   classifyIntent,
   evaluateAnswer,
 } from '../modules/teaching/teacherBrain'
@@ -21,6 +20,12 @@ import {
   transcribeBlankPages,
   transcribePageImage,
 } from '../modules/teaching/pageVision'
+import {
+  answerInClass,
+  composeNarration,
+  controlPhrase,
+  scaffoldAnswer,
+} from '../modules/teaching/teacherVoice'
 import type {
   ClassContract,
   ClassSession,
@@ -82,6 +87,10 @@ export const useTeachingStore = defineStore('teaching', () => {
   const resumableSessions = ref<ClassSession[]>([])
   /** TTS 连续失败时置位：界面据此提示"只有字幕"，而不是让人对着没声音的课猜 */
   const ttsDegraded = ref(false)
+  /** 老师此刻是否在收音：课堂界面要明确显示"在听你说" */
+  const listeningState = ref(false)
+  /** 已保存的课程版本：重启后不必重新备课 */
+  const preparedCourses = ref<CourseVersionRecord[]>([])
   const reportAttempts = ref<
     Array<{
       attemptId: string
@@ -135,6 +144,54 @@ export const useTeachingStore = defineStore('teaching', () => {
     visible.value = true
     void refreshMaterials()
     void refreshResumable()
+    void refreshPrepared()
+  }
+
+  async function refreshPrepared(): Promise<void> {
+    preparedCourses.value = await teachingService.listCourseVersions()
+  }
+
+  /**
+   * 打开已保存的备课结果：课程版本与契约都从库里读，不再调模型。
+   * 这是"备课只做一次"的入口。
+   */
+  async function openPrepared(courseVersionId: string): Promise<void> {
+    busy.value = true
+    try {
+      const version = await teachingService.getCourseVersion(courseVersionId)
+      if (!version) {
+        compileError.value = '这个课程版本已经不存在了'
+        return
+      }
+      course.value = version
+      anchorCoverage.value = {
+        nodesWithAnchors: version.nodes.filter(node => node.anchorIds.length > 0)
+          .length,
+        totalNodes: version.nodes.length,
+      }
+      const saved = await teachingService.getLatestContract(courseVersionId)
+      if (saved) contract.value = saved
+      outline.value = {
+        title: version.title,
+        objectives: version.objectives,
+        prerequisites: version.prerequisites,
+        nodes: version.nodes.map(node => ({
+          objective: node.objective,
+          required: node.required,
+          minutes: Math.round(node.plannedDurationSec / 60),
+          pages: node.anchorIds
+            .map(id => anchorPageById.value.get(id) ?? 0)
+            .filter(page => page > 0),
+        })),
+      }
+
+      const material = await teachingService.getMaterial(version.materialId)
+      if (material) await selectMaterial(material)
+
+      step.value = 'prep'
+    } finally {
+      busy.value = false
+    }
   }
 
   async function refreshResumable(): Promise<void> {
@@ -182,7 +239,7 @@ export const useTeachingStore = defineStore('teaching', () => {
 
       runtime = buildRuntime(courseVersion, activeContract, {
         nodeIndex,
-        sentenceIndex: Math.max(0, lastStep?.sentenceIndex ?? 0),
+        segmentIndex: Math.max(0, lastStep?.sentenceIndex ?? 0),
         committed: !!lastStep?.sentenceCommitted,
       })
 
@@ -196,6 +253,7 @@ export const useTeachingStore = defineStore('teaching', () => {
         eventBus.off('cancel-llm-stream', onSpeechStart)
       }
 
+      startClassroomMic()
       await runtime.continueFromSnapshot()
     } finally {
       busy.value = false
@@ -281,6 +339,7 @@ export const useTeachingStore = defineStore('teaching', () => {
       }
 
       await teachingService.createCourseVersion(compiled.course)
+      await refreshPrepared()
       step.value = 'prep'
     } catch (error) {
       compileError.value = (error as Error).message
@@ -367,6 +426,27 @@ export const useTeachingStore = defineStore('teaching', () => {
     }
   }
 
+  let micWasEnabled = false
+
+  /**
+   * 进课堂就开麦：这是实时对话，不是聊天框。
+   * 关课时恢复用户原来的麦克风设置，不偷偷改他的偏好。
+   */
+  function startClassroomMic(): void {
+    const generalStore = useGeneralStore()
+    micWasEnabled = generalStore.isRecordingRequested
+    generalStore.isRecordingRequested = true
+    if (generalStore.audioState === 'IDLE') {
+      generalStore.setAudioState('LISTENING')
+    }
+  }
+
+  function stopClassroomMic(): void {
+    const generalStore = useGeneralStore()
+    generalStore.isRecordingRequested = micWasEnabled
+    listeningState.value = false
+  }
+
   async function startLesson(): Promise<void> {
     const activeCourse = course.value
     if (!activeCourse) return
@@ -418,6 +498,7 @@ export const useTeachingStore = defineStore('teaching', () => {
         eventBus.off('cancel-llm-stream', onSpeechStart)
       }
 
+      startClassroomMic()
       await runtime.start()
     } finally {
       busy.value = false
@@ -428,7 +509,7 @@ export const useTeachingStore = defineStore('teaching', () => {
   function buildRuntime(
     activeCourse: CourseVersionRecord,
     activeContract: ClassContract,
-    resume?: { nodeIndex: number; sentenceIndex: number; committed: boolean }
+    resume?: { nodeIndex: number; segmentIndex: number; committed: boolean }
   ): LessonRuntime {
     return new LessonRuntime(
       {
@@ -439,12 +520,21 @@ export const useTeachingStore = defineStore('teaching', () => {
           const conversationStore = useConversationStore()
           conversationStore.stopSpeaking()
         },
-        showPage: pageIndex => {
-          currentPage.value = Math.max(1, pageIndex)
-        },
-        highlight: anchorIds => {
+        showAnchor: (anchorIds, _pointIndex) => {
           applyHighlight(anchorIds)
         },
+        setListening: listening => {
+          listeningState.value = listening
+        },
+        composeNarration: node =>
+          composeNarration({
+            course: activeCourse,
+            node,
+            contract: activeContract,
+          }),
+        scaffold: args =>
+          scaffoldAnswer({ ...args, contract: activeContract }),
+        phrase: key => controlPhrase(activeContract, key),
         poster: patch => {
           if (sessionId.value) {
             void teachingService.updateSession(sessionId.value, patch)
@@ -457,7 +547,7 @@ export const useTeachingStore = defineStore('teaching', () => {
           })
         },
         classify: classifyIntent,
-        answer: answerInClass,
+        answer: (text, context) => answerInClass(text, context, activeContract),
         evaluate: evaluateAnswer,
         saveAttempt: attempt => {
           void teachingService.saveAttempt({
@@ -473,8 +563,10 @@ export const useTeachingStore = defineStore('teaching', () => {
         },
         onState: next => {
           view.value = next
-          if (next.currentPage) currentPage.value = next.currentPage
-          if (next.finished) void buildReport()
+          if (next.finished) {
+            stopClassroomMic()
+            void buildReport()
+          }
         },
             },
       resume
@@ -594,6 +686,7 @@ export const useTeachingStore = defineStore('teaching', () => {
   async function endLesson(): Promise<void> {
     if (!runtime) return
     await runtime.endByUser()
+    stopClassroomMic()
   }
 
   async function buildReport(): Promise<void> {
@@ -661,6 +754,8 @@ export const useTeachingStore = defineStore('teaching', () => {
     reportAttempts,
     ttsDegraded,
     resumableSessions,
+    preparedCourses,
+    listeningState,
     busy,
     isInClass,
     open,
@@ -673,6 +768,9 @@ export const useTeachingStore = defineStore('teaching', () => {
     startLesson,
     resumeSession,
     refreshResumable,
+    refreshPrepared,
+    openPrepared,
+    stopClassroomMic,
     handleUtterance,
     pause,
     resume,

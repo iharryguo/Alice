@@ -524,6 +524,16 @@ export function listCourseVersions(courseId: string): CourseVersionRecord[] {
   return rows.map(rowToCourseVersion)
 }
 
+export function listAllCourseVersions(): CourseVersionRecord[] {
+  const db = getDBInstance()
+  const rows = db
+    .prepare(
+      'SELECT * FROM teaching_course_versions ORDER BY created_at DESC LIMIT 100'
+    )
+    .all() as CourseVersionRow[]
+  return rows.map(rowToCourseVersion)
+}
+
 export function confirmCourseVersion(id: string): void {
   const db = getDBInstance()
   const record = getCourseVersion(id)

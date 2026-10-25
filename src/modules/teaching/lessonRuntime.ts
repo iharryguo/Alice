@@ -2,6 +2,7 @@ import type {
   ClassContract,
   ClassSession,
   CourseVersionRecord,
+  LessonExerciseDraft,
   LessonNode,
   TeachingActionType,
   TeachingStepRecord,
@@ -11,11 +12,13 @@ import type {
 /**
  * 课堂运行时。
  *
- * 刻意不依赖 Vue / Pinia：课堂状态必须能被单测覆盖，也必须能在没有界面的情况下
- * 推演（比如恢复课堂、跑评测集）。界面只订阅 onState，不直接改状态。
+ * 三条原则：
+ * 1) 说什么由课堂契约决定（全英文 / 中文救场 / 中文讲解），所以讲解句从
+ *    composeNarration 现场生成，不念编译阶段的中文要点。
+ * 2) 每个讲解段都绑定它来自哪个 talkingPoint，据此翻页与高亮——这是自动翻页的依据。
+ * 3) 学生答不上来走脚手架（提示→示范→记待复习），不评判人格、不让"休息一下"。
  *
- * 三条时间线的处理：生成、音频、视觉各自由 deps 执行，运行时只保证顺序与原子提交。
- * 学生开口时先写快照再发取消，所以旧音频不会复活，新学生输入也不会被误删。
+ * 不依赖 Vue / Pinia，便于单测与恢复推演。
  */
 
 export type IntentKind =
@@ -50,8 +53,15 @@ export interface LessonViewState {
   currentAnchorIds: string[]
   currentPage: number
   awaitingAnswer: boolean
+  listening: boolean
   pacePrompt: string | null
   finished: boolean
+}
+
+export interface NarrationSegment {
+  text: string
+  /** 对应 node.talkingPoints 的下标，没有来源时为 -1 */
+  pointIndex: number
 }
 
 export interface LessonRuntimeDeps {
@@ -60,10 +70,21 @@ export interface LessonRuntimeDeps {
   now?: () => number
   speak: (text: string, teacherTurnId: string) => Promise<void>
   stopSpeaking: () => void
-  showPage: (pageIndex: number) => void
-  highlight: (anchorIds: string[]) => void
+  /** 展示某段对应的页面与高亮；运行时只给锚点，具体怎么渲染由界面决定 */
+  showAnchor: (anchorIds: string[], pointIndex: number) => void
+  /** 老师此刻是否在收音（界面上要能看到） */
+  setListening?: (listening: boolean) => void
   poster: (patch: Partial<ClassSession>) => void
   persistStep: (step: TeachingStepRecord) => void
+  composeNarration?: (
+    node: LessonNode
+  ) => Promise<{ opening: string; segments: NarrationSegment[] } | null>
+  scaffold?: (args: {
+    node: LessonNode
+    exercise: LessonExerciseDraft
+    attempt: number
+    studentSaid: string
+  }) => Promise<{ say: string; giveUp: boolean }>
   classify?: (text: string, context: string) => Promise<IntentResult | null>
   answer?: (text: string, context: string) => Promise<string | null>
   evaluate?: (
@@ -71,6 +92,7 @@ export interface LessonRuntimeDeps {
     prompt: string,
     rubric: Array<{ criterion: string; weight: number }>
   ) => Promise<{ status: 'passed' | 'needs-review' | 'skipped'; feedback: string }>
+  phrase?: (key: 'paused' | 'resumed' | 'skipped' | 'timeDebt' | 'end') => string
   saveAttempt?: (attempt: {
     exerciseId: string
     studentInput: string
@@ -97,12 +119,25 @@ const FILLERS = [
   '是的',
 ]
 
-const CONTROL_PATTERNS: Array<{ control: NonNullable<IntentResult['control']>; patterns: RegExp[] }> = [
+const UNKNOWN_PHRASES = [
+  /i\s*(don't|do not)\s*know/i,
+  /no\s*idea/i,
+  /not\s*sure/i,
+  /不知道/,
+  /不会/,
+  /不清楚/,
+  /不懂/,
+]
+
+const CONTROL_PATTERNS: Array<{
+  control: NonNullable<IntentResult['control']>
+  patterns: RegExp[]
+}> = [
   { control: 'pause', patterns: [/^(暂停|停一下|先停|等一下|hold on|pause)/i] },
   { control: 'resume', patterns: [/^(继续|接着讲|往下|go on|continue|resume)/i] },
   {
     control: 'repeat',
-    patterns: [/(再说一遍|重复|没听清|再说一次|repeat|say that again)/i],
+    patterns: [/(再说一遍|重复|没听清|再说一次|repeat|say that again|again)/i],
   },
   { control: 'slower', patterns: [/(慢一点|慢点|讲慢|slow down|slower)/i] },
   {
@@ -116,13 +151,23 @@ const CONTROL_PATTERNS: Array<{ control: NonNullable<IntentResult['control']>; p
   },
 ]
 
+export function isUnknownAnswer(text: string): boolean {
+  const cleaned = String(text || '').trim()
+  if (!cleaned) return true
+  return UNKNOWN_PHRASES.some(pattern => pattern.test(cleaned))
+}
+
 export function classifyByHeuristic(text: string): IntentResult {
   const cleaned = String(text || '').trim()
   const lower = cleaned.toLowerCase()
 
   if (!cleaned) return { kind: 'filler', confidence: 0.6 }
 
-  if (/(累|难受|不舒服|头疼|想休息|休息一下|too tired|exhausted)/i.test(cleaned)) {
+  if (
+    /(我累了|有点累|难受|不舒服|头疼|想休息|need a break|too tired)/i.test(
+      cleaned
+    )
+  ) {
     return { kind: 'distress', confidence: 0.8 }
   }
 
@@ -133,14 +178,13 @@ export function classifyByHeuristic(text: string): IntentResult {
   }
 
   const normalized = lower.replace(/[.,!?，。！？、\s]/g, '')
-  if (FILLERS.includes(normalized) || normalized.length <= 2) {
+  if (FILLERS.includes(normalized)) {
     return { kind: 'filler', confidence: 0.7 }
   }
 
   return { kind: 'question', confidence: 0.4 }
 }
 
-/** 明显无关的话题在本地先筛一层，避免每条输入都调一次模型 */
 const OFF_TOPIC_HINTS = [
   /天气/,
   /股票/,
@@ -159,52 +203,69 @@ export function looksOffTopic(text: string): boolean {
   return OFF_TOPIC_HINTS.some(pattern => pattern.test(text))
 }
 
+export function splitSentences(text: string): string[] {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .split(/(?<=[.!?。！？])\s*/)
+    .map(sentence => sentence.trim())
+    .filter(Boolean)
+}
+
 export class LessonRuntime {
   private deps: LessonRuntimeDeps
-  private course: CourseVersionRecord
   private contract: ClassContract
+  private course: CourseVersionRecord
   private startedAt: number
+
   private nodeIndex = 0
-  private sentenceIndex = 0
-  private sentenceCommitted = false
+  private segmentIndex = 0
+  private segmentCommitted = false
+  private segments: NarrationSegment[] = []
+
   private teacherTurnSeq = 0
   private currentTeacherTurnId: string | null = null
-  private studentTurnSeq = 0
   private cancelled = false
   private paused = false
   private finished = false
+
   private awaitingAnswer = false
+  private exerciseAttempts = 0
+
   private wanderEvents: number[] = []
   private parkedTopics: Array<{ text: string; at: number }> = []
-  private transcript: Array<{ role: 'teacher' | 'student' | 'system'; text: string }> = []
+  private transcript: Array<{ role: 'teacher' | 'student' | 'system'; text: string }> =
+    []
+
   private phase: ClassSession['phase'] = 'OPENING'
   private turnState: TurnState = 'IDLE'
   private presentationState: ClassSession['presentationState'] = 'FOLLOW_LESSON'
-  private currentPage = 1
   private currentAnchorIds: string[] = []
+  private currentPage = 1
   private pacePrompt: string | null = null
   private completedPlannedSec = 0
 
   constructor(
     deps: LessonRuntimeDeps,
-    resume?: { nodeIndex: number; sentenceIndex: number; committed: boolean }
+    resume?: { nodeIndex: number; segmentIndex: number; committed: boolean }
   ) {
     this.deps = deps
     this.course = deps.course
     this.contract = deps.contract
     this.startedAt = this.now()
-    const anchorSource = resume
-      ? this.course.nodes[resume.nodeIndex]?.anchorIds ?? []
-      : this.course.nodes[0]?.anchorIds ?? []
-    if (anchorSource.length > 0) this.currentAnchorIds = anchorSource
+
     if (resume) {
-      this.nodeIndex = Math.max(0, Math.min(resume.nodeIndex, this.course.nodes.length - 1))
-      this.sentenceIndex = Math.max(0, resume.sentenceIndex)
-      this.sentenceCommitted = resume.committed
+      this.nodeIndex = Math.max(
+        0,
+        Math.min(resume.nodeIndex, this.course.nodes.length - 1)
+      )
+      this.segmentIndex = Math.max(0, resume.segmentIndex)
+      this.segmentCommitted = resume.committed
       this.completedPlannedSec = this.course.nodes
         .slice(0, this.nodeIndex)
         .reduce((sum, node) => sum + node.plannedDurationSec, 0)
     }
+
+    this.segments = this.fallbackSegments(this.node)
   }
 
   private now(): number {
@@ -215,15 +276,30 @@ export class LessonRuntime {
     return this.course.nodes[this.nodeIndex]
   }
 
-  private get sentences(): string[] {
-    const node = this.node
-    if (!node) return []
-    return node.talkingPoints.flatMap(point =>
-      splitSentences(point.text).filter(Boolean)
-    )
+  private phrase(key: 'paused' | 'resumed' | 'skipped' | 'timeDebt' | 'end'): string {
+    return this.deps.phrase ? this.deps.phrase(key) : ''
   }
 
-  private get totalPlannedSec(): number {
+  /** 没有口语化生成时的兜底：把编译阶段的要点原样切成句子 */
+  private fallbackSegments(node: LessonNode | undefined): NarrationSegment[] {
+    if (!node) return []
+    const result: NarrationSegment[] = []
+    node.talkingPoints.forEach((point, index) => {
+      for (const sentence of splitSentences(point.text)) {
+        result.push({ text: sentence, pointIndex: index })
+      }
+    })
+    return result
+  }
+
+  private anchorIdsForSegment(segment: NarrationSegment): string[] {
+    const node = this.node
+    if (!node) return []
+    if (segment.pointIndex < 0) return node.anchorIds
+    return node.talkingPoints[segment.pointIndex]?.anchorIds ?? node.anchorIds
+  }
+
+  private totalPlannedSec(): number {
     return this.course.nodes.reduce((sum, node) => sum + node.plannedDurationSec, 0)
   }
 
@@ -232,12 +308,12 @@ export class LessonRuntime {
   }
 
   private plannedElapsedSec(): number {
-    return this.completedPlannedSec + Math.round(
-      (this.node?.plannedDurationSec ?? 0) *
-        (this.sentences.length > 0
-          ? Math.min(1, this.sentenceIndex / this.sentences.length)
-          : 0)
-    )
+    const nodePlanned = this.node?.plannedDurationSec ?? 0
+    const ratio =
+      this.segments.length > 0
+        ? Math.min(1, this.segmentIndex / this.segments.length)
+        : 0
+    return this.completedPlannedSec + Math.round(nodePlanned * ratio)
   }
 
   private timeDebtSec(): number {
@@ -245,15 +321,14 @@ export class LessonRuntime {
   }
 
   snapshot(): LessonViewState {
-    const sentences = this.sentences
     return {
       phase: this.phase,
       turnState: this.turnState,
       presentationState: this.presentationState,
       nodeIndex: this.nodeIndex,
       nodeObjective: this.node?.objective ?? '',
-      sentenceIndex: this.sentenceIndex,
-      sentenceText: sentences[this.sentenceIndex] ?? '',
+      sentenceIndex: this.segmentIndex,
+      sentenceText: this.segments[this.segmentIndex]?.text ?? '',
       totalNodes: this.course.nodes.length,
       plannedElapsedSec: this.plannedElapsedSec(),
       actualElapsedSec: this.actualElapsedSec(),
@@ -264,6 +339,7 @@ export class LessonRuntime {
       currentAnchorIds: [...this.currentAnchorIds],
       currentPage: this.currentPage,
       awaitingAnswer: this.awaitingAnswer,
+      listening: this.turnState !== 'TEACHER_SPEAKING',
       pacePrompt: this.pacePrompt,
       finished: this.finished,
     }
@@ -280,77 +356,57 @@ export class LessonRuntime {
   private commitStep(
     action: TeachingActionType,
     options: {
-      sentenceIndex?: number
+      segmentIndex?: number
       committed?: boolean
       payload?: Record<string, unknown>
       studentTurnId?: string | null
       playbackState?: TeachingStepRecord['playbackState']
     } = {}
   ): void {
-    const step: TeachingStepRecord = {
+    this.deps.persistStep({
       stepId: `step-${this.now()}-${Math.random().toString(36).slice(2, 7)}`,
       sessionId: '',
       nodeId: this.node?.nodeId ?? null,
       action,
       teacherTurnId: this.currentTeacherTurnId,
       studentTurnId: options.studentTurnId ?? null,
-      sentenceIndex: options.sentenceIndex ?? this.sentenceIndex,
+      sentenceIndex: options.segmentIndex ?? this.segmentIndex,
       sentenceCommitted: options.committed ?? false,
       playbackState: options.playbackState ?? 'completed',
       payload: options.payload ?? {},
       committedAt: new Date(this.now()).toISOString(),
-    }
-    this.deps.persistStep(step)
-  }
-
-  /**
-   * 从快照继续：恢复节点与句子位置，先说明一句再按"已提交则下一句、未提交则本句开头"
-   * 的规则接着讲。不从半个词拼接，也不重复已经讲过并提交的句子。
-   */
-  async continueFromSnapshot(): Promise<void> {
-    this.phase = 'NARRATING'
-    this.turnState = 'TEACHER_SPEAKING'
-    this.persist({
-      phase: this.phase,
-      status: 'IN_SESSION',
-      currentNodeId: this.node?.nodeId ?? null,
     })
-    this.emit()
-
-    await this.speak('我们接着上次的地方继续。')
-    await this.resumeAfterInterruption()
   }
 
   async start(): Promise<void> {
     this.phase = 'OPENING'
     this.turnState = 'TEACHER_SPEAKING'
+    this.deps.setListening?.(false)
     this.persist({ phase: this.phase, turnState: this.turnState, status: 'IN_SESSION' })
     this.emit()
 
-    const opening = [
-      `我们开始上课。这一节的目标是：${this.course.objectives[0] || this.node?.objective || '完成本课内容'}。`,
-      `计划用时 ${this.contract.targetDurationMin} 分钟，一共 ${this.course.nodes.length} 个环节。`,
-      '随时可以打断我提问，也可以说"慢一点""再说一遍"或者"跳过"。',
-    ].join('')
-
-    await this.speak(opening)
     await this.enterNode(0)
   }
 
   private async speak(text: string): Promise<void> {
+    const trimmed = String(text || '').trim()
+    if (!trimmed) return
+
     const turnId = `tt-${this.now()}-${++this.teacherTurnSeq}`
     this.currentTeacherTurnId = turnId
     this.turnState = 'TEACHER_SPEAKING'
-    this.transcript.push({ role: 'teacher', text })
+    this.deps.setListening?.(false)
+    this.transcript.push({ role: 'teacher', text: trimmed })
     this.persist({ teacherTurnId: turnId, turnState: this.turnState })
     this.emit()
 
     try {
-      await this.deps.speak(text, turnId)
+      await this.deps.speak(trimmed, turnId)
     } finally {
       if (this.currentTeacherTurnId === turnId) {
         this.currentTeacherTurnId = null
         this.turnState = 'IDLE'
+        this.deps.setListening?.(true)
         this.emit()
       }
     }
@@ -363,50 +419,59 @@ export class LessonRuntime {
     }
 
     this.nodeIndex = index
-    this.sentenceIndex = 0
-    this.sentenceCommitted = false
+    this.segmentIndex = 0
+    this.segmentCommitted = false
+    this.exerciseAttempts = 0
     this.phase = index === 0 ? 'REVIEW' : 'NARRATING'
 
     const node = this.course.nodes[index]
-    const anchorIds = node.anchorIds
-    if (anchorIds.length > 0) {
-      this.currentAnchorIds = anchorIds
-      this.deps.highlight(anchorIds)
-    }
-
-    this.persist({
-      phase: this.phase,
-      currentNodeId: node.nodeId,
-      lessonAnchor: anchorIds.length > 0 ? { pageIndex: this.currentPage, anchorId: anchorIds[0] } : null,
-    })
+    this.persist({ phase: this.phase, currentNodeId: node.nodeId })
     this.emit()
 
-    await this.narrateFrom(this.sentenceIndex)
+    // 讲解句按契约现场生成；生成不出来就退回编译阶段的要点，保证课上得下去
+    const composed = this.deps.composeNarration
+      ? await this.deps.composeNarration(node).catch(() => null)
+      : null
+
+    this.segments = composed?.segments?.length
+      ? composed.segments
+      : this.fallbackSegments(node)
+
+    if (composed?.opening) {
+      await this.speak(composed.opening)
+      if (this.cancelled || this.paused || this.finished) return
+    }
+
+    await this.narrateFrom(0)
   }
 
-  private async narrateFrom(startIndex: number): Promise<void> {
-    const sentences = this.sentences
-    for (let index = startIndex; index < sentences.length; index += 1) {
+  private async narrateFrom(start: number): Promise<void> {
+    for (let index = start; index < this.segments.length; index += 1) {
       if (this.cancelled || this.paused || this.finished) return
 
-      this.sentenceIndex = index
-      this.sentenceCommitted = false
-      const sentence = sentences[index]
+      this.segmentIndex = index
+      this.segmentCommitted = false
+      const segment = this.segments[index]
+      const anchorIds = this.anchorIdsForSegment(segment)
+
+      if (anchorIds.length > 0) {
+        this.currentAnchorIds = anchorIds
+        this.deps.showAnchor(anchorIds, segment.pointIndex)
+      }
 
       this.commitStep('NARRATE', {
-        sentenceIndex: index,
+        segmentIndex: index,
         committed: false,
         playbackState: 'playing',
-        payload: { text: sentence },
+        payload: { text: segment.text, pointIndex: segment.pointIndex },
       })
 
-      await this.speak(sentence)
-
+      await this.speak(segment.text)
       if (this.cancelled) return
 
-      this.sentenceCommitted = true
+      this.segmentCommitted = true
       this.commitStep('NARRATE', {
-        sentenceIndex: index,
+        segmentIndex: index,
         committed: true,
         playbackState: 'completed',
       })
@@ -425,14 +490,11 @@ export class LessonRuntime {
     this.persist({ phase: this.phase })
     this.emit()
 
-    const debt = this.timeDebtSec()
-    if (debt > 120) {
-      this.pacePrompt = `已经超出计划 ${Math.round(debt / 60)} 分钟`
+    if (this.timeDebtSec() > 120) {
+      this.pacePrompt = `超出计划 ${Math.round(this.timeDebtSec() / 60)} 分钟`
       this.turnState = 'REDIRECTING'
       this.emit()
-      await this.speak(
-        `提醒一下，我们比计划慢了 ${Math.round(debt / 60)} 分钟。是继续讲完，还是把剩下的内容留到下次？`
-      )
+      await this.speak(this.phrase('timeDebt'))
       this.pacePrompt = null
     }
 
@@ -448,10 +510,11 @@ export class LessonRuntime {
 
     this.phase = 'PRACTICING'
     this.awaitingAnswer = true
+    this.exerciseAttempts = 0
     this.persist({ phase: this.phase })
     this.emit()
 
-    await this.speak(`我们来练一下。${exercise.prompt}`)
+    await this.speak(exercise.prompt)
   }
 
   private async nextNode(): Promise<void> {
@@ -461,7 +524,7 @@ export class LessonRuntime {
     await this.enterNode(this.nodeIndex + 1)
   }
 
-  /** VAD 检测到学生开口：先停音频、再立新代次，旧生成一律作废 */
+  /** VAD 检测到学生开口：先停音频、再立新代次；旧生成一律作废 */
   onUserSpeechStart(): void {
     if (this.finished) return
     this.cancelled = true
@@ -469,6 +532,7 @@ export class LessonRuntime {
     this.currentTeacherTurnId = null
     this.turnState = 'STUDENT_SPEAKING'
     this.deps.stopSpeaking()
+    this.deps.setListening?.(true)
     this.persist({
       turnState: this.turnState,
       cancelTeacherTurnId: `tt-cancel-${this.now()}`,
@@ -482,43 +546,60 @@ export class LessonRuntime {
     const cleaned = String(text || '').trim()
     if (!cleaned) return
 
-    this.studentTurnSeq += 1
     this.transcript.push({ role: 'student', text: cleaned })
     this.cancelled = false
     this.paused = false
 
-    let intent = classifyByHeuristic(cleaned)
+    // 控制指令与身体不适优先于"这是不是答案"：
+    // 等练习答案时学生说"跳过"或"下课"，不能被当成一个错误答案。
+    const heuristic = classifyByHeuristic(cleaned)
+
+    if (heuristic.kind === 'control' && heuristic.control) {
+      await this.handleControl(heuristic.control)
+      return
+    }
+
+    if (heuristic.kind === 'distress') {
+      this.paused = true
+      this.persist({ turnState: 'PAUSED', status: 'PAUSED' })
+      this.emit()
+      await this.speak(this.phrase('paused'))
+      return
+    }
+
+    // 等答案时冒出一句明显无关的话（问天气、问股票），仍然按跑题处理，
+    // 不然老师会把"今天天气怎么样"当成一个错误答案。
+    if (this.awaitingAnswer && looksOffTopic(cleaned)) {
+      await this.handleOffTopic(cleaned)
+      return
+    }
+
+    // 其余输入在等答案时一律按答案处理，不再做意图分类——
+    // 否则 "I don't know" 会被当成别的意图，冒出"那你休息一下"这种回答。
+    if (this.awaitingAnswer) {
+      await this.handleExerciseAnswer(cleaned)
+      return
+    }
+
+    if (heuristic.kind === 'filler') {
+      await this.resumeAfterInterruption()
+      return
+    }
+
+    let intent = heuristic
 
     if (intent.confidence < 0.6 && this.deps.classify) {
       const context = [
         `当前目标：${this.node?.objective ?? ''}`,
-        `正在讲：${this.sentences[this.sentenceIndex] ?? ''}`,
+        `正在讲：${this.segments[this.segmentIndex]?.text ?? ''}`,
       ].join('\n')
       const classified = await this.deps.classify(cleaned, context).catch(() => null)
       if (classified) intent = classified
     }
 
-    if (intent.kind === 'filler') {
-      await this.resumeAfterInterruption()
-      return
-    }
-
-    if (intent.kind === 'control' && intent.control) {
-      await this.handleControl(intent.control)
-      return
-    }
-
-    if (intent.kind === 'distress') {
-      this.phase = 'NARRATING'
-      this.turnState = 'PAUSED'
-      this.paused = true
-      this.persist({ phase: this.phase, turnState: 'PAUSED', status: 'PAUSED' })
-      this.emit()
-      await this.speak('那我们先停一下，你休息好了再说继续。')
-      return
-    }
-
-    const offTopic = intent.kind === 'off-topic' || (intent.kind === 'question' && looksOffTopic(cleaned))
+    const offTopic =
+      intent.kind === 'off-topic' ||
+      (intent.kind === 'question' && looksOffTopic(cleaned))
 
     if (offTopic) {
       await this.handleOffTopic(cleaned)
@@ -526,6 +607,77 @@ export class LessonRuntime {
     }
 
     await this.answerQuestion(cleaned)
+  }
+
+  private async handleExerciseAnswer(answer: string): Promise<void> {
+    const node = this.node
+    const exercise = node?.exercises[0]
+    if (!node || !exercise) {
+      await this.nextNode()
+      return
+    }
+
+    this.exerciseAttempts += 1
+
+    const unknown = isUnknownAnswer(answer)
+    const result = unknown
+      ? { status: 'needs-review' as const, feedback: '' }
+      : this.deps.evaluate
+        ? await this.deps
+            .evaluate(answer, exercise.prompt, exercise.rubric)
+            .catch(() => ({ status: 'needs-review' as const, feedback: '' }))
+        : { status: 'needs-review' as const, feedback: '' }
+
+    this.deps.saveAttempt?.({
+      exerciseId: exercise.exerciseId,
+      studentInput: answer,
+      score: { status: result.status, feedback: result.feedback },
+    })
+
+    this.commitStep('PRACTICE', {
+      payload: {
+        exerciseId: exercise.exerciseId,
+        status: result.status,
+        attempt: this.exerciseAttempts,
+      },
+    })
+
+    if (result.status === 'passed') {
+      this.awaitingAnswer = false
+      this.turnState = 'ANSWERING'
+      await this.speak(result.feedback || 'Good.')
+      await this.nextNode()
+      return
+    }
+
+    // 没通过：走脚手架，而不是把同一个问题再念一遍
+    this.turnState = 'ANSWERING'
+    this.emit()
+
+    const scaffold = this.deps.scaffold
+      ? await this.deps
+          .scaffold({
+            node,
+            exercise,
+            attempt: this.exerciseAttempts,
+            studentSaid: answer,
+          })
+          .catch(() => null)
+      : null
+
+    if (scaffold?.giveUp || this.exerciseAttempts >= 3) {
+      this.awaitingAnswer = false
+      this.transcript.push({ role: 'system', text: `待复习：${node.objective}` })
+      await this.speak(scaffold?.say || result.feedback)
+      await this.nextNode()
+      return
+    }
+
+    await this.speak(
+      scaffold?.say ||
+        result.feedback ||
+        'Let us try it a different way. Start with the first two words.'
+    )
   }
 
   private async handleControl(
@@ -536,35 +688,40 @@ export class LessonRuntime {
         this.paused = true
         this.persist({ status: 'PAUSED', turnState: 'PAUSED' })
         this.emit()
-        await this.speak('好，先停在这里。说"继续"我就接着讲。')
+        await this.speak(this.phrase('paused'))
         return
       case 'resume':
         await this.resumeAfterInterruption()
         return
       case 'repeat': {
-        const sentence = this.sentences[Math.max(0, this.sentenceIndex)] ?? ''
-        await this.speak(sentence || '我再说一遍刚才的重点。')
+        const segment = this.segments[this.segmentIndex]
+        if (segment) await this.speak(segment.text)
         await this.resumeAfterInterruption()
         return
       }
       case 'slower':
         this.contract = { ...this.contract, correctionPolicy: 'gentle' }
-        await this.speak('好，我放慢一点。')
         await this.resumeAfterInterruption()
         return
       case 'chinese':
-        this.contract = { ...this.contract, languagePolicy: 'english-with-chinese-rescue' }
-        await this.speak(
-          `这一句的意思是：${this.sentences[this.sentenceIndex] ?? '我们刚才讲的内容'}。我用中文再解释一遍，然后继续。`
-        )
-        await this.resumeAfterInterruption()
+        this.contract = {
+          ...this.contract,
+          languagePolicy: 'english-with-chinese-rescue',
+        }
+        await this.answerQuestion('用中文解释一下刚才这句')
         return
       case 'skip':
         this.commitStep('PARK_TOPIC', {
-          payload: { skippedNode: this.node?.nodeId, objective: this.node?.objective },
+          payload: {
+            skippedNode: this.node?.nodeId,
+            objective: this.node?.objective,
+          },
         })
-        this.transcript.push({ role: 'system', text: `跳过：${this.node?.objective ?? ''}（记为未掌握）` })
-        await this.speak('好，这一节先跳过，我把它记成还没掌握。')
+        this.transcript.push({
+          role: 'system',
+          text: `跳过：${this.node?.objective ?? ''}（记为未掌握）`,
+        })
+        await this.speak(this.phrase('skipped'))
         await this.nextNode()
         return
       case 'end':
@@ -591,23 +748,25 @@ export class LessonRuntime {
     this.emit()
 
     const strict = this.contract.strictness
-    const lead =
-      strict === 'firm'
-        ? '这个和现在的课没关系。'
-        : strict === 'gentle'
-          ? '这个我们记下来，'
-          : '这个问题我先记下，'
+    const line =
+      this.contract.languagePolicy === 'immersion'
+        ? strict === 'firm'
+          ? 'That is not part of this lesson. Let us get back to the objective.'
+          : 'Let us park that for later and get back to what we are doing.'
+        : strict === 'firm'
+          ? '这个和现在的课没关系，我们先回到课上。'
+          : '这个先记下来，课后再说；我们回到现在的内容。'
 
-    await this.speak(
-      `${lead}现在还在讲「${this.node?.objective ?? '当前内容'}」，我先把它放到课后，我们回到课上。`
-    )
+    await this.speak(line)
 
     if (strikes >= this.contract.wanderThreshold.strikes) {
       this.paused = true
       this.persist({ status: 'PAUSED', turnState: 'PAUSED' })
       this.emit()
       await this.speak(
-        '我们已经连着跑题几次了。现在有两个选择：继续上课，或者今天先到这里。你说一个。'
+        this.contract.languagePolicy === 'immersion'
+          ? 'We have been off track a few times. Do you want to continue, or stop here today?'
+          : '我们已经连着跑题几次了。继续上课，还是今天先到这里？'
       )
       return
     }
@@ -623,60 +782,15 @@ export class LessonRuntime {
     const context = [
       `课程：${this.course.title}`,
       `当前目标：${this.node?.objective ?? ''}`,
-      `正在讲：${this.sentences[this.sentenceIndex] ?? ''}`,
-      `后一句：${this.sentences[this.sentenceIndex + 1] ?? ''}`,
+      `正在讲：${this.segments[this.segmentIndex]?.text ?? ''}`,
     ].join('\n')
 
     const answer = this.deps.answer
       ? await this.deps.answer(text, context).catch(() => null)
       : null
 
-    await this.speak(
-      answer?.trim() ||
-        `这个问题很好。按我们现在讲的内容，${this.node?.objective ?? ''}这一点先记住，细节我们后面展开。`
-    )
-
-    if (this.awaitingAnswer) {
-      await this.evaluateAnswer(text)
-      return
-    }
-
+    await this.speak(answer?.trim() || this.phrase('resumed'))
     await this.resumeAfterInterruption()
-  }
-
-  private async evaluateAnswer(text: string): Promise<void> {
-    const node = this.node
-    const exercise = node?.exercises[0]
-    if (!node || !exercise) {
-      await this.nextNode()
-      return
-    }
-
-    const result = this.deps.evaluate
-      ? await this.deps
-          .evaluate(text, exercise.prompt, exercise.rubric)
-          .catch(() => ({ status: 'needs-review' as const, feedback: '我先记下你的回答。' }))
-      : { status: 'needs-review' as const, feedback: '我先记下你的回答。' }
-
-    this.deps.saveAttempt?.({
-      exerciseId: exercise.exerciseId,
-      studentInput: text,
-      score: { status: result.status, feedback: result.feedback },
-    })
-
-    this.awaitingAnswer = false
-    this.commitStep('PRACTICE', {
-      payload: { exerciseId: exercise.exerciseId, status: result.status },
-    })
-
-    if (result.status === 'passed') {
-      await this.speak(result.feedback || '很好，这一节过了。')
-      await this.nextNode()
-      return
-    }
-
-    await this.speak(result.feedback || '这里还需要再看一下，我换个说法。')
-    await this.narrateFrom(0)
   }
 
   private async resumeAfterInterruption(): Promise<void> {
@@ -686,12 +800,11 @@ export class LessonRuntime {
       return
     }
 
-    const sentences = this.sentences
-    const resumeAt = this.sentenceCommitted
-      ? this.sentenceIndex + 1
-      : this.sentenceIndex
+    const resumeAt = this.segmentCommitted
+      ? this.segmentIndex + 1
+      : this.segmentIndex
 
-    if (resumeAt >= sentences.length) {
+    if (resumeAt >= this.segments.length) {
       await this.completeNode()
       return
     }
@@ -699,26 +812,30 @@ export class LessonRuntime {
     this.phase = 'NARRATING'
     this.turnState = 'TEACHER_SPEAKING'
     this.commitStep('RESUME', {
-      sentenceIndex: resumeAt,
-      payload: { from: this.sentenceIndex, committed: this.sentenceCommitted },
+      segmentIndex: resumeAt,
+      payload: { from: this.segmentIndex, committed: this.segmentCommitted },
     })
     this.emit()
 
     await this.narrateFrom(resumeAt)
   }
 
-  /** 学生自由翻页：只改视口，不动课程锚点 */
   setViewport(pageIndex: number): void {
     this.presentationState = 'FREE_BROWSE'
+    this.currentPage = pageIndex
     this.persist({ presentationState: 'FREE_BROWSE', viewport: { pageIndex } })
     this.emit()
   }
 
   followLesson(): void {
     this.presentationState = 'FOLLOW_LESSON'
-    this.persist({ presentationState: 'FOLLOW_LESSON', viewport: { pageIndex: this.currentPage } })
-    this.deps.showPage(this.currentPage)
-    this.deps.highlight(this.currentAnchorIds)
+    const segment = this.segments[this.segmentIndex]
+    const anchorIds = segment ? this.anchorIdsForSegment(segment) : this.currentAnchorIds
+    this.deps.showAnchor(anchorIds, segment?.pointIndex ?? -1)
+    this.persist({
+      presentationState: 'FOLLOW_LESSON',
+      viewport: { pageIndex: this.currentPage },
+    })
     this.emit()
   }
 
@@ -728,10 +845,23 @@ export class LessonRuntime {
     await this.resumeAfterInterruption()
   }
 
+  async continueFromSnapshot(): Promise<void> {
+    this.phase = 'NARRATING'
+    this.turnState = 'TEACHER_SPEAKING'
+    this.persist({
+      phase: this.phase,
+      status: 'IN_SESSION',
+      currentNodeId: this.node?.nodeId ?? null,
+    })
+    this.emit()
+    await this.resumeAfterInterruption()
+  }
+
   async finish(): Promise<void> {
     this.finished = true
     this.phase = 'COMPLETED'
     this.turnState = 'IDLE'
+    this.deps.setListening?.(false)
     this.persist({ phase: 'COMPLETED', status: 'COMPLETED', turnState: 'IDLE' })
     this.emit()
     this.commitStep('END_LESSON', {
@@ -744,7 +874,7 @@ export class LessonRuntime {
   }
 
   async endByUser(): Promise<void> {
-    await this.speak('好，今天先到这里。我把这节课的完成情况和需要复习的地方整理一下。')
+    await this.speak(this.phrase('end'))
     await this.finish()
   }
 
@@ -756,25 +886,22 @@ export class LessonRuntime {
     timeDebtSec: number
     parkedTopics: Array<{ text: string; at: number }>
     skippedObjectives: string[]
+    pendingObjectives: string[]
   } {
+    const systemLines = this.transcript.filter(item => item.role === 'system')
     return {
       nodesCompleted: Math.min(this.nodeIndex, this.course.nodes.length),
       totalNodes: this.course.nodes.length,
-      plannedMinutes: Math.round(this.totalPlannedSec / 60),
+      plannedMinutes: Math.round(this.totalPlannedSec() / 60),
       actualMinutes: Math.round(this.actualElapsedSec() / 60),
       timeDebtSec: this.timeDebtSec(),
       parkedTopics: [...this.parkedTopics],
-      skippedObjectives: this.transcript
-        .filter(item => item.role === 'system' && item.text.startsWith('跳过：'))
+      skippedObjectives: systemLines
+        .filter(item => item.text.startsWith('跳过：'))
         .map(item => item.text.replace('跳过：', '').replace('（记为未掌握）', '')),
+      pendingObjectives: systemLines
+        .filter(item => item.text.startsWith('待复习：'))
+        .map(item => item.text.replace('待复习：', '')),
     }
   }
-}
-
-export function splitSentences(text: string): string[] {
-  return String(text || '')
-    .replace(/\s+/g, ' ')
-    .split(/(?<=[.!?。！？])\s*/)
-    .map(sentence => sentence.trim())
-    .filter(Boolean)
 }

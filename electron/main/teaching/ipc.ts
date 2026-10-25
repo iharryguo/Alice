@@ -13,6 +13,7 @@ import {
   getMaterial,
   getSession,
   insertCourseVersion,
+  listAllCourseVersions,
   listAnchors,
   listAttempts,
   listMastery,
@@ -189,6 +190,14 @@ export function registerTeachingHandlers(): void {
       }
     }
   )
+
+  ipcMain.handle('teaching:course:list', async () => {
+    try {
+      return { success: true, data: listAllCourseVersions() }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
 
   ipcMain.handle(
     'teaching:course:create',

@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import { LessonRuntime, splitSentences } from '../lessonRuntime'
+import { describe, expect, it } from 'vitest'
+import { LessonRuntime, isUnknownAnswer, splitSentences } from '../lessonRuntime'
 import type { LessonViewState } from '../lessonRuntime'
 import type {
   ClassContract,
@@ -7,43 +7,52 @@ import type {
   LessonNode,
 } from '../../../../electron/main/teaching/types'
 
-function makeCourse(sentences: string[], nodeCount = 1): CourseVersionRecord {
-  const courseVersionId = 'cv-test'
-  const nodes: LessonNode[] = Array.from({ length: nodeCount }, (_, index) => ({
+function makeNode(
+  index: number,
+  sentences: string[],
+  anchorIds: string[]
+): LessonNode {
+  return {
     nodeId: `node-${index}`,
-    courseVersionId,
+    courseVersionId: 'cv-test',
     sequence: index + 1,
-    objective: `目标 ${index + 1}`,
+    objective: `第 ${index + 1} 节目标`,
     required: true,
     plannedDurationSec: 60,
     compressible: false,
     minDurationSec: 30,
     maxDurationSec: 90,
-    anchorIds: [],
-    talkingPoints: [
-      { text: sentences.join(' '), source: 'material' as const, anchorIds: [] },
-    ],
+    anchorIds,
+    talkingPoints: sentences.map((text, pointIndex) => ({
+      text,
+      source: 'material' as const,
+      anchorIds: [anchorIds[pointIndex] ?? anchorIds[0]],
+    })),
     exercises: [
       {
         exerciseId: `ex-${index}`,
         type: 'short-answer' as const,
-        prompt: '说说你的理解',
+        prompt: 'Which family is most similar to yours?',
+        expected:
+          'The family in picture one is similar because we have two children.',
         rubric: [{ criterion: '意思正确', weight: 1 }],
         waitMs: 5000,
       },
     ],
     completionRule: 'narration-committed' as const,
     recoveryPolicy: 'restart-sentence' as const,
-  }))
+  }
+}
 
+function makeCourse(nodes: LessonNode[]): CourseVersionRecord {
   return {
-    courseVersionId,
+    courseVersionId: 'cv-test',
     courseId: 'course-test',
     version: 1,
-    title: '测试课程',
+    title: 'Families',
     materialId: 'mat-test',
     status: 'CONFIRMED',
-    objectives: ['能说出三个例句'],
+    objectives: ['describe families'],
     prerequisites: [],
     nodes,
     contentHash: 'hash',
@@ -52,50 +61,46 @@ function makeCourse(sentences: string[], nodeCount = 1): CourseVersionRecord {
   }
 }
 
-const contract: ClassContract = {
-  contractVersionId: 'ct-test',
-  courseVersionId: 'cv-test',
-  version: 1,
-  targetDurationMin: 25,
-  pacePolicy: 'balanced',
-  presentationMode: 'DOCUMENT_SYNC',
-  languagePolicy: 'english-with-chinese-rescue',
-  correctionPolicy: 'balanced',
-  strictness: 'standard',
-  wanderThreshold: { windowMinutes: 3, strikes: 2 },
-  createdAt: '2026-01-01T00:00:00.000Z',
-  confirmedAt: '2026-01-01T00:00:00.000Z',
+function makeContract(overrides: Partial<ClassContract> = {}): ClassContract {
+  return {
+    contractVersionId: 'ct-test',
+    courseVersionId: 'cv-test',
+    version: 1,
+    targetDurationMin: 25,
+    pacePolicy: 'balanced',
+    presentationMode: 'DOCUMENT_SYNC',
+    languagePolicy: 'immersion',
+    correctionPolicy: 'balanced',
+    strictness: 'standard',
+    wanderThreshold: { windowMinutes: 3, strikes: 2 },
+    createdAt: '2026-01-01T00:00:00.000Z',
+    confirmedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  }
 }
 
-interface Harness {
-  runtime: LessonRuntime
-  spoken: string[]
-  states: LessonViewState[]
-  steps: Array<{ action: string; committed: boolean; sentenceIndex: number }>
-}
-
-function createHarness(options: {
-  sentences: string[]
-  nodeCount?: number
+interface HarnessOptions {
+  nodes: LessonNode[]
+  contract?: ClassContract
+  narration?: Record<string, string[]>
   interruptAtCall?: number
   clock?: { value: number }
   clockStepMs?: number
-}): Harness {
-  const course = makeCourse(options.sentences, options.nodeCount ?? 1)
+}
+
+function createHarness(options: HarnessOptions) {
+  const course = makeCourse(options.nodes)
   const spoken: string[] = []
   const states: LessonViewState[] = []
-  const steps: Array<{
-    action: string
-    committed: boolean
-    sentenceIndex: number
-  }> = []
+  const anchorsShown: Array<{ anchorIds: string[]; pointIndex: number }> = []
+  const scaffoldCalls: number[] = []
 
   let runtimeRef: LessonRuntime | null = null
   let callCount = 0
 
   const runtime = new LessonRuntime({
     course,
-    contract,
+    contract: options.contract ?? makeContract(),
     now: () => options.clock?.value ?? Date.now(),
     speak: async text => {
       spoken.push(text)
@@ -108,50 +113,119 @@ function createHarness(options: {
       }
     },
     stopSpeaking: () => undefined,
-    showPage: () => undefined,
-    highlight: () => undefined,
-    poster: () => undefined,
-    persistStep: step => {
-      steps.push({
-        action: step.action,
-        committed: step.sentenceCommitted,
-        sentenceIndex: step.sentenceIndex,
-      })
+    showAnchor: (anchorIds, pointIndex) => {
+      anchorsShown.push({ anchorIds, pointIndex })
     },
-    evaluate: async () => ({ status: 'passed', feedback: '很好' }),
+    setListening: () => undefined,
+    poster: () => undefined,
+    persistStep: () => undefined,
+    composeNarration: async node => {
+      const lines = options.narration?.[node.nodeId]
+      if (!lines) return null
+      return {
+        opening: 'Today we look at families.',
+        segments: lines.map((text, pointIndex) => ({ text, pointIndex })),
+      }
+    },
+    scaffold: async ({ attempt }) => {
+      scaffoldCalls.push(attempt)
+      const giveUp = attempt >= 3
+      return {
+        say: giveUp ? 'Here is the answer.' : 'Try the beginning of the sentence.',
+        giveUp,
+      }
+    },
+    phrase: key => (key === 'timeDebt' ? 'We are behind schedule.' : key),
+    evaluate: async () => ({ status: 'needs-review', feedback: '' }),
     onState: state => states.push(state),
   })
 
   runtimeRef = runtime
-  return { runtime, spoken, states, steps }
+  return { runtime, spoken, states, anchorsShown, scaffoldCalls }
 }
 
 describe('splitSentences', () => {
-  it('splits on sentence punctuation and keeps order', () => {
+  it('splits on sentence punctuation', () => {
     expect(splitSentences('One. Two! Three?')).toEqual(['One.', 'Two!', 'Three?'])
   })
 })
 
+describe('isUnknownAnswer', () => {
+  it('recognises the ways a student says they do not know', () => {
+    expect(isUnknownAnswer("I don't know!")).toBe(true)
+    expect(isUnknownAnswer('我不知道')).toBe(true)
+    expect(isUnknownAnswer('no idea')).toBe(true)
+    expect(isUnknownAnswer('The family in picture one')).toBe(false)
+  })
+})
+
 describe('LessonRuntime', () => {
-  it('opens the lesson and narrates the first node', async () => {
+  it('speaks the composed narration and switches the page per segment', async () => {
     const harness = createHarness({
-      sentences: ['First sentence.', 'Second sentence.'],
+      nodes: [makeNode(0, ['Point one.', 'Point two.'], ['anc-p1', 'anc-p2'])],
+      narration: {
+        'node-0': ['Look at this family.', 'Now this one has two children.'],
+      },
     })
 
     await harness.runtime.start()
 
-    expect(harness.spoken[0]).toContain('我们开始上课')
-    expect(harness.spoken).toContain('First sentence.')
-    expect(harness.spoken).toContain('Second sentence.')
-    expect(harness.spoken.at(-1)).toContain('说说你的理解')
-    expect(harness.states.at(-1)?.phase).toBe('PRACTICING')
+    expect(harness.spoken[0]).toBe('Today we look at families.')
+    expect(harness.spoken).toContain('Look at this family.')
+    expect(harness.spoken).toContain('Now this one has two children.')
+
+    // 每个讲解段都换一次锚点，这就是自动翻页的依据
+    expect(harness.anchorsShown[0]).toEqual({
+      anchorIds: ['anc-p1'],
+      pointIndex: 0,
+    })
+    expect(harness.anchorsShown[1]).toEqual({
+      anchorIds: ['anc-p2'],
+      pointIndex: 1,
+    })
+  })
+
+  it('treats "I do not know" as an answer and scaffolds instead of telling the student to rest', async () => {
+    const harness = createHarness({
+      nodes: [makeNode(0, ['Point one.'], ['anc-p1'])],
+      narration: { 'node-0': ['Look at this family.'] },
+    })
+
+    await harness.runtime.start()
+    harness.spoken.length = 0
+
+    await harness.runtime.onUserUtterance("I don't know!")
+
+    expect(harness.scaffoldCalls).toEqual([1])
+    expect(harness.spoken.some(text => text.includes('Try the beginning'))).toBe(
+      true
+    )
+    expect(harness.spoken.some(text => text.includes('休息'))).toBe(false)
     expect(harness.states.at(-1)?.awaitingAnswer).toBe(true)
   })
 
-  it('resumes from the next sentence when the current one was committed', async () => {
-    // 第 1 次是开场白，第 2 次是第一句，第 3 次是第二句：在第二句开口时打断
+  it('marks the objective for review after three failed attempts', async () => {
     const harness = createHarness({
-      sentences: ['First sentence.', 'Second sentence.', 'Third sentence.'],
+      nodes: [
+        makeNode(0, ['Point one.'], ['anc-p1']),
+        makeNode(1, ['Point two.'], ['anc-p2']),
+      ],
+      narration: { 'node-0': ['Look at this family.'], 'node-1': ['Next one.'] },
+    })
+
+    await harness.runtime.start()
+    await harness.runtime.onUserUtterance('不知道')
+    await harness.runtime.onUserUtterance('不知道')
+    await harness.runtime.onUserUtterance('不知道')
+
+    expect(harness.runtime.report().pendingObjectives).toEqual(['第 1 节目标'])
+    expect(harness.states.at(-1)?.nodeIndex).toBe(1)
+  })
+
+  it('resumes from the next segment when the current one was committed', async () => {
+    const harness = createHarness({
+      nodes: [makeNode(0, ['A.', 'B.', 'C.'], ['a1', 'a2', 'a3'])],
+      narration: { 'node-0': ['First line.', 'Second line.', 'Third line.'] },
       interruptAtCall: 3,
     })
 
@@ -160,17 +234,14 @@ describe('LessonRuntime', () => {
 
     await harness.runtime.onUserUtterance('继续')
 
-    const resumed = harness.spoken.filter(text =>
-      text.includes('sentence.')
-    )
-    expect(resumed[0]).toBe('Second sentence.')
-    expect(resumed.some(text => text.includes('Third'))).toBe(true)
+    const resumed = harness.spoken.filter(text => text.includes('line.'))
+    expect(resumed[0]).toBe('Second line.')
   })
 
-  it('replays the interrupted sentence from its start when it was not committed', async () => {
-    // 第 2 次说话就是第一句，此时该句还没提交
+  it('replays the interrupted segment when it was not committed', async () => {
     const harness = createHarness({
-      sentences: ['First sentence.', 'Second sentence.'],
+      nodes: [makeNode(0, ['A.', 'B.'], ['a1', 'a2'])],
+      narration: { 'node-0': ['First line.', 'Second line.'] },
       interruptAtCall: 2,
     })
 
@@ -179,75 +250,73 @@ describe('LessonRuntime', () => {
 
     await harness.runtime.onUserUtterance('继续')
 
-    expect(harness.spoken.filter(text => text.includes('sentence.'))[0]).toBe(
-      'First sentence.'
+    expect(harness.spoken.filter(text => text.includes('line.'))[0]).toBe(
+      'First line.'
     )
   })
 
   it('parks off-topic input and counts a strike', async () => {
-    const harness = createHarness({ sentences: ['First sentence.'] })
-    await harness.runtime.start()
+    const harness = createHarness({
+      nodes: [makeNode(0, ['A.'], ['a1'])],
+      narration: { 'node-0': ['First line.'] },
+      contract: makeContract({ languagePolicy: 'english-with-chinese-rescue' }),
+    })
 
+    await harness.runtime.start()
     await harness.runtime.onUserUtterance('今天天气怎么样')
 
     const state = harness.states.at(-1)
     expect(state?.parkedTopics).toHaveLength(1)
     expect(state?.wanderStrikes).toBe(1)
-    expect(harness.spoken.some(text => text.includes('课后'))).toBe(true)
   })
 
-  it('advances to the next node on skip and records it', async () => {
+  it('advances on skip and records it as not mastered', async () => {
     const harness = createHarness({
-      sentences: ['First sentence.'],
-      nodeCount: 2,
+      nodes: [makeNode(0, ['A.'], ['a1']), makeNode(1, ['B.'], ['a2'])],
+      narration: { 'node-0': ['First line.'], 'node-1': ['Second line.'] },
     })
-    await harness.runtime.start()
 
+    await harness.runtime.start()
     await harness.runtime.onUserUtterance('跳过')
 
-    const state = harness.states.at(-1)
-    expect(state?.nodeIndex).toBe(1)
-    expect(harness.runtime.report().skippedObjectives).toEqual(['目标 1'])
+    expect(harness.states.at(-1)?.nodeIndex).toBe(1)
+    expect(harness.runtime.report().skippedObjectives).toEqual(['第 1 节目标'])
   })
 
-  it('warns about time debt when the node overruns', async () => {
+  it('announces time debt when a node overruns', async () => {
     const clock = { value: 0 }
-    // 每讲一句推进 200 秒，一个 60 秒的节点必然触发时间债提示
     const harness = createHarness({
-      sentences: ['First sentence.'],
+      nodes: [makeNode(0, ['A.'], ['a1'])],
+      narration: { 'node-0': ['First line.'] },
       clock,
       clockStepMs: 200_000,
     })
 
     await harness.runtime.start()
 
-    expect(harness.spoken.some(text => text.includes('比计划慢了'))).toBe(true)
+    expect(harness.spoken).toContain('We are behind schedule.')
   })
 
-  it('continues from a snapshot without repeating committed sentences', async () => {
-    const course = makeCourse(['First sentence.', 'Second sentence.', 'Third sentence.'])
+  it('continues from a snapshot without repeating committed segments', async () => {
     const spoken: string[] = []
-
     const runtime = new LessonRuntime(
       {
-        course,
-        contract,
+        course: makeCourse([makeNode(0, ['A.', 'B.', 'C.'], ['a1', 'a2', 'a3'])]),
+        contract: makeContract(),
         speak: async text => {
           spoken.push(text)
         },
         stopSpeaking: () => undefined,
-        showPage: () => undefined,
-        highlight: () => undefined,
+        showAnchor: () => undefined,
         poster: () => undefined,
         persistStep: () => undefined,
       },
-      { nodeIndex: 0, sentenceIndex: 0, committed: true }
+      { nodeIndex: 0, segmentIndex: 0, committed: true }
     )
 
     await runtime.continueFromSnapshot()
 
-    expect(spoken[0]).toContain('接着上次')
-    expect(spoken).toContain('Second sentence.')
-    expect(spoken).not.toContain('First sentence.')
+    expect(spoken).toContain('B.')
+    expect(spoken).not.toContain('A.')
   })
 })

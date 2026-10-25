@@ -150,6 +150,11 @@ export async function getCourseVersion(
   return result.success ? result.data ?? null : null
 }
 
+export async function listCourseVersions(): Promise<CourseVersionRecord[]> {
+  const result = await invoke<CourseVersionRecord[]>('teaching:course:list')
+  return result.success ? result.data ?? [] : []
+}
+
 export async function createCourseVersion(
   record: CourseVersionRecord
 ): Promise<boolean> {

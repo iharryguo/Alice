@@ -41,6 +41,30 @@
 
       <p v-if="store.compileError" class="tm-error">{{ store.compileError }}</p>
 
+      <div v-if="store.preparedCourses.length" class="tm-prepared">
+        <div class="tm-prepared-title">已备好的课</div>
+        <div
+          v-for="version in store.preparedCourses"
+          :key="version.courseVersionId"
+          class="tm-prepared-row"
+        >
+          <div>
+            <div class="tm-prepared-name">{{ version.title }}</div>
+            <div class="tm-hint">
+              {{ version.nodes.length }} 个节点 · {{ version.objectives[0] || '未写目标' }}
+              {{ version.status === 'CONFIRMED' ? ' · 已确认' : ' · 草稿' }}
+            </div>
+          </div>
+          <button
+            class="tm-ghost"
+            :disabled="store.busy"
+            @click="store.openPrepared(version.courseVersionId)"
+          >
+            打开（不重新生成）
+          </button>
+        </div>
+      </div>
+
       <div v-if="store.materials.length === 0" class="tm-empty">
         还没有材料。导入一份教案，Alice 会先给出课程大纲让你确认，再开始上课。
       </div>
@@ -72,7 +96,7 @@
               :disabled="store.compiling || material.status === 'IMPORT_FAILED'"
               @click="store.compile(material)"
             >
-              备课
+              {{ hasPrepared(material.id) ? '重新备课' : '备课' }}
             </button>
           </div>
         </li>
@@ -263,14 +287,27 @@
           停车场：{{ parkedSummary }}
         </div>
 
-        <div class="tm-input">
-          <input
-            v-model="utterance"
-            placeholder="插话、提问，或说「跳过」「再说一遍」"
-            @keydown.enter.prevent="send"
-          />
-          <button class="tm-primary small" :disabled="store.busy" @click="send">发言</button>
+        <div class="tm-voice-row">
+          <span class="tm-voice-dot" :class="voiceStateClass"></span>
+          <span class="tm-voice-label">{{ voiceStateLabel }}</span>
+          <button class="tm-ghost" @click="toggleMic">
+            {{ micOn ? '关麦' : '开麦' }}
+          </button>
         </div>
+
+        <details class="tm-fallback">
+          <summary>打字插话（麦克风不可用时）</summary>
+          <div class="tm-input">
+            <input
+              v-model="utterance"
+              placeholder="插话、提问，或说「跳过」「再说一遍」"
+              @keydown.enter.prevent="send"
+            />
+            <button class="tm-primary small" :disabled="store.busy" @click="send">
+              发送
+            </button>
+          </div>
+        </details>
 
         <div class="tm-controls">
           <button class="tm-ghost" @click="store.pause()">暂停</button>
@@ -329,6 +366,13 @@
             </div>
           </div>
 
+          <div v-if="store.report?.pendingObjectives?.length">
+            <div class="tm-sub-title">待复习（练习没通过的）</div>
+            <div v-for="item in store.report?.pendingObjectives" :key="item" class="tm-line">
+              · {{ item }}
+            </div>
+          </div>
+
           <div v-if="store.report?.parkedTopics?.length" class="tm-sub-title">课后话题</div>
           <div v-for="item in store.report?.parkedTopics || []" :key="item.at" class="tm-line">
             · {{ item.text }}
@@ -347,6 +391,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import PdfPageView from './PdfPageView.vue'
 import { useTeachingStore } from '../../stores/teachingStore'
+import { useGeneralStore } from '../../stores/generalStore'
 
 const store = useTeachingStore()
 const utterance = ref('')
@@ -454,6 +499,36 @@ function handleBack(): void {
 async function handleStart(): Promise<void> {
   await store.startLesson()
   await nextTick()
+}
+
+function hasPrepared(materialId: string): boolean {
+  return store.preparedCourses.some(item => item.materialId === materialId)
+}
+
+const generalStore = useGeneralStore()
+
+const micOn = computed(() => generalStore.isRecordingRequested)
+
+const voiceStateClass = computed(() => {
+  if (!micOn.value) return 'off'
+  if (generalStore.audioState === 'SPEAKING') return 'speaking'
+  if (generalStore.audioState === 'PROCESSING_AUDIO') return 'thinking'
+  return 'listening'
+})
+
+const voiceStateLabel = computed(() => {
+  if (!micOn.value) return '麦克风已关闭'
+  if (generalStore.audioState === 'SPEAKING') return 'Alice 在讲，你随时可以打断'
+  if (generalStore.audioState === 'PROCESSING_AUDIO') return '正在听懂你刚才说的'
+  if (generalStore.audioState === 'WAITING_FOR_RESPONSE') return '正在想怎么回答'
+  return '在听你说'
+})
+
+function toggleMic(): void {
+  generalStore.isRecordingRequested = !generalStore.isRecordingRequested
+  if (generalStore.isRecordingRequested) {
+    generalStore.setAudioState('LISTENING')
+  }
 }
 
 function turnPage(delta: number): void {
@@ -592,6 +667,66 @@ watch(
   color: #2563eb;
   background: transparent;
   padding: 0;
+}
+.tm-prepared {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.tm-prepared-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.tm-prepared-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid #f3f4f6;
+}
+.tm-prepared-name {
+  font-size: 13px;
+}
+.tm-voice-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #374151;
+  margin-top: 10px;
+}
+.tm-voice-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9ca3af;
+}
+.tm-voice-dot.listening {
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgb(16 185 129 / 18%);
+}
+.tm-voice-dot.speaking {
+  background: #2563eb;
+}
+.tm-voice-dot.thinking {
+  background: #f59e0b;
+}
+.tm-voice-dot.off {
+  background: #ef4444;
+}
+.tm-voice-label {
+  flex: 1;
+}
+.tm-fallback {
+  margin-top: 10px;
+  font-size: 11px;
+  color: #6b7280;
+}
+.tm-fallback summary {
+  cursor: pointer;
 }
 .tm-resume {
   display: flex;
