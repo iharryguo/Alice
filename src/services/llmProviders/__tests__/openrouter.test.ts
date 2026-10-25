@@ -4,9 +4,13 @@ import { useSettingsStore } from '../../../stores/settingsStore'
 import { getOpenRouterClient } from '../../apiClients'
 import { createOpenRouterResponse } from '../openrouter'
 
-vi.mock('../../apiClients', () => ({
-  getOpenRouterClient: vi.fn(),
-}))
+vi.mock('../../apiClients', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../apiClients')>()
+  return {
+    ...actual,
+    getOpenRouterClient: vi.fn(),
+  }
+})
 
 function installWindowMocks() {
   ;(globalThis as any).window = {

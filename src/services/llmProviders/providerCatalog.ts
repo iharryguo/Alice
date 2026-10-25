@@ -142,6 +142,20 @@ export function getStaticModelsForProvider(
   return []
 }
 
+/**
+ * 已下线的历史模型别名。DeepSeek 改过两轮命名（deepseek-chat / deepseek-reasoner
+ * → deepseek-v4-flash / deepseek-v4-pro），老用户设置里存着旧 id 时不能原样发给
+ * 服务端，要映射到当前等价模型。带日期后缀的快照 id（如
+ * deepseek-v4-flash-20260101）不在表内，继续按 isKnownProviderModel 放行。
+ */
+const LEGACY_MODEL_ALIASES: Record<string, Record<string, string>> = {
+  deepseek: {
+    'deepseek-chat': 'deepseek-v4-flash',
+    'deepseek-coder': 'deepseek-v4-flash',
+    'deepseek-reasoner': 'deepseek-v4-pro',
+  },
+}
+
 export function isKnownProviderModel(provider: string, model: string): boolean {
   const staticModels = getStaticModelsForProvider(provider)
   if (staticModels.length === 0) {
@@ -175,6 +189,10 @@ export function getSafeProviderModel(
   const trimmedModel = configuredModel?.trim()
   if (!trimmedModel) {
     return fallback
+  }
+  const aliasTarget = LEGACY_MODEL_ALIASES[provider]?.[trimmedModel]
+  if (aliasTarget) {
+    return aliasTarget
   }
   return isKnownProviderModel(provider, trimmedModel) ? trimmedModel : fallback
 }
