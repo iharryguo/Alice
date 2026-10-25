@@ -74,7 +74,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref as vueRef } from 'vue'
+import {
+  computed,
+  defineAsyncComponent,
+  onMounted,
+  onUnmounted,
+  ref as vueRef,
+} from 'vue'
 import type { CSSProperties } from 'vue'
 import { storeToRefs } from 'pinia'
 import Actions from './Actions.vue'
@@ -84,7 +90,11 @@ import TitleBar from './TitleBar.vue'
 import { useGeneralStore } from '../stores/generalStore'
 import { useConversationStore } from '../stores/conversationStore'
 import { useTeachingStore } from '../stores/teachingStore'
-import TeachingMode from './teaching/TeachingMode.vue'
+// 课堂按需加载：pdfjs 有自己的 worker 与近 1MB 的代码，
+// 不该因为一次课程库打不开就把整个聊天界面拖下去
+const TeachingMode = defineAsyncComponent(
+  () => import('./teaching/TeachingMode.vue')
+)
 import {
   indexMessageForThoughts,
   uploadFileToOpenAI,
