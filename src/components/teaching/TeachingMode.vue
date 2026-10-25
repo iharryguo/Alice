@@ -365,8 +365,13 @@
           </div>
 
           <div class="tm-controls">
-            <button class="tm-ghost" @click="store.pause()">暂停</button>
-            <button class="tm-ghost" @click="store.resume()">继续</button>
+            <button
+              class="tm-ghost"
+              :disabled="store.view?.finished"
+              @click="store.togglePause()"
+            >
+              {{ store.view?.paused ? '继续' : '暂停' }}
+            </button>
             <button class="tm-ghost" @click="store.repeat()">重复</button>
             <button class="tm-ghost" @click="store.skip()">跳过</button>
             <button class="tm-danger" @click="store.endLesson()">下课</button>

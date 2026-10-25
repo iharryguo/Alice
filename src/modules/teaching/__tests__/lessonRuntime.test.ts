@@ -261,6 +261,25 @@ describe('LessonRuntime', () => {
     expect(spoken).not.toContain('Third line.')
   })
 
+  it('exposes one paused flag for the single pause/resume button', async () => {
+    const harness = createHarness({
+      nodes: [makeNode(0, ['A.', 'B.'], ['a1', 'a2'])],
+      narration: { 'node-0': ['First line.', 'Second line.'] },
+    })
+
+    await harness.runtime.start()
+    await harness.settle()
+    expect(harness.runtime.snapshot().paused).toBe(false)
+
+    harness.runtime.pauseByUser()
+    await harness.settle()
+    expect(harness.runtime.snapshot().paused).toBe(true)
+
+    await harness.runtime.resumeLesson()
+    await harness.settle()
+    expect(harness.runtime.snapshot().paused).toBe(false)
+  })
+
   it('answers a question during practice without counting it as a wrong answer', async () => {
     const harness = createHarness({
       nodes: [makeNode(0, ['A.'], ['a1'])],

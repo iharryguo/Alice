@@ -53,6 +53,8 @@ export interface LessonViewState {
   currentAnchorIds: string[]
   currentPage: number
   awaitingAnswer: boolean
+  /** 是否处于暂停；界面用它决定按钮显示"暂停"还是"继续" */
+  paused: boolean
   /** 正在等学生确认不可逆动作（下课 / 跳过） */
   awaitingConfirmation: 'end' | 'skip' | null
   listening: boolean
@@ -272,34 +274,12 @@ const META_MARKERS = [
   /声音/,
   /翻页/,
   /卡住/,
-  /ppt/i,
-  /页面/,
-  /幻灯片/,
-  /slide/i,
-  /按钮/,
-  /界面/,
-  /显示/,
-  /切换/,
 ]
 
 /**
  * 学生用中文对"课上正在发生的事"提意见（哪里不对、为什么没等我、怎么又说中文）。
  * 这类话说的是课堂本身，按跑题处理会累计 strike，最后把老师逼成"要不要下课"。
  */
-/**
- * 是不是主要用中文说的。
- *
- * 全英文课堂的练习要的是英文作答；学生用中文解释软件问题、吐槽体验时，
- * 把它当成一次"答错"会白白消耗尝试次数，三次之后老师就直接给答案了。
- */
-export function isMostlyChinese(text: string): boolean {
-  const cleaned = String(text || '')
-  const chinese = (cleaned.match(/[\u4e00-\u9fa5]/g) || []).length
-  if (chinese === 0) return false
-  const latin = (cleaned.match(/[A-Za-z]/g) || []).length
-  return chinese >= 4 && chinese > latin
-}
-
 export function isMetaFeedback(text: string): boolean {
   const cleaned = String(text || '')
   if (!/[一-龥]/.test(cleaned)) return false
@@ -502,6 +482,7 @@ export class LessonRuntime {
       currentAnchorIds: [...this.currentAnchorIds],
       currentPage: this.currentPage,
       awaitingAnswer: this.awaitingAnswer,
+      paused: this.paused,
       awaitingConfirmation: this.pendingConfirm?.kind ?? null,
       listening: this.turnState !== 'TEACHER_SPEAKING',
       pacePrompt: this.pacePrompt,
@@ -981,7 +962,7 @@ export class LessonRuntime {
     // 以前这些会被直接判 needs-review，三次就判"不会"，日志里连着中招。
     if (
       this.answerMode === 'exercise' &&
-      (isMetaFeedback(cleaned) || isQuestionLike(cleaned) || isMostlyChinese(cleaned))
+      (isMetaFeedback(cleaned) || isQuestionLike(cleaned))
     ) {
       await this.handleExerciseSideQuestion(cleaned)
       return

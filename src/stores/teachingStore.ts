@@ -848,6 +848,20 @@ export const useTeachingStore = defineStore('teaching', () => {
     await runtime.resumeLesson()
   }
 
+  /**
+   * 暂停/继续是同一个按钮。
+   * 按当前状态决定动作，按钮文案由 view.paused 决定，
+   * 避免"点了暂停还显示暂停、点了继续没反应"这种双按钮的歧义。
+   */
+  async function togglePause(): Promise<void> {
+    if (!runtime) return
+    if (view.value?.paused) {
+      await runtime.resumeLesson()
+    } else {
+      runtime.pauseByUser()
+    }
+  }
+
   async function skip(): Promise<void> {
     await handleUtterance('跳过')
   }
@@ -951,6 +965,7 @@ export const useTeachingStore = defineStore('teaching', () => {
     handleUtterance,
     pause,
     resume,
+    togglePause,
     skip,
     repeat,
     endLesson,
