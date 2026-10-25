@@ -261,13 +261,7 @@ export const useTeachingStore = defineStore('teaching', () => {
 
       step.value = 'classroom'
       speechStartUnsubscribe?.()
-      const onSpeechStart = () => {
-        runtime?.onUserSpeechStart()
-      }
-      eventBus.on('cancel-llm-stream', onSpeechStart)
-      speechStartUnsubscribe = () => {
-        eventBus.off('cancel-llm-stream', onSpeechStart)
-      }
+      speechStartUnsubscribe = bindSpeechEvents()
 
       logLesson('material.context', {
         resumed: true,
@@ -575,15 +569,8 @@ export const useTeachingStore = defineStore('teaching', () => {
 
       step.value = 'classroom'
       speechStartUnsubscribe?.()
-      const onSpeechStart = () => {
-        runtime?.onUserSpeechStart()
-      }
-      eventBus.on('cancel-llm-stream', onSpeechStart)
-      speechStartUnsubscribe = () => {
-        eventBus.off('cancel-llm-stream', onSpeechStart)
-      }
+      speechStartUnsubscribe = bindSpeechEvents()
 
-      inLesson.value = true
       logLesson('material.context', {
         materialId: activeCourse.materialId,
         title: selectedMaterial.value?.title ?? activeCourse.title,
@@ -625,14 +612,22 @@ export const useTeachingStore = defineStore('teaching', () => {
         setListening: listening => {
           listeningState.value = listening
         },
-        composeNarration: node =>
-          composeNarration({
+        composeNarration: async node => {
+          const composed = await composeNarration({
             course: activeCourse,
             node,
             contract: activeContract,
             // 只有第一个节点才问好，后续节点用过渡句
             isFirstNode: node.sequence === 1,
-          }),
+          })
+          logLesson('narration.compose', {
+            node: node.nodeId,
+            segments: composed?.segments.length ?? 0,
+            first: composed?.segments[0]?.text?.slice(0, 60) ?? '',
+            language: activeContract.languagePolicy,
+          })
+          return composed
+        },
         scaffold: args =>
           scaffoldAnswer({ ...args, contract: activeContract }),
         phrase: key => controlPhrase(activeContract, key),
@@ -703,6 +698,20 @@ export const useTeachingStore = defineStore('teaching', () => {
     pageFloorNodeIndex = -1
     currentPage.value = 1
     currentHighlights.value = []
+  }
+
+  /** 课堂与语音事件的绑定：真正插话走 onUserSpeechStart，只是出声则只清催问 */
+  function bindSpeechEvents(): () => void {
+    const onSpeechStart = () => runtime?.onUserSpeechStart()
+    const onDetected = () => runtime?.onUserSpeechDetected()
+
+    eventBus.on('cancel-llm-stream', onSpeechStart)
+    eventBus.on('user-speech-start', onDetected)
+
+    return () => {
+      eventBus.off('cancel-llm-stream', onSpeechStart)
+      eventBus.off('user-speech-start', onDetected)
+    }
   }
 
   function applyHighlight(anchorIds: string[], pageHint?: number): void {

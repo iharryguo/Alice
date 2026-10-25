@@ -280,6 +280,14 @@ const META_MARKERS = [
  * 学生用中文对"课上正在发生的事"提意见（哪里不对、为什么没等我、怎么又说中文）。
  * 这类话说的是课堂本身，按跑题处理会累计 strike，最后把老师逼成"要不要下课"。
  */
+/** 粗略判断一段话主要是英文（用于兜底分段，不用于正式判定） */
+export function isMostlyLatin(text: string): boolean {
+  const cleaned = String(text || '')
+  const latin = (cleaned.match(/[A-Za-z]/g) || []).length
+  const chinese = (cleaned.match(/[\u4e00-\u9fa5]/g) || []).length
+  return latin > 6 && latin >= chinese
+}
+
 export function isMetaFeedback(text: string): boolean {
   const cleaned = String(text || '')
   if (!/[一-龥]/.test(cleaned)) return false
@@ -624,9 +632,32 @@ export class LessonRuntime {
       return
     }
 
-    this.segments = composed?.segments?.length
-      ? composed.segments
+    const composedSegments = composed?.segments ?? []
+    this.segments = composedSegments.length
+      ? composedSegments
       : this.fallbackSegments(node)
+
+    // 兜底分段来自编译阶段的要点，可能是中文笔记。英语课把中文笔记直接念出来，
+    // 等于当着学生念教案——宁可只讲一句过场话，也不念。
+    if (!composedSegments.length && this.contract.languagePolicy === 'immersion') {
+      const englishOnly = this.segments.filter(segment => isMostlyLatin(segment.text))
+      this.segments = englishOnly.length
+        ? englishOnly
+        : [
+            {
+              text: 'Let us look at this page together, then try it in English.',
+              pointIndex: 0,
+              kind: 'say',
+            },
+          ]
+    }
+
+    this.log('narration.prepared', {
+      composed: composedSegments.length,
+      used: this.segments.length,
+      first: this.segments[0]?.text?.slice(0, 60) ?? '',
+      language: this.contract.languagePolicy,
+    })
 
     if (composed?.opening) {
       await this.speak(composed.opening)
@@ -812,6 +843,19 @@ export class LessonRuntime {
     this.phase = 'NARRATING'
     this.emit()
     this.launch(this.enterNode(this.nodeIndex + 1))
+  }
+
+  /**
+   * VAD 刚检测到有人开口（还没有转写结果）。
+   * 只做一件事：把"不着急，我等你"这类催问停掉，别在学生正说的时候插嘴。
+   * 真正的打断仍然走 onUserSpeechStart（学生确实插话时）。
+   */
+  onUserSpeechDetected(): void {
+    if (this.finished) return
+    if (this.answerMode === 'ask') {
+      this.clearAskTimer()
+      this.scheduleAskRecovery()
+    }
   }
 
   /** VAD 检测到学生开口：先停音频、再立新代次；旧生成一律作废 */
@@ -1758,6 +1802,7 @@ export class LessonRuntime {
     this.awaitingDecision = false
     this.phase = 'COMPLETED'
     this.turnState = 'IDLE'
+    this.deps.stopSpeaking()
     this.deps.setListening?.(false)
     this.persist({ phase: 'COMPLETED', status: 'COMPLETED', turnState: 'IDLE' })
     this.emit()
@@ -1772,6 +1817,10 @@ export class LessonRuntime {
   }
 
   async endByUser(): Promise<void> {
+    // 先停掉正在讲的这一节，否则"道别"和讲解会同时出声
+    this.interruptNarration()
+    this.deps.stopSpeaking()
+    this.clearAskTimer()
     await this.speak(this.phrase('end'))
     await this.finish()
   }

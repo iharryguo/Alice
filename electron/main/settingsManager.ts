@@ -113,6 +113,8 @@ export interface AppSettings {
   takeScreenshotHotkey?: string
 
   alwaysOnTop?: boolean
+  /** 上次退出时的窗口形态，重启后照原样回来 */
+  windowMode?: 'window' | 'avatar_ball'
 
   VITE_JACKETT_API_KEY?: string
   VITE_JACKETT_URL?: string

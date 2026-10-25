@@ -269,6 +269,13 @@ const applyModeFromMain = (payload: {
   const asMiniBall = mode === 'avatar_ball' && !!payload?.miniBall
   generalStore.setWindowMode(mode)
   generalStore.isMiniBall = asMiniBall
+
+  // hash 跟着真实形态走：否则下次 location.reload()（设置里的"保存并重载"在开发模式就是它）
+  // 会按旧 hash 渲染成另一种布局，窗口大小和界面就对不上了。
+  const nextHash = asMiniBall ? '#mini-ball' : mode === 'window' ? '#window' : '#avatar-ball'
+  if (window.location.hash !== nextHash) {
+    window.history.replaceState(null, '', nextHash)
+  }
   // 窗口形态展开聊天面板；收回头像球时面板一并收起（同一个页面，不再重载）
   generalStore.openSidebar = mode === 'window'
   if (mode !== 'window') {
@@ -290,6 +297,24 @@ onMounted(async () => {
 
   if (window.aliceIPC) {
     window.aliceIPC.on('window:mode-changed', applyModeFromMain)
+
+    // hash 只能反映"上次加载时"的形态（页面重载后 hash 还是旧的）。
+    // 开局向主进程要一次真实形态，避免界面布局和真实窗口对不上——
+    // 对不上时会出现"明明是聊天窗口却缩成球大小"这种半截界面。
+    try {
+      const actual = await window.aliceIPC.invoke('window:get-mode')
+      const actualMode = actual?.mode === 'window' ? 'window' : 'avatar_ball'
+      if (actualMode !== generalStore.windowMode) {
+        applyModeFromMain({ mode: actualMode, miniBall: !!actual?.miniBall })
+        logEvent('window', 'mode.synced', {
+          hash,
+          actual: actualMode,
+          miniBall: !!actual?.miniBall,
+        })
+      }
+    } catch (error) {
+      console.warn('[Main] 读取窗口形态失败:', error)
+    }
   }
 
   audioPlayer.value = audioPlayerElement.value

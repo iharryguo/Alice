@@ -450,7 +450,10 @@ app.whenReady().then(async () => {
     )
   }
 
-  await createMainWindow()
+  // 上次退出时是什么形态，这次就以什么形态回来。
+  // 之前固定从球开始，用户在设置里点"保存并重载"后会突然回到球，还以为窗口坏了。
+  const startupSettings = await loadSettings().catch(() => null)
+  await createMainWindow(startupSettings?.windowMode ?? 'avatar_ball')
   await createOverlayWindow()
   // 关闭窗口时收进托盘，托盘点一下就能唤回来
   createTray()

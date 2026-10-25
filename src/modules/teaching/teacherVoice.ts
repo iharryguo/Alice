@@ -147,7 +147,15 @@ export async function composeNarration(params: {
     }>
   }>(raw)
 
-  if (!parsed?.segments?.length) return null
+  if (!parsed?.segments?.length) {
+    // 模型没按 JSON 回（多打了说明、代码块外的散文）：把正文按句子捞出来用。
+    // 之前直接返回 null，运行时就退回编译阶段的中文要点，于是英语课念起中文。
+    const salvaged = salvageNarration(raw, node)
+    if (salvaged.length > 0) {
+      return { opening: '', segments: salvaged }
+    }
+    return null
+  }
 
   const segments = parsed.segments
     .map((segment, index) => ({
@@ -166,6 +174,31 @@ export async function composeNarration(params: {
     opening: String(parsed.opening || '').trim(),
     segments,
   }
+}
+
+/** 把模型返回的纯文本按句子拆成讲解分段 */
+function salvageNarration(
+  raw: string | null,
+  node: LessonNode
+): NarrationSegment[] {
+  const body = stripFence(raw || '')
+    .replace(/^```[a-z]*\s*/i, '')
+    .replace(/[{}"]/g, ' ')
+    .replace(/\b(opening|segments|text|pointIndex|kind|page)\s*:/gi, ' ')
+    .trim()
+  if (!body) return []
+
+  const sentences = body
+    .split(/(?<=[.!?。！？])\s+/)
+    .map(item => item.trim())
+    .filter(item => item.length > 2)
+
+  return sentences.slice(0, 12).map((text, index) => ({
+    text,
+    pointIndex: Math.min(index, Math.max(0, node.talkingPoints.length - 1)),
+    kind: /[?？]$/.test(text) ? ('ask' as const) : ('say' as const),
+    page: node.talkingPoints[Math.min(index, node.talkingPoints.length - 1)]?.page,
+  }))
 }
 
 /**

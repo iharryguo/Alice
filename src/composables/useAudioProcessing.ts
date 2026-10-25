@@ -370,6 +370,7 @@ export function useAudioProcessing() {
           onSpeechStart: () => {
             isSpeechDetected.value = true
             console.log('[VAD Callback] Speech started.')
+            eventBus.emit('user-speech-start')
             logEvent('audio', 'vad.speech.start', {
               audioState: audioState.value,
               recording: isRecordingRequested.value,

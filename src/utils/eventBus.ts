@@ -10,6 +10,7 @@ type Events = {
   'take-screenshot': void
   'cancel-tts': void
   'cancel-llm-stream': void
+  'user-speech-start': void
   'open-teaching': void
 }
 

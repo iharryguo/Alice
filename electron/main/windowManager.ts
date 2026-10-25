@@ -5,7 +5,8 @@ import {
   resolvePathWithinRoot,
   validateExternalOpenUrl,
 } from './securityBoundaries'
-import { loadSettings } from './settingsManager'
+import { loadSettings, saveSettings } from './settingsManager'
+import { writeAppLog } from './teaching/logger'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -125,6 +126,8 @@ export function getSettingsWindow(): BrowserWindow | null {
 export type WindowMode = 'avatar_ball' | 'window'
 
 let windowMode: WindowMode = 'avatar_ball'
+/** 是否处于迷你球形态（与 windowMode 组合成 mini_ball） */
+let miniBallActive = false
 
 // 点右上角关闭 = 收到托盘，不退出程序；只有真正 quit 时才放行关闭
 let appQuitting = false
@@ -151,6 +154,10 @@ export function getWindowMode(): WindowMode {
   return windowMode
 }
 
+export function isMiniBallMode(): boolean {
+  return miniBallActive
+}
+
 /**
  * 主窗口只有一种外壳：无边框 + 透明，创建后终身不重建。
  * - ball（avatar_ball / mini_ball）：透出圆形头像
@@ -164,6 +171,7 @@ export async function createMainWindow(
   windowMode = mode
   const isFramed = mode === 'window'
   const startAsMiniBall = !isFramed && !!options.miniBall
+  miniBallActive = startAsMiniBall
   // Always-on-top is user-configurable (default: off) so the companion window
   // does not permanently cover other applications.
   let shouldAlwaysBeOnTop = false
@@ -306,10 +314,26 @@ export async function applyWindowMode(
   options: { miniBall?: boolean } = {}
 ): Promise<boolean> {
   if (!win || win.isDestroyed()) return false
-  if (mode === windowMode && !options.miniBall) return true
 
+  const previous = windowMode
+  writeAppLog({
+    module: 'window',
+    event: 'mode.request',
+    data: {
+      from: previous,
+      to: mode,
+      miniBall: !!options.miniBall,
+      bounds: win.getBounds(),
+    },
+  })
+
+  const willBeMini = mode === 'avatar_ball' && options.miniBall === true
+
+  // 不做"形态没变就直接返回"的短路：窗口尺寸可能已经被上次异常重载弄乱，
+  // 而用户点"展开成窗口"正是想修好它。这里永远按目标形态重设尺寸并通知渲染层。
   windowMode = mode
-  const startAsMiniBall = mode === 'avatar_ball' && !!options.miniBall
+  const startAsMiniBall = willBeMini
+  miniBallActive = startAsMiniBall
 
   // 坐标规则统一为"同一台显示器 + 居中/贴角"，不做随机偏移。
   // 注意先放宽最小尺寸约束再 setBounds，否则从 window(900+) 收回 ball(500) 会被钳住。
@@ -351,6 +375,28 @@ export async function applyWindowMode(
     mode,
     miniBall: startAsMiniBall,
   })
+
+  writeAppLog({
+    module: 'window',
+    event: 'mode.changed.main',
+    data: { from: previous, to: mode, miniBall: startAsMiniBall, bounds: win.getBounds() },
+  })
+
+  // 记住形态：下次启动直接回到这里，不用再从球展开
+  void (async () => {
+    try {
+      const settings = await loadSettings()
+      await saveSettings({ ...settings, windowMode: mode })
+    } catch (error) {
+      writeAppLog({
+        module: 'window',
+        event: 'mode.persist_failed',
+        level: 'warn',
+        data: { message: (error as Error)?.message ?? String(error) },
+      })
+    }
+  })()
+
   return true
 }
 
@@ -445,6 +491,7 @@ export function resizeMainWindow(width: number, height: number): void {
  */
 export function setMiniBallMode(enabled: boolean): void {
   if (!win || win.isDestroyed()) return
+  miniBallActive = enabled
   if (customMaximized) {
     clearCustomMaximized()
     notifyMaximizedState()

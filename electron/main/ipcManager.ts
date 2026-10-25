@@ -96,6 +96,7 @@ import {
   closeMainWindow,
   applyWindowMode,
   getWindowMode,
+  isMiniBallMode,
   getMainWindowPosition,
   setMainWindowPosition,
   beginWindowDrag,
@@ -206,7 +207,10 @@ export function registerIPCHandlers(): void {
     return { success, mode: getWindowMode() }
   })
 
-  ipcMain.handle('window:get-mode', () => ({ mode: getWindowMode() }))
+  ipcMain.handle('window:get-mode', () => ({
+    mode: getWindowMode(),
+    miniBall: isMiniBallMode(),
+  }))
 
   // 自绘标题栏的 ✕：与系统标题栏关闭按钮同语义 —— 托盘可用就收进托盘，不退出程序
   ipcMain.handle('window:hide-to-tray', () => {
