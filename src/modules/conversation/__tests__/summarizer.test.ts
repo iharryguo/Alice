@@ -18,6 +18,7 @@ function buildDependencies(
     setSummarizing: vi.fn(value => {
       summarizing = value
     }),
+    getConversationId: vi.fn(() => 'session-a'),
     fetchRecentMessages: vi.fn(async () => ({
       success: true,
       data: messages,
@@ -62,13 +63,14 @@ describe('createSummarizer', () => {
     await summarizer.triggerSummarization()
 
     expect(deps.setSummarizing).toHaveBeenNthCalledWith(1, true)
-    expect(deps.fetchRecentMessages).toHaveBeenCalledWith(5)
+    expect(deps.fetchRecentMessages).toHaveBeenCalledWith(5, 'session-a')
     expect(deps.analyzeContext).toHaveBeenCalled()
     expect(deps.createSummary).toHaveBeenCalled()
     expect(deps.setEphemeralEmotionalContext).toHaveBeenCalledWith('calm')
     expect(deps.saveSummary).toHaveBeenCalledWith({
       summaryText: 'summary',
       summarizedMessagesCount: messages.length,
+      conversationId: 'session-a',
     })
     expect(deps.setSummarizing).toHaveBeenLastCalledWith(false)
   })

@@ -3,6 +3,11 @@ import { defineStore } from 'pinia'
 import type { ChatMessage } from '../types/chat'
 import { useGeneralStore } from './generalStore'
 import { useConversationStore } from './conversationStore'
+import {
+  getConversationSessionId,
+  rotateConversationSessionId,
+  setConversationSessionId,
+} from '../utils/conversationSession'
 
 export interface SessionSummary {
   id: string
@@ -29,10 +34,6 @@ interface StoredMessage {
   toolCalls?: unknown
   toolCallId?: string | null
   name?: string | null
-}
-
-function createSessionId(): string {
-  return `s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 function hasBridge(): boolean {
@@ -66,7 +67,7 @@ function sanitizeContentForStorage(content: unknown): unknown {
  * - 列会话 / 搜索 / 恢复 / 删除
  */
 export const useConversationLogStore = defineStore('conversationLog', () => {
-  const sessionId = ref<string>(createSessionId())
+  const sessionId = ref<string>(getConversationSessionId())
   const sessions = ref<SessionSummary[]>([])
   const searchResults = ref<SessionSearchHit[]>([])
   const isLoading = ref(false)
@@ -194,6 +195,7 @@ export const useConversationLogStore = defineStore('conversationLog', () => {
       const conversationStore = useConversationStore()
 
       sessionId.value = id
+      setConversationSessionId(id)
       generalStore.chatHistory = restored.reverse()
       conversationStore.currentResponseId = null
       generalStore.setAudioState(
@@ -209,7 +211,7 @@ export const useConversationLogStore = defineStore('conversationLog', () => {
 
   const startNewSession = async () => {
     await flush()
-    sessionId.value = createSessionId()
+    sessionId.value = rotateConversationSessionId()
     const generalStore = useGeneralStore()
     const conversationStore = useConversationStore()
     generalStore.chatHistory = []

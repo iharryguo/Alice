@@ -8,6 +8,7 @@ import { useSettingsStore } from './settingsStore'
 import { executeFunction } from '../utils/functionCaller'
 import eventBus from '../utils/eventBus'
 import { isExpectedAbortError } from '../utils/isAbortError'
+import { getConversationSessionId } from '../utils/conversationSession'
 import { createStreamHandler } from '../modules/conversation/streamHandler'
 import { createToolCallHandler } from '../modules/conversation/toolCallHandler'
 import { createApiInputBuilder } from '../modules/conversation/apiInputBuilder'
@@ -372,57 +373,8 @@ export const useConversationStore = defineStore('conversation', () => {
     currentResponseId.value = null
     currentConversationTurnId.value = `turn-${Date.now()}`
 
-    if (window.aliceIPC) {
-      window.aliceIPC.on(
-        'scheduler:reminder',
-        async reminderData => {
-          console.log(
-            '[ConversationStore] Received scheduler reminder:',
-            reminderData
-          )
-          try {
-            const reminderMessage: ChatMessage = {
-              id: `reminder-${Date.now()}`,
-              role: 'assistant',
-              content: [
-                {
-                  type: 'app_text',
-                  text: reminderData.message,
-                  isScheduledReminder: true,
-                  taskName: reminderData.taskName,
-                  timestamp: reminderData.timestamp,
-                },
-              ],
-              created_at: Date.now(),
-            }
-
-            generalStore.chatHistory.unshift(reminderMessage)
-
-            if (reminderData.message && reminderData.message.trim()) {
-              ttsAbortController.value = new AbortController()
-              const ttsResponse = await api.ttsStream(
-                reminderData.message,
-                ttsAbortController.value.signal
-              )
-              if (
-                queueAudioForPlayback(ttsResponse) &&
-                audioState.value !== 'SPEAKING'
-              ) {
-                setAudioState('SPEAKING')
-              }
-            }
-          } catch (error: any) {
-            if (!isExpectedAbortError(error)) {
-              console.error(
-                '[ConversationStore] Failed to speak scheduler reminder:',
-                error
-              )
-            }
-          }
-        }
-      )
-    }
-
+    // 注意：提醒订阅只在 store 初始化时由 reminderHandler 建立一次。
+    // 这里曾经另外挂了一份内联监听，导致同一条提醒被插进历史两次、朗读两遍。
     return true
   }
 
@@ -463,7 +415,11 @@ export const useConversationStore = defineStore('conversation', () => {
         isSummarizing.value = value
       },
       fetchRecentMessages: limit =>
-        window.aliceIPC.invoke('summaries:get-recent-messages', { limit }),
+        window.aliceIPC.invoke('summaries:get-recent-messages', {
+          limit,
+          conversationId: getConversationSessionId(),
+        }),
+      getConversationId: () => getConversationSessionId(),
       analyzeContext: (formattedMessages, model) =>
         api.createContextAnalysisResponse(formattedMessages, model),
       createSummary: (formattedMessages, model, systemPrompt) =>
@@ -473,7 +429,10 @@ export const useConversationStore = defineStore('conversation', () => {
           systemPrompt
         ),
       saveSummary: params =>
-        window.aliceIPC.invoke('summaries:save-summary', params),
+        window.aliceIPC.invoke('summaries:save-summary', {
+          ...params,
+          conversationId: getConversationSessionId(),
+        }),
       setEphemeralEmotionalContext: value => {
         ephemeralEmotionalContext.value = value
       },
@@ -547,7 +506,9 @@ export const useConversationStore = defineStore('conversation', () => {
         maxContextChars: settingsStore.config.ragMaxContextChars,
       }),
       fetchLatestSummary: () =>
-        window.aliceIPC.invoke('summaries:get-latest-summary', {}),
+        window.aliceIPC.invoke('summaries:get-latest-summary', {
+          conversationId: getConversationSessionId(),
+        }),
       getChatHistory: () => [...chatHistory.value],
       buildApiInput,
       addAssistantPlaceholder: () =>
@@ -811,8 +772,7 @@ export const useConversationStore = defineStore('conversation', () => {
         msg => msg.local_id_temp === placeholderTempId
       )
       if (assistantMessage && shouldIndexAssistantMessage(assistantMessage)) {
-        const conversationId =
-          currentResponseId.value || 'default_conversation'
+        const conversationId = getConversationSessionId()
         try {
           await api.indexMessageForThoughts(
             conversationId,
@@ -986,7 +946,7 @@ export const useConversationStore = defineStore('conversation', () => {
 
     const summaryResult = await window.aliceIPC.invoke(
       'summaries:get-latest-summary',
-      {}
+      { conversationId: getConversationSessionId() }
     )
     if (summaryResult.success && summaryResult.data?.summary_text) {
       const summaryContent = `[CONVERSATION_SUMMARY_START]\nContext from a previous part of our conversation:\n${summaryResult.data.summary_text}\n[CONVERSATION_SUMMARY_END]`

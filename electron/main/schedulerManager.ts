@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { getDBInstance } from './thoughtVectorStore'
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
+import { commandScope, isPreApproved, requestApproval } from './approvalManager'
 
 const execAsync = promisify(exec)
 
@@ -105,6 +106,15 @@ export async function scheduleTask(
       return false
     }
 
+    // 同一个 task id 只能有一个 cron job。重复调度（加载两次、切换状态、
+    // 修改后重排）时先销毁旧 job，否则两条定时器同时跑，提醒会重复触发。
+    const existingJob = activeCronJobs.get(task.id)
+    if (existingJob) {
+      existingJob.stop()
+      existingJob.destroy()
+      activeCronJobs.delete(task.id)
+    }
+
     const cronJob = cron.createTask(
       task.cronExpression,
       async () => {
@@ -141,11 +151,42 @@ export async function scheduleTask(
 }
 
 /**
+ * 把一条系统消息送进当前窗口（提醒、任务失败、权限被撤销都走这里）
+ */
+async function notifyRenderer(message: string, taskName: string): Promise<void> {
+  const { webContents } = await import('electron')
+  for (const wc of webContents.getAllWebContents()) {
+    if (!wc.isDestroyed()) {
+      wc.send('scheduler:reminder', {
+        taskId: `system-${Date.now()}`,
+        taskName,
+        message,
+        timestamp: new Date().toISOString(),
+      })
+    }
+  }
+}
+
+/**
  * Execute a scheduled task
  */
 async function executeTask(task: ScheduledTask): Promise<void> {
   try {
     if (task.actionType === 'command') {
+      // 定时命令和即时命令走同一套授权：授权在创建任务时取得，
+      // 每次执行前再核对一次，撤销后不得继续跑。
+      const scope = commandScope(task.details)
+      if (!isPreApproved('command', scope)) {
+        console.warn(
+          `[SchedulerManager] Command task "${task.name}" skipped: no approval for ${scope}`
+        )
+        await notifyRenderer(
+          `定时任务「${task.name}」因为命令 ${scope || task.details} 未获授权，这次没有执行。`,
+          '定时任务已跳过'
+        )
+        return
+      }
+
       console.log(`[SchedulerManager] Executing command: ${task.details}`)
       const { stdout, stderr } = await execAsync(task.details)
 
@@ -157,25 +198,17 @@ async function executeTask(task: ScheduledTask): Promise<void> {
       }
     } else if (task.actionType === 'reminder') {
       console.log(`[SchedulerManager] Sending reminder: ${task.details}`)
-      const { webContents } = await import('electron')
-      const allWindows = webContents.getAllWebContents()
-
-      for (const wc of allWindows) {
-        if (!wc.isDestroyed()) {
-          wc.send('scheduler:reminder', {
-            taskId: task.id,
-            taskName: task.name,
-            message: task.details,
-            timestamp: new Date().toISOString(),
-          })
-        }
-      }
+      await notifyRenderer(task.details, task.name)
     }
   } catch (error) {
     console.error(
       `[SchedulerManager] Failed to execute task ${task.name}:`,
       error
     )
+    await notifyRenderer(
+      `定时任务「${task.name}」执行失败：${(error as Error).message}`,
+      '定时任务失败'
+    ).catch(() => {})
   }
 }
 
@@ -237,6 +270,23 @@ export async function createScheduledTask(
   details: string
 ): Promise<{ success: boolean; taskId?: string; error?: string }> {
   try {
+    if (actionType === 'command') {
+      // 定时命令会在后台无人值守执行，必须在创建时明确授权，
+      // 不能像以前那样直接 execAsync 绕过审批。
+      const scope = commandScope(details)
+      const decision = await requestApproval({
+        kind: 'command',
+        scope,
+        title: '定时任务要执行命令',
+        detail: `任务名称：${name}\n执行计划：${cronExpression}\n命令：${details}`,
+        fallbackMessage: `允许定时任务「${name}」执行命令吗？`,
+      })
+
+      if (decision === 'deny') {
+        return { success: false, error: '用户未授权该定时命令' }
+      }
+    }
+
     const task: ScheduledTask = {
       id: randomUUID(),
       name,

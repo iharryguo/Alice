@@ -12,6 +12,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import axios from 'axios'
 import { loadSettings, saveSettings, AppSettings } from './settingsManager'
+import { requestApproval } from './approvalManager'
 import {
   getWebSocketServer,
   restartWebSocketServer,
@@ -981,6 +982,20 @@ export function registerIPCHandlers(): void {
         if (!payload?.name) {
           throw new Error('Tool name is required.')
         }
+
+        // 自定义工具会以完整 Node 权限 import 用户脚本，等同于执行任意代码，
+        // 因此和命令一样走授权，作用域按工具名记忆。
+        const decision = await requestApproval({
+          kind: 'other',
+          scope: `custom-tool:${payload.name}`,
+          title: '自定义工具要执行脚本',
+          detail: `工具名称：${payload.name}\n参数：${JSON.stringify(payload.args || {})}`,
+          fallbackMessage: `允许自定义工具「${payload.name}」执行吗？`,
+        })
+        if (decision === 'deny') {
+          return { success: false, error: '用户未授权执行该自定义工具' }
+        }
+
         const result = await executeCustomTool(payload.name, payload.args || {})
         return { success: true, data: result }
       } catch (error: any) {

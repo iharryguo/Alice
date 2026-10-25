@@ -90,6 +90,7 @@ import { useAudioProcessing } from '../composables/useAudioProcessing'
 import { useAudioPlayback } from '../composables/useAudioPlayback'
 import { useScreenshot } from '../composables/useScreenshot'
 import eventBus from '../utils/eventBus'
+import { getConversationSessionId } from '../utils/conversationSession'
 
 const audioProcessing = useAudioProcessing()
 const { toggleRecordingRequest } = audioProcessing
@@ -462,8 +463,7 @@ const processRequest = async (
     }
 
     if (userTextForIndexing) {
-      const conversationIdForThought =
-        conversationStore.currentResponseId || 'default_conversation'
+      const conversationIdForThought = getConversationSessionId()
       await indexMessageForThoughts(conversationIdForThought, 'user', {
         content: appContentParts,
       })

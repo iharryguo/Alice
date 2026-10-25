@@ -7,7 +7,12 @@ export interface RawMessageForSummarization {
 export interface SummarizerDependencies {
   isSummarizing(): boolean
   setSummarizing(value: boolean): void
-  fetchRecentMessages(limit: number): Promise<{
+  /** 当前会话 id，用于把摘要限定在本会话内，避免跨会话串味 */
+  getConversationId?(): string
+  fetchRecentMessages(
+    limit: number,
+    conversationId?: string
+  ): Promise<{
     success: boolean
     data?: RawMessageForSummarization[]
   }>
@@ -23,6 +28,7 @@ export interface SummarizerDependencies {
   saveSummary(params: {
     summaryText: string
     summarizedMessagesCount: number
+    conversationId?: string
   }): Promise<void>
   setEphemeralEmotionalContext(value: string | null): void
   getSummarizationConfig(): {
@@ -48,8 +54,10 @@ export function createSummarizer(
 
       try {
         const config = dependencies.getSummarizationConfig()
+        const conversationId = dependencies.getConversationId?.()
         const messagesResult = await dependencies.fetchRecentMessages(
-          config.messageCount
+          config.messageCount,
+          conversationId
         )
 
         if (!messagesResult.success || !messagesResult.data?.length) {
@@ -79,6 +87,7 @@ export function createSummarizer(
           await dependencies.saveSummary({
             summaryText: factualSummary,
             summarizedMessagesCount: rawMessages.length,
+            conversationId,
           })
         }
       } catch (error) {

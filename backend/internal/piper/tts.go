@@ -99,7 +99,18 @@ func (s *TTSService) Initialize(ctx context.Context) error {
 	}
 
 	if err := s.ensurePiper(ctx); err != nil {
-		log.Printf("Warning: %v - TTS will use fallback audio", err)
+		// 服务照旧启动，但必须如实报告能力：前端据此决定是否显示字幕降级，
+		// 而不是拿到"ready"却只听到占位音。
+		log.Printf("Piper TTS unavailable, reporting degraded: %v", err)
+		s.ready = false
+		s.info.Status = "degraded"
+		if s.info.Metadata == nil {
+			s.info.Metadata = make(map[string]string)
+		}
+		s.info.Metadata["reason"] = err.Error()
+		s.info.LastUpdated = time.Now()
+		s.loadVoices()
+		return nil
 	}
 
 	s.loadVoices()
@@ -384,15 +395,14 @@ func (s *TTSService) Synthesize(ctx context.Context, text string, voice string) 
 	}
 
 	if err := s.ensureVoiceModel(ctx, voice); err != nil {
-		log.Printf("Failed to ensure voice model %s: %v", voice, err)
-		// Fall back to placeholder for now
-		return s.generatePlaceholderWAV(text, selectedVoice), nil
+		// 以前这里返回一段合成正弦波冒充语音，前端拿到的是"成功"的 WAV，
+		// 用户听到的却是噪音。宁可明确失败，也不假装成功。
+		return nil, fmt.Errorf("voice model %s unavailable: %w", voice, err)
 	}
 
 	audioData, err := s.synthesizeWithPiper(ctx, text, voice)
 	if err != nil {
-		log.Printf("Failed to synthesize with Piper: %v", err)
-		return s.generatePlaceholderWAV(text, selectedVoice), nil
+		return nil, fmt.Errorf("piper synthesis failed: %w", err)
 	}
 
 	return audioData, nil
