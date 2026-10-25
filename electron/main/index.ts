@@ -44,6 +44,7 @@ import {
 import { initializeUpdater, checkForUpdates } from './updaterManager'
 import { registerAuthIPCHandlers, stopAuthServer } from './authManager'
 import { registerTeachingHandlers } from './teaching/ipc'
+import { pauseActiveSessions } from './teaching/store'
 import {
   registerCodexIPCHandlers,
   stopCodexAppServer,
@@ -500,6 +501,10 @@ app.whenReady().then(async () => {
       '[Main App Ready] browser_context tool is disabled, skipping WebSocket server startup'
     )
   }
+})
+
+app.on('before-quit', () => {
+  pauseActiveSessions()
 })
 
 app.on('before-quit', async event => {

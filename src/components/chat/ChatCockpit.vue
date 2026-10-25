@@ -9,6 +9,9 @@
         <span v-if="englishMode" class="head-badge">EN</span>
       </div>
       <div class="head-actions">
+        <button class="head-btn" title="英语课堂" @click="openTeaching">
+          📖 课堂
+        </button>
         <button class="head-btn" title="设置" @click="openSettings">⚙</button>
         <button class="head-btn" title="记忆管理" @click="openMemories">
           🧠 记忆
@@ -300,6 +303,10 @@ const openSettings = () => {
   window.aliceIPC
     ?.invoke('settings-window:open')
     .catch(error => console.warn('[ChatCockpit] 打开设置失败:', error))
+}
+
+const openTeaching = () => {
+  eventBus.emit('open-teaching')
 }
 
 const handleNewSession = async () => {

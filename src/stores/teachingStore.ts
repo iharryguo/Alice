@@ -1,0 +1,646 @@
+import { computed, ref } from 'vue'
+import { defineStore } from 'pinia'
+import eventBus from '../utils/eventBus'
+import { useGeneralStore } from './generalStore'
+import { useConversationStore } from './conversationStore'
+import * as teachingService from '../services/teachingService'
+import {
+  compileCourse,
+  type CourseOutline,
+} from '../modules/teaching/courseCompiler'
+import {
+  LessonRuntime,
+  type LessonViewState,
+} from '../modules/teaching/lessonRuntime'
+import {
+  answerInClass,
+  classifyIntent,
+  evaluateAnswer,
+} from '../modules/teaching/teacherBrain'
+import {
+  transcribeBlankPages,
+  transcribePageImage,
+} from '../modules/teaching/pageVision'
+import type {
+  ClassContract,
+  ClassSession,
+  ContentAnchor,
+  CourseVersionRecord,
+  DocumentPage,
+  MaterialRecord,
+} from '../../electron/main/teaching/types'
+
+/**
+ * 教师模式的界面状态。
+ *
+ * 课堂运行时本身是纯 TS（modules/teaching/lessonRuntime），这个 store 只做三件事：
+ * 把运行时接到真实的语音、持久化、模型调用上；保存界面需要的响应式状态；
+ * 承接从 Main.vue 转过来的学生语音。
+ */
+
+export type TeachingStep = 'library' | 'prep' | 'classroom' | 'report'
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunk = 0x8000
+  for (let index = 0; index < bytes.length; index += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunk))
+  }
+  return btoa(binary)
+}
+
+function guessMime(bytes: Uint8Array): string {
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg'
+  if (bytes[0] === 0x89 && bytes[1] === 0x50) return 'image/png'
+  return 'image/webp'
+}
+
+export const useTeachingStore = defineStore('teaching', () => {
+  const visible = ref(false)
+  const step = ref<TeachingStep>('library')
+  const materials = ref<MaterialRecord[]>([])
+  const selectedMaterial = ref<MaterialRecord | null>(null)
+  const pages = ref<DocumentPage[]>([])
+  const anchors = ref<ContentAnchor[]>([])
+  const materialBytes = ref<Uint8Array | null>(null)
+  const isPdf = ref(true)
+  const compiling = ref(false)
+  const compileStage = ref('')
+  const compileError = ref('')
+  const course = ref<CourseVersionRecord | null>(null)
+  const outline = ref<CourseOutline | null>(null)
+  const anchorCoverage = ref({ nodesWithAnchors: 0, totalNodes: 0 })
+  const compileUsage = ref({ calls: 0, inputChars: 0 })
+  const contract = ref<ClassContract | null>(null)
+  const sessionId = ref<string | null>(null)
+  const view = ref<LessonViewState | null>(null)
+  const currentPage = ref(1)
+  const currentHighlights = ref<
+    Array<{ x: number; y: number; width: number; height: number }>
+  >([])
+  const report = ref<ReturnType<LessonRuntime['report']> | null>(null)
+  const resumableSessions = ref<ClassSession[]>([])
+  const reportAttempts = ref<
+    Array<{
+      attemptId: string
+      exerciseId: string
+      studentInput: string
+      score: { status?: string; feedback?: string } | null
+      feedback: string | null
+    }>
+  >([])
+  const busy = ref(false)
+
+  let runtime: LessonRuntime | null = null
+  let speechStartUnsubscribe: (() => void) | null = null
+
+  const isInClass = computed(
+    () => !!runtime && !!view.value && !view.value.finished
+  )
+  const anchorById = computed(() => {
+    const map = new Map<string, ContentAnchor>()
+    for (const anchor of anchors.value) map.set(anchor.anchorId, anchor)
+    return map
+  })
+  const anchorPageById = computed(() => {
+    const map = new Map<string, number>()
+    for (const anchor of anchors.value) map.set(anchor.anchorId, anchor.pageIndex)
+    return map
+  })
+
+  function reset(): void {
+    visible.value = false
+    step.value = 'library'
+    selectedMaterial.value = null
+    pages.value = []
+    anchors.value = []
+    materialBytes.value = null
+    compiling.value = false
+    compileStage.value = ''
+    compileError.value = ''
+    course.value = null
+    outline.value = null
+    contract.value = null
+    sessionId.value = null
+    view.value = null
+    report.value = null
+    runtime = null
+    speechStartUnsubscribe?.()
+    speechStartUnsubscribe = null
+  }
+
+  function open(): void {
+    visible.value = true
+    void refreshMaterials()
+    void refreshResumable()
+  }
+
+  async function refreshResumable(): Promise<void> {
+    resumableSessions.value = await teachingService.listResumableSessions()
+  }
+
+  /**
+   * 接着上次的课上。
+   * 依据最后一条已提交的教学步骤定位：同节点同句，已提交就从下一句开始，
+   * 没提交就从句首重讲——这也是崩溃恢复的唯一规则，不做半个词拼接。
+   */
+  async function resumeSession(session: ClassSession): Promise<void> {
+    busy.value = true
+    try {
+      const courseVersion = await teachingService.getCourseVersion(
+        session.courseVersionId
+      )
+      const activeContract = await teachingService.getLatestContract(
+        session.courseVersionId
+      )
+      if (!courseVersion || !activeContract) {
+        compileError.value = '这条会话对应的课程版本已不存在，无法继续'
+        return
+      }
+
+      course.value = courseVersion
+      contract.value = activeContract
+      sessionId.value = session.sessionId
+
+      const material = await teachingService.getMaterial(courseVersion.materialId)
+      if (material) await selectMaterial(material)
+
+      const lastStep = (await teachingService.getLatestStep(
+        session.sessionId
+      )) as {
+        nodeId?: string | null
+        sentenceIndex?: number
+        sentenceCommitted?: boolean
+      } | null
+
+      const nodeIndex = Math.max(
+        0,
+        courseVersion.nodes.findIndex(node => node.nodeId === lastStep?.nodeId)
+      )
+
+      runtime = buildRuntime(courseVersion, activeContract, {
+        nodeIndex,
+        sentenceIndex: Math.max(0, lastStep?.sentenceIndex ?? 0),
+        committed: !!lastStep?.sentenceCommitted,
+      })
+
+      step.value = 'classroom'
+      speechStartUnsubscribe?.()
+      const onSpeechStart = () => {
+        runtime?.onUserSpeechStart()
+      }
+      eventBus.on('cancel-llm-stream', onSpeechStart)
+      speechStartUnsubscribe = () => {
+        eventBus.off('cancel-llm-stream', onSpeechStart)
+      }
+
+      await runtime.continueFromSnapshot()
+    } finally {
+      busy.value = false
+    }
+  }
+
+  function close(): void {
+    // 关面板不等于下课：还在上课就保持运行时，回来能继续
+    visible.value = false
+  }
+
+  async function refreshMaterials(): Promise<void> {
+    materials.value = await teachingService.listMaterials()
+  }
+
+  async function importMaterial(): Promise<void> {
+    busy.value = true
+    compileError.value = ''
+    try {
+      const result = await teachingService.pickAndImportMaterial()
+      if (result.cancelled) return
+      if (!result.success || !result.material) {
+        compileError.value = result.error || '导入失败'
+        return
+      }
+      await refreshMaterials()
+      await selectMaterial(result.material)
+    } finally {
+      busy.value = false
+    }
+  }
+
+  async function selectMaterial(material: MaterialRecord): Promise<void> {
+    selectedMaterial.value = material
+    pages.value = await teachingService.getMaterialPages(material.id)
+    anchors.value = await teachingService.getMaterialAnchors(material.id)
+    materialBytes.value = null
+    const blob = await teachingService.getMaterialBlob(material.id)
+    if (blob) {
+      materialBytes.value = blob.bytes
+      isPdf.value = blob.isPdf
+    }
+  }
+
+  async function compile(target?: MaterialRecord | null): Promise<void> {
+    const material = target ?? selectedMaterial.value
+    if (!material) return
+
+    compiling.value = true
+    compileError.value = ''
+    compileStage.value = '正在读取材料'
+    try {
+      await selectMaterial(material)
+
+      // 没有文字层的页面交给模型读图：先补文字，再走同一条编译管线
+      await fillBlankPagesWithVision(material)
+
+      const compiled = await compileCourse({
+        material,
+        pages: pages.value,
+        anchors: anchors.value,
+        targetMinutes: 25,
+        onProgress: stage => {
+          compileStage.value = stage
+        },
+      })
+
+      course.value = compiled.course
+      anchorCoverage.value = compiled.anchorCoverage
+      compileUsage.value = compiled.usage
+      outline.value = {
+        title: compiled.course.title,
+        objectives: compiled.course.objectives,
+        prerequisites: compiled.course.prerequisites,
+        nodes: compiled.course.nodes.map(node => ({
+          objective: node.objective,
+          required: node.required,
+          minutes: Math.round(node.plannedDurationSec / 60),
+          pages: node.anchorIds
+            .map(id => anchorPageById.value.get(id) ?? 0)
+            .filter(page => page > 0),
+        })),
+      }
+
+      await teachingService.createCourseVersion(compiled.course)
+      step.value = 'prep'
+    } catch (error) {
+      compileError.value = (error as Error).message
+    } finally {
+      compiling.value = false
+      compileStage.value = ''
+    }
+  }
+
+  /**
+   * 把图片页读成文字。
+   * 只处理没有文字层的页，且一次导入最多读 12 页，避免一节课的备课成本失控。
+   */
+  async function fillBlankPagesWithVision(
+    material: MaterialRecord
+  ): Promise<void> {
+    const bytes = materialBytes.value
+    if (!bytes) return
+
+    const blankPages = pages.value
+      .filter(page => page.textSource === 'none' || page.charCount === 0)
+      .map(page => page.pageIndex)
+
+    if (blankPages.length === 0) return
+
+    try {
+      if (!isPdf.value) {
+        compileStage.value = '正在读图 1/1'
+        const base64 = toBase64(bytes)
+        const text = await transcribePageImage(
+          `data:${guessMime(bytes)};base64,${base64}`,
+          1
+        )
+        if (text) {
+          await teachingService.updatePageText(material.id, 1, text)
+          pages.value = await teachingService.getMaterialPages(material.id)
+        }
+        return
+      }
+
+      compileStage.value = `正在读图 0/${blankPages.length}`
+      const results = await transcribeBlankPages({
+        bytes,
+        blankPages,
+        onProgress: (done, total) => {
+          compileStage.value = `正在读图 ${done}/${total}`
+        },
+      })
+
+      for (const item of results) {
+        await teachingService.updatePageText(material.id, item.pageIndex, item.text)
+      }
+
+      if (results.length > 0) {
+        pages.value = await teachingService.getMaterialPages(material.id)
+        anchors.value = await teachingService.getMaterialAnchors(material.id)
+      }
+    } catch (error) {
+      console.warn('[Teaching] 读图失败，按纯文本继续:', error)
+    }
+  }
+
+  function buildContract(
+    courseVersionId: string,
+    version: number
+  ): ClassContract {
+    return {
+      contractVersionId: `ct-${Date.now()}`,
+      courseVersionId,
+      version,
+      targetDurationMin: contract.value?.targetDurationMin ?? 25,
+      pacePolicy: contract.value?.pacePolicy ?? 'balanced',
+      presentationMode: contract.value?.presentationMode ?? 'DOCUMENT_SYNC',
+      languagePolicy:
+        contract.value?.languagePolicy ?? 'english-with-chinese-rescue',
+      correctionPolicy: contract.value?.correctionPolicy ?? 'balanced',
+      strictness: contract.value?.strictness ?? 'standard',
+      wanderThreshold: contract.value?.wanderThreshold ?? {
+        windowMinutes: 3,
+        strikes: 2,
+      },
+      createdAt: new Date().toISOString(),
+      confirmedAt: new Date().toISOString(),
+    }
+  }
+
+  async function startLesson(): Promise<void> {
+    const activeCourse = course.value
+    if (!activeCourse) return
+
+    busy.value = true
+    try {
+      // 契约独立版本化：改严格度只派生新的 contractVersion，不动课程内容
+      const previousContract = await teachingService.getLatestContract(
+        activeCourse.courseVersionId
+      )
+      const activeContract = buildContract(
+        activeCourse.courseVersionId,
+        (previousContract?.version ?? 0) + 1
+      )
+      contract.value = activeContract
+      await teachingService.saveContract(activeContract)
+      await teachingService.confirmCourse(activeCourse.courseVersionId)
+
+      const id = `ls-${Date.now()}`
+      sessionId.value = id
+      await teachingService.createSession({
+        sessionId: id,
+        courseVersionId: activeCourse.courseVersionId,
+        contractVersionId: activeContract.contractVersionId,
+        phase: 'OPENING',
+        turnState: 'IDLE',
+        presentationState: 'FOLLOW_LESSON',
+        currentNodeId: activeCourse.nodes[0]?.nodeId ?? null,
+        teacherTurnId: null,
+        studentTurnId: null,
+        cancelTeacherTurnId: null,
+        lessonAnchor: null,
+        viewport: { pageIndex: 1 },
+        timeDebtSec: 0,
+        status: 'IN_SESSION',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+
+      runtime = buildRuntime(activeCourse, activeContract)
+
+      step.value = 'classroom'
+      speechStartUnsubscribe?.()
+      const onSpeechStart = () => {
+        runtime?.onUserSpeechStart()
+      }
+      eventBus.on('cancel-llm-stream', onSpeechStart)
+      speechStartUnsubscribe = () => {
+        eventBus.off('cancel-llm-stream', onSpeechStart)
+      }
+
+      await runtime.start()
+    } finally {
+      busy.value = false
+    }
+  }
+
+  /** 把运行时接到真实依赖上：语音、持久化、模型判断 */
+  function buildRuntime(
+    activeCourse: CourseVersionRecord,
+    activeContract: ClassContract,
+    resume?: { nodeIndex: number; sentenceIndex: number; committed: boolean }
+  ): LessonRuntime {
+    return new LessonRuntime(
+      {
+        course: activeCourse,
+        contract: activeContract,
+        speak: speakSentence,
+        stopSpeaking: () => {
+          const conversationStore = useConversationStore()
+          conversationStore.stopSpeaking()
+        },
+        showPage: pageIndex => {
+          currentPage.value = Math.max(1, pageIndex)
+        },
+        highlight: anchorIds => {
+          applyHighlight(anchorIds)
+        },
+        poster: patch => {
+          if (sessionId.value) {
+            void teachingService.updateSession(sessionId.value, patch)
+          }
+        },
+        persistStep: step => {
+          void teachingService.appendStep({
+            ...step,
+            sessionId: sessionId.value ?? '',
+          })
+        },
+        classify: classifyIntent,
+        answer: answerInClass,
+        evaluate: evaluateAnswer,
+        saveAttempt: attempt => {
+          void teachingService.saveAttempt({
+            attemptId: `at-${Date.now()}`,
+            exerciseId: attempt.exerciseId,
+            sessionId: sessionId.value ?? '',
+            studentInput: attempt.studentInput,
+            audioPath: null,
+            score: attempt.score,
+            feedback: attempt.score.feedback ?? null,
+            createdAt: new Date().toISOString(),
+          })
+        },
+        onState: next => {
+          view.value = next
+          if (next.currentPage) currentPage.value = next.currentPage
+          if (next.finished) void buildReport()
+        },
+            },
+      resume
+    )
+  }
+
+  function applyHighlight(anchorIds: string[]): void {
+    const boxes = anchorIds
+      .map(id => anchorById.value.get(id))
+      .filter((anchor): anchor is ContentAnchor => !!anchor)
+      .map(anchor => ({
+        x: anchor.x,
+        y: anchor.y,
+        width: anchor.width,
+        height: anchor.height,
+      }))
+    currentHighlights.value = boxes
+    const page = anchorIds
+      .map(id => anchorPageById.value.get(id))
+      .find(pageIndex => typeof pageIndex === 'number')
+    if (page) currentPage.value = page
+  }
+
+  /**
+   * 逐句朗读：先让 TTS 排队播放，再等音频真的停下来。
+   * TTS 不可用时按字符数估一个时长，课堂照样往前走（只有字幕没有声音）。
+   */
+  async function speakSentence(text: string): Promise<void> {
+    const conversationStore = useConversationStore()
+    const generalStore = useGeneralStore()
+    const estimate = Math.min(30000, Math.max(1200, text.length * 90))
+
+    try {
+      await conversationStore.speakText(text)
+    } catch {
+      await new Promise(resolve => setTimeout(resolve, estimate))
+      return
+    }
+
+    const deadline = Date.now() + estimate + 8000
+    let idleTicks = 0
+    while (Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 120))
+      if (generalStore.audioState === 'SPEAKING') {
+        idleTicks = 0
+      } else {
+        idleTicks += 1
+        if (idleTicks >= 3) return
+      }
+    }
+  }
+
+  async function handleUtterance(text: string): Promise<void> {
+    if (!runtime) return
+    busy.value = true
+    try {
+      await runtime.onUserUtterance(text)
+    } finally {
+      busy.value = false
+    }
+  }
+
+  async function pause(): Promise<void> {
+    await handleUtterance('暂停')
+  }
+
+  async function resume(): Promise<void> {
+    if (!runtime) return
+    await runtime.resumeLesson()
+  }
+
+  async function skip(): Promise<void> {
+    await handleUtterance('跳过')
+  }
+
+  async function repeat(): Promise<void> {
+    await handleUtterance('再说一遍')
+  }
+
+  async function endLesson(): Promise<void> {
+    if (!runtime) return
+    await runtime.endByUser()
+  }
+
+  async function buildReport(): Promise<void> {
+    if (!runtime) return
+    report.value = runtime.report()
+    if (sessionId.value) {
+      const attempts = (await teachingService.listAttempts(sessionId.value)) as any[]
+      reportAttempts.value = attempts.map(item => ({
+        attemptId: String(item?.attemptId ?? ''),
+        exerciseId: String(item?.exerciseId ?? ''),
+        studentInput: String(item?.studentInput ?? ''),
+        score: item?.score ?? null,
+        feedback: item?.feedback ?? item?.score?.feedback ?? null,
+      }))
+      const passed = attempts.filter(
+        (item: any) => item?.score?.status === 'passed'
+      ).length
+      if (course.value) {
+        for (const node of course.value.nodes) {
+          await teachingService.upsertMastery({
+            objectiveId: node.nodeId,
+            courseId: course.value.courseId,
+            level: passed > 0 ? 'learning' : 'unknown',
+            evidenceAttemptIds: attempts
+              .filter((item: any) => item?.exerciseId === node.exercises[0]?.exerciseId)
+              .map((item: any) => item.attemptId),
+          })
+        }
+      }
+    }
+    step.value = 'report'
+  }
+
+  function followLesson(): void {
+    runtime?.followLesson()
+  }
+
+  function setViewport(pageIndex: number): void {
+    currentPage.value = pageIndex
+    runtime?.setViewport(pageIndex)
+  }
+
+  return {
+    visible,
+    step,
+    materials,
+    selectedMaterial,
+    pages,
+    anchors,
+    materialBytes,
+    isPdf,
+    compiling,
+    compileStage,
+    compileError,
+    course,
+    outline,
+    anchorCoverage,
+    compileUsage,
+    contract,
+    sessionId,
+    view,
+    currentPage,
+    currentHighlights,
+    report,
+    reportAttempts,
+    resumableSessions,
+    busy,
+    isInClass,
+    open,
+    close,
+    reset,
+    refreshMaterials,
+    importMaterial,
+    selectMaterial,
+    compile,
+    startLesson,
+    resumeSession,
+    refreshResumable,
+    handleUtterance,
+    pause,
+    resume,
+    skip,
+    repeat,
+    endLesson,
+    buildReport,
+    followLesson,
+    setViewport,
+  }
+})

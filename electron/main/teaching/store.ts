@@ -358,6 +358,21 @@ export function listPages(materialId: string): DocumentPage[] {
   }))
 }
 
+/** 模型读图得到的文字写回页面记录 */
+export function updatePageText(
+  materialId: string,
+  pageIndex: number,
+  text: string
+): void {
+  const db = getDBInstance()
+  const charCount = text.replace(/\s/g, '').length
+  db.prepare(
+    `UPDATE teaching_pages
+        SET text = ?, char_count = ?, text_source = 'vision'
+      WHERE material_id = ? AND page_index = ?`
+  ).run(text, charCount, materialId, pageIndex)
+}
+
 export function replaceAnchors(
   materialId: string,
   anchors: ContentAnchor[]
@@ -677,11 +692,25 @@ export function getSession(sessionId: string): ClassSession | null {
   }
 }
 
+/** 退出应用前把进行中的课堂落到 PAUSED，重启后才能接着上 */
+export function pauseActiveSessions(): void {
+  try {
+    const db = getDBInstance()
+    db.prepare(
+      "UPDATE teaching_sessions SET status = 'PAUSED', updated_at = ? WHERE status = 'IN_SESSION'"
+    ).run(nowIso())
+  } catch (error) {
+    console.warn('[Teaching] 保存课堂暂停状态失败:', error)
+  }
+}
+
 export function listResumableSessions(): ClassSession[] {
   const db = getDBInstance()
+  // IN_SESSION 说明上次是异常退出（正常下课会写 COMPLETED，暂停会写 PAUSED），
+  // 这两种都应该允许接着上，否则崩溃一次就得重头讲。
   const rows = db
     .prepare(
-      "SELECT session_id FROM teaching_sessions WHERE status = 'PAUSED' ORDER BY updated_at DESC"
+      "SELECT session_id FROM teaching_sessions WHERE status IN ('PAUSED', 'IN_SESSION') ORDER BY updated_at DESC LIMIT 5"
     )
     .all() as Array<{ session_id: string }>
   return rows

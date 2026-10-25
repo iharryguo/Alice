@@ -10,6 +10,7 @@ type Events = {
   'take-screenshot': void
   'cancel-tts': void
   'cancel-llm-stream': void
+  'open-teaching': void
 }
 
 const eventBus = mitt<Events>()

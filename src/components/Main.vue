@@ -68,6 +68,8 @@
       </div>
       <Sidebar @processRequest="processRequestFromSidebar" />
     </div>
+    <!-- 课堂只在聊天窗口形态里铺开：切到球态就收起面板，但课堂本身不停 -->
+    <TeachingMode v-if="generalStore.windowMode === 'window'" />
   </div>
 </template>
 
@@ -81,6 +83,8 @@ import TitleBar from './TitleBar.vue'
 
 import { useGeneralStore } from '../stores/generalStore'
 import { useConversationStore } from '../stores/conversationStore'
+import { useTeachingStore } from '../stores/teachingStore'
+import TeachingMode from './teaching/TeachingMode.vue'
 import {
   indexMessageForThoughts,
   uploadFileToOpenAI,
@@ -105,6 +109,7 @@ const {
 
 const generalStore = useGeneralStore()
 const conversationStore = useConversationStore()
+const teachingStore = useTeachingStore()
 
 const {
   audioState,
@@ -291,6 +296,7 @@ onMounted(async () => {
   eventBus.on('processing-complete', handleProcessingComplete)
   eventBus.on('mute-playback-toggle', handleToggleTTS)
   eventBus.on('take-screenshot', handleTakeScreenshot)
+  eventBus.on('open-teaching', teachingStore.open)
 })
 
 onUnmounted(() => {
@@ -303,6 +309,7 @@ onUnmounted(() => {
   eventBus.off('processing-complete', handleProcessingComplete)
   eventBus.off('mute-playback-toggle', handleToggleTTS)
   eventBus.off('take-screenshot', handleTakeScreenshot)
+  eventBus.off('open-teaching', teachingStore.open)
 })
 
 const handleTakeScreenshot = () => {
@@ -322,6 +329,16 @@ const handleToggleRecording = () => {
 const handleProcessingComplete = (transcription: string) => {
   const meaningfulTranscription =
     transcription && transcription.trim().length > 1
+
+  // 上课时学生的话属于课堂，不进普通聊天链路：
+  // 交给自己判断意图（提问/控制/跑题），而不是让 ChatOrchestrator 回答。
+  if (teachingStore.isInClass) {
+    if (meaningfulTranscription) {
+      generalStore.recognizedText = transcription
+      void teachingStore.handleUtterance(transcription)
+    }
+    return
+  }
 
   if (isProcessingRequest) {
     return
