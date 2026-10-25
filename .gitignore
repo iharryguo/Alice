@@ -56,3 +56,8 @@ user-customization/*
 user-customization/custom-tool-scripts/*
 !user-customization/custom-tool-scripts/sample_upload_tool.js
 GEMINI.md
+
+# 本地临时文件与历史沟通记录（不入库）
+.codebuddy/
+*.bak
+我和DeepSeekHarness的沟通过程.txt

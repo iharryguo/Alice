@@ -1,0 +1,3192 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Alice 长期伴侣与教案驱动英语教师模式</title><style>:root{color-scheme:light}*{box-sizing:border-box}body{margin:0;background:#f4f6f8;color:#24292f;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.72}main{max-width:1180px;margin:0 auto;padding:36px 28px 72px}h1{font-size:30px;line-height:1.35;color:#102a43;margin:36px 0 16px;border-bottom:2px solid #bfd7ea;padding-bottom:10px}h1:first-of-type{margin-top:0;border-bottom:0;font-size:34px}h2{font-size:22px;line-height:1.4;color:#173f5f;margin:28px 0 12px}h3{font-size:17px;color:#244f68;margin:22px 0 10px}p{margin:10px 0}a{color:#185fa5}blockquote{margin:16px 0;padding:10px 16px;border-left:4px solid #378add;background:#e6f1fb;color:#334e68}table{width:100%;border-collapse:collapse;margin:16px 0 24px;background:#fff;font-size:13px;line-height:1.6}th,td{border:1px solid #d7dee5;padding:9px 10px;text-align:left;vertical-align:top;min-width:72px}th{background:#eaf1f6;color:#173f5f;font-weight:600}tr:nth-child(even) td{background:#fafbfc}code{font-family:"Cascadia Code","SFMono-Regular",Consolas,monospace;background:#edf1f4;padding:2px 5px;border-radius:4px;font-size:.92em}pre{background:#17232d;color:#edf5fa;padding:18px;border-radius:10px;overflow:auto}pre code{background:transparent;padding:0;color:inherit}.diagram{margin:20px 0 26px;padding:14px;background:#fff;border:1px solid #d7dee5;border-radius:14px;overflow:hidden}.diagram svg{display:block;width:100%;height:auto}hr{border:0;border-top:1px solid #d7dee5;margin:30px 0}li{margin:5px 0}strong{color:#172f43}@media(max-width:760px){main{padding:20px 14px 48px}body{font-size:14px}table{display:block;overflow-x:auto}th,td{min-width:120px}h1{font-size:25px}h2{font-size:20px}}@media print{body{background:#fff}main{max-width:none;padding:0}h1,h2{break-after:avoid}table{font-size:11px}tr,.diagram{break-inside:avoid}}</style></head><body><main><h1>Alice 长期伴侣与教案驱动英语教师模式</h1>
+<h2>产品需求与总体架构设计（评审稿）</h2>
+<blockquote>
+<p>本文同时回答两个问题：一是教案驱动的英语教师应具备哪些完整能力；二是这些能力与长期伴侣功能如何在现有 Alice 工程上渐进落地。本文不包含交互设计稿，架构图仅用于说明模块、流程和状态边界。</p>
+</blockquote>
+<hr>
+<h1>一、文档信息</h1>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>文档版本</td>
+<td>v0.1-r1（第一轮复核修订稿）</td>
+</tr>
+<tr>
+<td>编写日期</td>
+<td>2026-10-25</td>
+</tr>
+<tr>
+<td>适用工程</td>
+<td><code>E:\Src\Alice</code></td>
+</tr>
+<tr>
+<td>文档状态</td>
+<td>完整方案评审稿，待对三项产品假设拍板</td>
+</tr>
+<tr>
+<td>需求来源</td>
+<td>用户关于 AI 伴侣、教案驱动英语教师、架构调整和产品化输出的连续输入</td>
+</tr>
+<tr>
+<td>工程依据</td>
+<td>Alice 当前源码、近期提交、现有测试与文档审查</td>
+</tr>
+<tr>
+<td>外部参考</td>
+<td>OpenMAIC、GKK、MAIC 论文及实时语音教育产品的公开资料，检索日期 2026-10-25</td>
+</tr>
+</tbody></table>
+<h2>1.1 变更记录</h2>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>日期</th>
+<th>变更摘要</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>v0.1</td>
+<td>2026-10-25</td>
+<td>首次形成伴侣与教师统一 PRD、目标架构、验收指标和迁移路线</td>
+<td>已复核</td>
+</tr>
+<tr>
+<td>v0.1-r1</td>
+<td>2026-10-25</td>
+<td>第一轮复核 10 项反馈全部采纳，补齐节奏、恢复、契约、降级、worker、指标与授权边界</td>
+<td>修订完成</td>
+</tr>
+</tbody></table>
+<h2>1.2 本版采用的三项假设</h2>
+<p>以下假设用于避免方案停滞，均可推翻；推翻后只修订对应范围，不改变总体架构。</p>
+<p>一是目标用户先限定为一名以中文为母语、在 Windows 11 电脑上学习英语的用户，不设计多人班级。二是课堂默认采用“英语为主、中文救场”的双语策略，并允许按教学节点切换为全英文输出训练。三是教师默认风格为“温和但坚定”，课堂严格度与教案忠实度分别设置。</p>
+<hr>
+<h1>二、背景与目标</h1>
+<h2>2.1 背景</h2>
+<p>Alice 已具备多供应商聊天、文本与语音交互、VAD、STT/TTS、语音打断、HNSW/SQLite 记忆、文档 RAG、截图、桌面工具、历史会话和三态视频头像等基础能力。当前英语模式本质上仍是语言锁与纠错提示词，尚无课程、授课、学情和课堂状态；伴侣能力也主要停留在单次问答、事实记忆和定时提醒。</p>
+<p>新的需求不是增加两个提示词，而是增加两种持续性业务：伴侣运行时要在多次经历和任务中维持关系与承诺；教师运行时要在多课时、多文档和多次打断中维持教学目标、课堂秩序与学习证据。</p>
+<h2>2.2 要解决的问题</h2>
+<p><strong>伴侣侧问题。</strong> 现有系统能检索过去，却不能稳定知道何时应该想起、想起后应采取什么行动；能调用工具，却缺少承诺、长期任务、验证与撤销；能调整语气，却没有共同作品、观点成长和关系修复。</p>
+<p><strong>教师侧问题。</strong> 现有系统能讲英语和检索文档，却不能把教案转换成可执行课程；不能保证讲解与文档位置一致；不能在答疑、跑题、暂停和崩溃后恢复完整课堂；不能把学生的表现转化为可核验的学情；也不能在尊重用户控制权的前提下维持教师权威。</p>
+<p><strong>共享工程问题。</strong> 当前提醒、工具、记忆、模型和权限入口分散，部分路径绕过统一审批，摘要存在会话隔离不足。如果直接在现有聊天编排中堆叠新能力，会形成状态互相覆盖、权限不一致、成本不可控和旧功能回归。</p>
+<h2>2.3 产品目标</h2>
+<p>第一，形成“共同经历—承诺—行动—复盘”的伴侣关系，使 Alice 的主动行为有证据、有边界、有结果。第二，形成“教案—课程—课堂—学情—复习”的教师闭环，使 Alice 不只是会回答英语问题，而是能连续承担一名私人教师的职责。第三，形成统一的事件、模型、记忆和行动底座，使后续新增角色不再重复建设。</p>
+<h2>2.4 成功指标与口径</h2>
+<p>以下均为<strong>建议验收目标</strong>，来自产品设计假设，不是当前实测结果。详细公式、排除项和看板见第十章。</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>建议验收目标</th>
+<th>口径摘要</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>教案可执行性</td>
+<td>四类标准样本均进入可确认课程草稿；低质量材料不得直接进入自动授课</td>
+<td>PDF、DOCX、PPTX、图片各至少 5 份覆盖正常与异常样本</td>
+</tr>
+<tr>
+<td>文档锚点准确性</td>
+<td>抽检不少于 100 个教学片段，正确页码与区域对齐率 ≥95%</td>
+<td>页码正确且主要讲解对象位于标注区域才计成功</td>
+</tr>
+<tr>
+<td>授课事实可靠性</td>
+<td>课程依赖型回答有效依据展示率 100%，事实正确率 ≥90%；教师补充标识准确率 100%</td>
+<td>依据指标只统计需要外部支撑的回答，补充内容单独统计标识，不混入分子</td>
+</tr>
+<tr>
+<td>打断与恢复</td>
+<td>首次语音活动到降音量/暂停 P95 ≤300ms、到旧音频停止 P95 ≤800ms；按钮或热键暂停退出到停止 P95 ≤200ms；30 组恢复成功率 100%</td>
+<td>时延从首次语音活动或明确控制操作开始测量，不从语义确认后重新起算</td>
+</tr>
+<tr>
+<td>课堂控场</td>
+<td>单次高置信明显跑题及时拉回，跑题识别召回 ≥90%，课程追问误判 ≤5%；发言结束到控场响应开始 P95 ≤2.5s</td>
+<td>使用相关、延伸、闲聊、控制与低置信样本；阈值按严格度分档</td>
+</tr>
+<tr>
+<td>断点恢复</td>
+<td>20 次异常退出测试均恢复到最后已提交教学步骤，无重复推进</td>
+<td>不承诺从半个词恢复，恢复单位为教学句或动作</td>
+</tr>
+<tr>
+<td>学情可信度</td>
+<td>每条掌握度结论均可打开对应作答与评分依据；无证据结论数为 0</td>
+<td>学生自我评价与系统推断分开展示</td>
+</tr>
+<tr>
+<td>伴侣主动性</td>
+<td>主动内容证据覆盖率 100%；首两周有用反馈 ≥70%，明确打扰反馈 ≤10%</td>
+<td>只统计主动出现且用户可反馈的消息或卡片</td>
+</tr>
+<tr>
+<td>承诺与任务</td>
+<td>到期承诺跟进率 ≥90%；守望任务完成结果验证率 100%</td>
+<td>无法验证的任务只能标记待确认，不得自动标成功</td>
+</tr>
+<tr>
+<td>课堂节奏</td>
+<td>长答疑触发时间债计算和节奏处置，不能静默超时、压缩必学内容或突然结束</td>
+<td>按课堂契约分别测试时间优先、掌握优先和平衡策略</td>
+</tr>
+<tr>
+<td>安全与隐私</td>
+<td>高危动作未授权执行数、原始媒体默认上传数、跨会话不当记忆泄露数均为 0</td>
+<td>覆盖即时、后台、教师、MCP、脚本、崩溃恢复全部路径</td>
+</tr>
+<tr>
+<td>成本可观测</td>
+<td>每课时与每后台任务均显示模型用量、估算成本和降级结果</td>
+<td>不提供统一金额目标，按所选模型与预算验收</td>
+</tr>
+</tbody></table>
+<h2>2.5 非目标</h2>
+<p>本期不以增加聊天时长、消息数量、亲密值或依赖程度为成功指标；不把完成教案播放等同于完成学习；不把 AI 推断的情绪、注意力或人格特征当作事实。</p>
+<hr>
+<h1>三、名词与术语定义</h1>
+<table>
+<thead>
+<tr>
+<th>名词</th>
+<th>定义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>伴侣运行时</td>
+<td>负责共同作品、承诺、关系、主动裁决、工作现场和守望任务的持续业务模块</td>
+</tr>
+<tr>
+<td>教师运行时</td>
+<td>负责课程编译、课堂状态、教学动作、打断恢复和学情证据的独立模块</td>
+</tr>
+<tr>
+<td>教案</td>
+<td>含教学目标、重难点、教学步骤、活动、练习或时间安排的教师用材料</td>
+</tr>
+<tr>
+<td>教材或讲义</td>
+<td>主要含知识内容，没有完整教学步骤的材料；必须先补成授课计划</td>
+</tr>
+<tr>
+<td>教学文档 IR</td>
+<td>将不同格式统一成页面图像、结构化文本、阅读顺序和区域锚点的中间表示</td>
+</tr>
+<tr>
+<td>课程编译</td>
+<td>把教学文档 IR 转换为目标、节点、练习、视觉动作和评价规则，并经质量检查形成课程版本</td>
+</tr>
+<tr>
+<td>课程版本</td>
+<td>某次已确认课程内容的不可变快照，只包含目标、节点、来源、练习和内容量规；后续内容修改生成新版本，不包含课堂契约</td>
+</tr>
+<tr>
+<td>节奏策略</td>
+<td>时间优先、掌握优先或平衡三种课时策略，决定缓冲、压缩可选内容、加时询问和收尾方式</td>
+</tr>
+<tr>
+<td>时间债</td>
+<td>当前实际用时与计划用时的差值，包含答疑和控场耗时，用于驱动节奏调整，不等于学习效果</td>
+</tr>
+<tr>
+<td>展示模式</td>
+<td><code>DOCUMENT_SYNC</code> 要求稳定原文页锚；<code>BOARD_ONLY</code> 是无原文同步的明确降级课堂，二者不得混称</td>
+</tr>
+<tr>
+<td>教学节点</td>
+<td>课程中最小可调度单元，包含目标、讲解、锚点、互动、练习、评价与恢复信息</td>
+</tr>
+<tr>
+<td>视觉锚点</td>
+<td>文档页码、段落、文本块、图片或区域坐标，用于同步展示与恢复</td>
+</tr>
+<tr>
+<td>教学动作</td>
+<td>课堂运行时允许执行的受限命令，如展示、讲解、提问、练习、停放话题、恢复，不是任意脚本</td>
+</tr>
+<tr>
+<td>课堂快照</td>
+<td>当前课程版本、契约版本、节点、教学句及其播放状态、课程锚点、用户视口、教师/学生发言代次、取消目标、练习与时间债的一致状态</td>
+</tr>
+<tr>
+<td>课堂契约</td>
+<td>独立于课程内容的契约版本，记录目标时长、节奏策略、展示模式、语言、纠错、严格度、跑题处理和隐私规则；修改契约不派生课程版本</td>
+</tr>
+<tr>
+<td>教师发言代次</td>
+<td><code>teacherTurnId</code>，标识一段教师生成或播放内容；旧教师音频只能按该 ID 取消</td>
+</tr>
+<tr>
+<td>学生发言代次</td>
+<td><code>studentTurnId</code>，标识一次学生输入；新建学生输入不会覆盖教师或课堂会话</td>
+</tr>
+<tr>
+<td>取消目标</td>
+<td><code>cancelTeacherTurnId</code>，以原子方式写入的待取消教师代次，音频取消只能精确匹配该值</td>
+</tr>
+<tr>
+<td>课程锚点与视口</td>
+<td>课程锚点是教师当前讲授位置，视口是学生实际看到的页面；自由浏览恢复时可只更新课程锚点而不强制改变视口</td>
+</tr>
+<tr>
+<td>严格度</td>
+<td>教师对跑题和约定规则的干预强度，不等同于教案忠实度或纠错频率</td>
+</tr>
+<tr>
+<td>教案忠实度</td>
+<td>对原教学目标、顺序、活动和时间安排的遵守程度</td>
+</tr>
+<tr>
+<td>教师补充</td>
+<td>教案之外生成的例句、解释或资料，必须与原文明确区分</td>
+</tr>
+<tr>
+<td>话题停车场</td>
+<td>暂存非当前教学目标但值得课后处理的问题，不得在执行前自动变成系统任务</td>
+</tr>
+<tr>
+<td>掌握度证据</td>
+<td>支撑某项学习评价的具体作答、录音、练习、量规与版本信息</td>
+</tr>
+<tr>
+<td>工作现场</td>
+<td>用户在某个时间点的项目、目标、文件、窗口、进度与下一步参考</td>
+</tr>
+<tr>
+<td>行动回执</td>
+<td>工具或系统动作的授权、参数、结果、验证、撤销与撤销结果记录</td>
+</tr>
+<tr>
+<td>Always / Ask first / Never</td>
+<td>AI 可直接执行、必须先确认、任何情况下禁止执行的三层行为边界</td>
+</tr>
+</tbody></table>
+<hr>
+<h1>四、需求范围</h1>
+<h2>4.1 本期完整方案范围</h2>
+<table>
+<thead>
+<tr>
+<th>范围</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>伴侣关系</td>
+<td>共同作品、双向承诺、自我与观点成长、反向求助、关系修复、默契与共同仪式</td>
+</tr>
+<tr>
+<td>主动与创造</td>
+<td>关心清单、主动裁决、决策日记、想法实验室、微型礼物、反馈学习</td>
+</tr>
+<tr>
+<td>电脑行动</td>
+<td>接回昨天、守望任务、摩擦矿工、技能学习、统一行动代理与电脑管理基础能力</td>
+</tr>
+<tr>
+<td>感知边界</td>
+<td>按需感知、暂停、安静陪伴、原始媒体最小化、权限与隐私控制</td>
+</tr>
+<tr>
+<td>教师备课</td>
+<td>多格式导入、材料类型识别、质量检查、教学文档 IR、课程编译、锚点与课程确认</td>
+</tr>
+<tr>
+<td>教师授课</td>
+<td>按教案讲解、文档联动、语音互动、练习、打断恢复、跑题控场、课堂契约与权威边界</td>
+</tr>
+<tr>
+<td>英语教学</td>
+<td>双语策略、分级纠错、口语与发音反馈、学情证据、作业、间隔复习、课后报告</td>
+</tr>
+<tr>
+<td>共享平台</td>
+<td>持久事件、模型路由、分域记忆、行动安全、版本留痕、成本与评测</td>
+</tr>
+<tr>
+<td>数据与运营</td>
+<td>指标看板、用户反馈、异常降级、依赖管理、灰度与回滚</td>
+</tr>
+</tbody></table>
+<h2>4.2 首个 MVP 明确包含</h2>
+<p>一是四类材料均可进入备课管线；PDF与图片可直接形成页面锚点，DOCX与PPTX经可信转换后形成页面锚点。完整 <code>DOCUMENT_SYNC</code> 课堂只向具有稳定锚点的材料开放。转换不可用时，用户只能先修复材料，或显式选择不带原文同步的 <code>BOARD_ONLY</code> 课堂；后者必须标明降级，不能宣称已实现精确文档联动。</p>
+<p>二是首次课程大纲必须确认，随后可按同一课程版本一键继续。课堂具备讲解、文档同步、基本练习、语音插话、相关问答、跑题拉回、暂停继续、重复慢讲、退出、断点恢复和课后小结。</p>
+<p>三是教师权威采用课堂契约，默认“温和但坚定”；原始教案和教师补充分开，学生自由浏览与授课进度分开。</p>
+<p>四是首个总体 MVP 分两个可用里程碑：先完成教师垂直场景，随后接续实现双向承诺、接回昨天和守望任务的最小闭环；不与这些核心能力同时扩张其余伴侣功能。</p>
+<h2>4.3 后续版本</h2>
+<p>音素级发音诊断、完整 CEFR 画像、复杂技能图谱、间隔重复高级策略、想法实验室、关系自我成长、微型礼物、技能录制、持续屏幕或摄像头感知、手机远程和多端同步。</p>
+<h2>4.4 本期不做</h2>
+<p>不做多人同步班级、公开课程市场、三维数字人、虚拟班级同学、摄像头情绪或注意力定性、绕过权限的电脑操作。</p>
+<hr>
+<h1>五、方案对比与选型说明</h1>
+<h2>5.1 架构方案对比</h2>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>实现成本</th>
+<th>开发复杂度</th>
+<th>用户体验</th>
+<th>主要风险</th>
+<th>相对交付速度</th>
+<th>综合评价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A：在现有聊天提示词与 RAG 上直接扩展</td>
+<td>低</td>
+<td>低</td>
+<td>可演示讲课，但进度、恢复和权限不可靠</td>
+<td>状态混乱、幻觉、文档跳页、旧功能回归</td>
+<td>快，但返工概率高</td>
+<td>不推荐作为正式方案，可用于验证文案</td>
+</tr>
+<tr>
+<td>B：渐进式三运行时与共享可信底座</td>
+<td>中</td>
+<td>中高</td>
+<td>伴侣、教师和普通聊天各自稳定，可持续扩展</td>
+<td>初期需要事件与数据契约治理</td>
+<td>中</td>
+<td><strong>推荐</strong>，兼顾现有资产和长期演进</td>
+</tr>
+<tr>
+<td>C：整体接入或重写为外部完整 AI 课堂平台</td>
+<td>高</td>
+<td>高</td>
+<td>可借鉴成熟课堂动作，但与桌面伴侣和现有数据难统一</td>
+<td>双运行时、数据迁移、上游依赖与维护</td>
+<td>慢</td>
+<td>只作为技术参照或后续局部评估，不作为主线</td>
+</tr>
+</tbody></table>
+<p><strong>推荐结论。</strong> 采用方案 B。保留现有 Electron/Vue/Go、模型适配、语音、记忆检索和桌面交互资产，在 Electron 主进程新增伴侣与教师运行时；以持久事件、统一行动代理和分域数据约束三者。方案 A 无法承载可靠课堂状态，方案 C 会把当前问题转化为平台迁移和外部依赖问题。</p>
+<p><strong>演进路径。</strong> 本期先统一底座并完成教师垂直场景；当课堂状态、事件回放和学情证据稳定后，再扩展完整伴侣功能；只有当外部课堂平台在可验证的课堂动作或评测方面出现明确收益时，才评估局部组件接入，不直接替换 Alice 主运行时。</p>
+<h2>5.2 优先级定量与取舍</h2>
+<p>当前是个人单用户探索期，没有真实 Reach 数据。下表采用<strong>估算口径</strong>：R 为单用户每周预计触及该能力的核心场景次数，I 使用 3/2/1/0.5 档，C 为基于现有代码与外部依赖的置信度，E 为相对人月当量，仅用于比较，不构成工期承诺。RICE=R×I×C÷E。</p>
+<table>
+<thead>
+<tr>
+<th>工作包</th>
+<th align="right">R</th>
+<th align="right">I</th>
+<th align="right">C</th>
+<th align="right">E</th>
+<th align="right">RICE</th>
+<th>决策理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>共享安全、事件与记忆基线</td>
+<td align="right">7</td>
+<td align="right">3</td>
+<td align="right">100%</td>
+<td align="right">1.5</td>
+<td align="right">14.0</td>
+<td>所有功能的前置，先消除权限与状态不确定性</td>
+</tr>
+<tr>
+<td>教师控场、打断与恢复</td>
+<td align="right">5</td>
+<td align="right">2</td>
+<td align="right">80%</td>
+<td align="right">1.0</td>
+<td align="right">8.0</td>
+<td>直接决定“像老师”还是“会朗读的文档”</td>
+</tr>
+<tr>
+<td>双向承诺、接回昨天与守望最小闭环</td>
+<td align="right">4</td>
+<td align="right">2</td>
+<td align="right">80%</td>
+<td align="right">1.0</td>
+<td align="right">6.4</td>
+<td>同时服务伴侣和课后复习，复用价值高</td>
+</tr>
+<tr>
+<td>教师实时授课与文档联动</td>
+<td align="right">5</td>
+<td align="right">3</td>
+<td align="right">80%</td>
+<td align="right">2.5</td>
+<td align="right">4.8</td>
+<td>核心体验，但依赖课程编译和课堂快照</td>
+</tr>
+<tr>
+<td>教案解析与课程编译</td>
+<td align="right">3</td>
+<td align="right">3</td>
+<td align="right">80%</td>
+<td align="right">2.0</td>
+<td align="right">3.6</td>
+<td>是授课前置，优先级不能只看分数，必须先完成</td>
+</tr>
+<tr>
+<td>学情、作业与复习</td>
+<td align="right">3</td>
+<td align="right">2</td>
+<td align="right">80%</td>
+<td align="right">1.5</td>
+<td align="right">3.2</td>
+<td>决定长期学习价值，首版先做证据型基础模型</td>
+</tr>
+<tr>
+<td>主动裁决与想法实验室</td>
+<td align="right">3</td>
+<td align="right">2</td>
+<td align="right">50%</td>
+<td align="right">1.0</td>
+<td align="right">3.0</td>
+<td>差异化强，但误打扰和评测不确定性较高</td>
+</tr>
+<tr>
+<td>摩擦矿工与技能学习</td>
+<td align="right">2</td>
+<td align="right">1</td>
+<td align="right">50%</td>
+<td align="right">2.0</td>
+<td align="right">0.5</td>
+<td>技术依赖多，待事件和行动回执积累后再做</td>
+</tr>
+<tr>
+<td>微型礼物与共同仪式增强</td>
+<td align="right">1</td>
+<td align="right">0.5</td>
+<td align="right">50%</td>
+<td align="right">0.5</td>
+<td align="right">0.5</td>
+<td>有惊喜价值，但不先于可靠性投入</td>
+</tr>
+</tbody></table>
+<p><strong>范围取舍。</strong> 依赖顺序优先于纯分数：共享基线完成后，先做课程编译，再做课堂运行与恢复；伴侣侧仅保留可复用的最小闭环。发音高级评估、技能录制和全量关系自我暂缓，避免两条产品线同时失控。</p>
+<h2>5.3 目标总体架构</h2>
+<div class="diagram" role="group" aria-label="Alice 目标总体架构">
+<svg viewBox="0 0 680 650" width="100%" role="img" aria-labelledby="arch-title arch-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="arch-title">Alice 目标总体架构</title>
+  <desc id="arch-desc">渲染层包含聊天、伴侣、课堂和设置，主进程包含对话、伴侣和教师三个运行时，共享事件、模型、记忆学情与行动代理，底层连接本地数据、语音服务和操作系统。</desc>
+  <defs>
+    <marker id="arch-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <text x="40" y="38" fill="#2C2C2A" font-family="Arial, Microsoft YaHei, sans-serif" font-size="15" font-weight="500">三个运行时，共享一套可信底座</text>
+  <rect x="40" y="60" width="600" height="94" rx="16" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="58" y="82" fill="#0C447C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">Vue 渲染层：只负责呈现与交互</text>
+  <g>
+    <rect x="58" y="96" width="130" height="42" rx="8" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="123" y="117" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13">聊天驾驶舱</text>
+    <rect x="200" y="96" width="130" height="42" rx="8" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="265" y="117" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13">伴侣与工作现场</text>
+    <rect x="342" y="96" width="130" height="42" rx="8" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="407" y="117" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13">英语课堂</text>
+    <rect x="484" y="96" width="130" height="42" rx="8" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="549" y="117" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13">设置与授权</text>
+  </g>
+  <path d="M340 154V174" fill="none" stroke="#185FA5" stroke-width="1.5" marker-end="url(#arch-arrow)"/>
+  <rect x="40" y="178" width="600" height="148" rx="16" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="58" y="202" fill="#0C447C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">Electron 主进程：独立业务运行时</text>
+  <g>
+    <rect x="58" y="220" width="178" height="82" rx="10" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="147" y="246" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="14" font-weight="500">对话运行时</text>
+    <text x="147" y="272" text-anchor="middle" dominant-baseline="central" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">保留并收窄现有链路</text>
+    <rect x="251" y="220" width="178" height="82" rx="10" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="340" y="246" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="14" font-weight="500">伴侣运行时</text>
+    <text x="340" y="272" text-anchor="middle" dominant-baseline="central" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">关系、主动与守望</text>
+    <rect x="444" y="220" width="178" height="82" rx="10" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="533" y="246" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="14" font-weight="500">教师运行时</text>
+    <text x="533" y="272" text-anchor="middle" dominant-baseline="central" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">课程、课堂与学情</text>
+  </g>
+  <path d="M340 326V346" fill="none" stroke="#0F6E56" stroke-width="1.5" marker-end="url(#arch-arrow)"/>
+  <rect x="40" y="350" width="600" height="148" rx="16" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="58" y="374" fill="#085041" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">共享核心服务：所有入口遵守同一契约</text>
+  <g>
+    <rect x="58" y="392" width="130" height="82" rx="10" fill="#FFFFFF" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="123" y="420" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="14" font-weight="500">持久事件总线</text>
+    <text x="123" y="447" text-anchor="middle" dominant-baseline="central" fill="#0F6E56" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">去重、顺序、恢复</text>
+    <rect x="200" y="392" width="130" height="82" rx="10" fill="#FFFFFF" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="265" y="420" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="14" font-weight="500">模型路由</text>
+    <text x="265" y="447" text-anchor="middle" dominant-baseline="central" fill="#0F6E56" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">质量、成本、版本</text>
+    <rect x="342" y="392" width="130" height="82" rx="10" fill="#FFFFFF" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="407" y="420" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="14" font-weight="500">记忆与学情</text>
+    <text x="407" y="447" text-anchor="middle" dominant-baseline="central" fill="#0F6E56" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">分域、证据、时间</text>
+    <rect x="484" y="392" width="130" height="82" rx="10" fill="#FFFFFF" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="549" y="420" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="14" font-weight="500">统一行动代理</text>
+    <text x="549" y="447" text-anchor="middle" dominant-baseline="central" fill="#0F6E56" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">授权、审计、撤销</text>
+  </g>
+  <path d="M340 498V518" fill="none" stroke="#0F6E56" stroke-width="1.5" marker-end="url(#arch-arrow)"/>
+  <rect x="40" y="522" width="600" height="92" rx="16" fill="#FFFFFF" stroke="#5F5E5A" stroke-width="0.5"/>
+  <text x="58" y="546" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">基础设施与外部能力</text>
+  <text x="58" y="578" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13">SQLite / HNSW / 文件资产　｜　Workers / Go 语音与向量服务</text>
+  <text x="58" y="600" fill="#5F5E5A" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">云与本地模型　｜　Windows / 浏览器 / Office　｜　Codex 与远程 MCP</text>
+</svg>
+</div>
+
+
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>保留或新增</th>
+<th>核心职责</th>
+<th>明确不负责</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Vue 渲染层</td>
+<td>保留聊天，新增伴侣与课堂视图</td>
+<td>呈现、文档展示、字幕、控制、反馈、音频播放与 VAD</td>
+<td>不直接决定课程状态，不直接执行高权限工具</td>
+</tr>
+<tr>
+<td>对话运行时</td>
+<td>保留并收窄现有 ChatOrchestrator</td>
+<td>普通聊天、流式回复、工具续轮和通用对话</td>
+<td>不承担长期伴侣与课堂状态</td>
+</tr>
+<tr>
+<td>伴侣运行时</td>
+<td>新增</td>
+<td>关心清单、承诺、关系、主动裁决、工作现场与守望</td>
+<td>不直接操作音频队列和文档页码</td>
+</tr>
+<tr>
+<td>教师运行时</td>
+<td>新增</td>
+<td>课程编译、课堂状态、教学动作、控场与学情</td>
+<td>不获得额外操作系统权限</td>
+</tr>
+<tr>
+<td>共享核心服务</td>
+<td>新增统一契约</td>
+<td>持久事件、模型路由、分域记忆、行动代理、版本与成本</td>
+<td>不包含具体教师话术或伴侣人格</td>
+</tr>
+<tr>
+<td>Go 与外部能力</td>
+<td>保留并修正降级</td>
+<td>STT、TTS、向量、云模型、Codex、Office 与 OS 能力</td>
+<td>不承担课程或关系业务决策</td>
+</tr>
+</tbody></table>
+<h2>5.4 课程编译管线</h2>
+<div class="diagram" role="group" aria-label="教案到课堂的课程编译管线">
+<svg viewBox="0 0 680 414" width="100%" role="img" aria-labelledby="pipeline-title pipeline-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="pipeline-title">教案到课堂的课程编译管线</title>
+  <desc id="pipeline-desc">多格式教案先转换为带页面和锚点的教学文档，再生成可确认的课程版本，课堂按教学动作执行并沉淀学情。</desc>
+  <defs>
+    <marker id="pipeline-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <text x="40" y="38" fill="#2C2C2A" font-family="Arial, Microsoft YaHei, sans-serif" font-size="15" font-weight="500">先把教案编译成课程，再让教师开课</text>
+  <g>
+    <rect x="40" y="76" width="104" height="76" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="92" y="104" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">多格式材料</text>
+    <text x="92" y="130" text-anchor="middle" dominant-baseline="central" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="11">PDF / Word / PPT / 图片</text>
+    <rect x="164" y="76" width="104" height="76" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="216" y="104" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">教学文档 IR</text>
+    <text x="216" y="130" text-anchor="middle" dominant-baseline="central" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="11">页面、文本、区域锚点</text>
+    <rect x="288" y="76" width="104" height="76" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="340" y="104" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">课程编译</text>
+    <text x="340" y="130" text-anchor="middle" dominant-baseline="central" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="11">目标、节点、练习、时间</text>
+    <rect x="412" y="76" width="104" height="76" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="464" y="104" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">课堂运行时</text>
+    <text x="464" y="130" text-anchor="middle" dominant-baseline="central" fill="#0F6E56" font-family="Arial, Microsoft YaHei, sans-serif" font-size="11">讲解、互动、控场、恢复</text>
+    <rect x="536" y="76" width="104" height="76" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="588" y="104" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">学情与复习</text>
+    <text x="588" y="130" text-anchor="middle" dominant-baseline="central" fill="#0F6E56" font-family="Arial, Microsoft YaHei, sans-serif" font-size="11">掌握度、错题、下次课</text>
+  </g>
+  <path d="M144 114H160 M268 114H284 M392 114H408 M516 114H532" fill="none" stroke="#185FA5" stroke-width="1.5" marker-end="url(#pipeline-arrow)"/>
+  <rect x="64" y="190" width="250" height="118" rx="12" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="84" y="216" fill="#0C447C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">质量闸门一：材料可读</text>
+  <text x="84" y="244" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">OCR 与转换置信度、缺页、乱序、</text>
+  <text x="84" y="266" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">无法辨识区域必须逐项提示。</text>
+  <text x="84" y="290" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">低质量材料不得直接自动授课。</text>
+  <rect x="366" y="190" width="250" height="118" rx="12" fill="#FFFFFF" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="386" y="216" fill="#085041" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">质量闸门二：课程可执行</text>
+  <text x="386" y="244" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">首次课程大纲必须确认；开课后</text>
+  <text x="386" y="266" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">修改生成新版本，不篡改既有进度。</text>
+  <text x="386" y="290" fill="#0F6E56" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">大模型只能选择合法教学动作。</text>
+  <text x="40" y="354" fill="#5F5E5A" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">核心原则：原文与教师补充分开，讲授进度与自由浏览分开，内容版本与契约版本分开。</text>
+  <text x="40" y="380" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">稳定页锚 → DOCUMENT_SYNC；无稳定页锚 → 修复材料或显式 BOARD_ONLY。重任务全部进入 worker。</text>
+</svg>
+</div>
+
+
+<p><strong>教学文档 IR。</strong> 所有材料统一转换为页面资产、结构化文本、阅读顺序、区域坐标、来源页码、OCR/转换置信度和内容哈希。PDF使用现有解析与渲染基础；DOCX/PPTX优先通过可信 Office 或 LibreOffice 转换获得稳定页面；图片通过 OCR 与视觉分析生成区域信息。任何宏、嵌入对象和外部链接默认不执行。</p>
+<p><strong>材料类型识别。</strong> 系统必须区分教案、教材/讲义、PPT课件和题目材料。真教案可进入忠实执行模式；教材必须先生成教学目标、步骤、练习与时间建议，经确认后才能授课。</p>
+<p><strong>课程编译。</strong> CourseVersion 只输出课程目标、先备知识、教学节点、视觉锚点、讲解策略、互动问题、练习、内容量规和恢复点。每个节点还包含 <code>required</code>、<code>plannedDuration</code>、<code>compressible</code>、<code>minDuration</code>、<code>maxDuration</code> 与 <code>completionRule</code>。教案原文、模型推断与教师补充分别标注。总时长、节奏策略、语言、严格度和展示模式属于独立的 ClassContract，不写进 CourseVersion。</p>
+<p><strong>两道质量闸门。</strong> 材料可读性不足不得进入课程编译；课程结构、锚点或练习不可执行不得进入正式授课。首次课程内容与课堂契约分别确认，同一版本组合后续可一键继续。缺少稳定原文页锚时只能进入显式 <code>BOARD_ONLY</code>，或先修复材料后再进入 <code>DOCUMENT_SYNC</code>。</p>
+<h2>5.5 课堂运行时与三条时间线</h2>
+<div class="diagram" role="group" aria-label="课堂打断的三条时间线">
+<svg viewBox="0 0 680 486" width="100%" role="img" aria-labelledby="interrupt-title interrupt-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="interrupt-title">课堂打断的三条时间线</title>
+  <desc id="interrupt-desc">学生开口时，生成、音频和文档展示三条时间线分别冻结或清理，答疑后恢复同一教学节点与视觉锚点。</desc>
+  <defs>
+    <marker id="interrupt-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <text x="40" y="38" fill="#2C2C2A" font-family="Arial, Microsoft YaHei, sans-serif" font-size="15" font-weight="500">打断不是停止播放器，而是保存完整课堂现场</text>
+  <text x="160" y="78" text-anchor="middle" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12" font-weight="500">授课中</text>
+  <text x="300" y="78" text-anchor="middle" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12" font-weight="500">学生开口</text>
+  <text x="440" y="78" text-anchor="middle" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12" font-weight="500">处理意图</text>
+  <text x="580" y="78" text-anchor="middle" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12" font-weight="500">恢复授课</text>
+  <text x="40" y="126" fill="#0C447C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">生成时间线</text>
+  <text x="40" y="226" fill="#0C447C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">音频时间线</text>
+  <text x="40" y="326" fill="#0C447C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">视觉时间线</text>
+  <g>
+    <rect x="120" y="100" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="176" y="128" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">生成教学节点 N</text>
+    <rect x="260" y="100" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="316" y="128" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">先写快照与取消目标</text>
+    <rect x="400" y="100" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="456" y="128" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">生成答疑或控场</text>
+    <rect x="540" y="100" width="100" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="590" y="128" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">按教学句恢复</text>
+    <rect x="120" y="200" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="176" y="228" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">播放节点 N</text>
+    <rect x="260" y="200" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="316" y="228" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">按 ID 清旧教师音频</text>
+    <rect x="400" y="200" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="456" y="228" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">播放当前答复</text>
+    <rect x="540" y="200" width="100" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="590" y="228" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">不重复不丢句</text>
+    <rect x="120" y="300" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="176" y="328" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">页面与锚点 N</text>
+    <rect x="260" y="300" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="316" y="328" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">冻结课堂画面</text>
+    <rect x="400" y="300" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="456" y="328" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">答疑或补充板书</text>
+    <rect x="540" y="300" width="100" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="590" y="328" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">回到页面锚点 N</text>
+  </g>
+  <path d="M232 128H256 M372 128H396 M512 128H536 M232 228H256 M372 228H396 M512 228H536 M232 328H256 M372 328H396 M512 328H536" fill="none" stroke="#185FA5" stroke-width="1.5" marker-end="url(#interrupt-arrow)"/>
+  <rect x="40" y="392" width="600" height="66" rx="12" fill="#FFFFFF" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="60" y="418" fill="#085041" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">恢复规则</text>
+  <text x="60" y="442" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">最小单位是教学句或教学动作，不从半个词继续；只有课堂运行时可以推进课程节点。</text>
+</svg>
+</div>
+
+
+<p>教师运行时不让大模型直接操作播放器或文档，而是让其提出受限 <code>TeachingAction</code> 请求，经 Schema、权限和当前状态校验后执行。</p>
+<table>
+<thead>
+<tr>
+<th>动作</th>
+<th>作用</th>
+<th>关键约束</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SHOW_PAGE</code></td>
+<td>展示指定页面</td>
+<td>必须引用有效课程版本与锚点</td>
+</tr>
+<tr>
+<td><code>HIGHLIGHT</code></td>
+<td>高亮段落或区域</td>
+<td>不得改变学生自由浏览位置，除非属于正式授课动作</td>
+</tr>
+<tr>
+<td><code>NARRATE</code></td>
+<td>生成或播放一段讲解</td>
+<td>绑定新的 <code>teacherTurnId</code>，标明原文依据或教师补充</td>
+</tr>
+<tr>
+<td><code>ASK</code></td>
+<td>提出问题并等待</td>
+<td>设置等待、提示和认输分支，不把沉默直接判错</td>
+</tr>
+<tr>
+<td><code>PRACTICE</code></td>
+<td>发起跟读、造句、角色扮演等</td>
+<td>必须绑定目标与评价量规</td>
+</tr>
+<tr>
+<td><code>PARK_TOPIC</code></td>
+<td>暂存跑题内容</td>
+<td>不自动执行其中的电脑命令</td>
+</tr>
+<tr>
+<td><code>RESUME</code></td>
+<td>恢复快照并继续</td>
+<td>先恢复课程锚点，再按教学句状态恢复；是否改变学生视口由跟随模式决定</td>
+</tr>
+<tr>
+<td><code>END_LESSON</code></td>
+<td>结束并生成小结</td>
+<td>完成材料与掌握目标分别记录</td>
+</tr>
+</tbody></table>
+<p>生成、音频和视觉是三条独立时间线。<code>teacherTurnId</code> 只标识教师生成或播放，<code>studentTurnId</code> 只标识学生输入，<code>cancelTeacherTurnId</code> 只指向应取消的旧教师代次，<code>sessionId</code> 始终保持稳定，四者不得复用同一个 <code>activeUtteranceId</code>。</p>
+<p>学生开口后，运行时在同一原子步骤中记录旧教师代次、写入取消目标、生成新学生代次并保存课堂快照，然后才取消旧生成和音频。取消接口必须携带 <code>cancelTeacherTurnId</code>，渲染层只清理匹配的旧教师音频，不能按“当前音频”模糊清理，也不能删除新学生输入。</p>
+<p>快照保存 <code>sentenceIndex</code>、<code>sentenceCommitted</code> 与 <code>playbackState</code>。已完整播放并提交的教学句默认从下一句恢复；未播放或只播放一部分的教学句从该句开头重讲，不尝试从半个词继续。封闭式答疑完成后默认自动回课，学生说“继续”可立即回课；再次插话会取消待恢复并建立新快照，暂停或退出则取消恢复。开放式讨论只有达到结束条件或用户明确继续时才恢复。</p>
+<p>课程锚点与学生视口分开。<code>FOLLOW_LESSON</code> 下恢复时同步页码与锚点；<code>FREE_BROWSE</code> 下可只更新课程锚点并保留学生视口，同时显示“回到授课位置”。只有教师运行时可以推进节点，学生翻页和模型生成结束都不能自动推进。</p>
+<h2>5.6 现有工程调整清单</h2>
+<table>
+<thead>
+<tr>
+<th>现有模块</th>
+<th>调整方式</th>
+<th>目标变化</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>src/modules/conversation/</code></td>
+<td>保留并收窄</td>
+<td>继续负责普通对话，提供可复用流式与取消能力</td>
+</tr>
+<tr>
+<td><code>src/components/Main.vue</code>、<code>ChatCockpit.vue</code></td>
+<td>保留主链，拆分入口</td>
+<td>普通聊天、伴侣和教师使用明确模式路由，不共享一套隐式状态</td>
+</tr>
+<tr>
+<td><code>src/composables/useAudioProcessing.ts</code>、<code>speechQueue.ts</code></td>
+<td>抽出可复用语音控制</td>
+<td>支持带 <code>utteranceId</code> 的代次控制、课堂快照和精确取消</td>
+</tr>
+<tr>
+<td><code>src/prompts/englishCoachPrompt.ts</code></td>
+<td>降级为默认策略之一</td>
+<td>用节点级语言、纠错和严格度策略替代全局单一语言锁</td>
+</tr>
+<tr>
+<td><code>electron/main/schedulerManager.ts</code></td>
+<td>重构</td>
+<td>修复重复监听、一次性任务与审批，纳入事件和守望任务</td>
+</tr>
+<tr>
+<td><code>electron/main/desktopManager.ts</code>、custom tools、cron、MCP</td>
+<td>统一接入行动代理</td>
+<td>所有动作使用相同授权、超时、审计、验证与撤销契约</td>
+</tr>
+<tr>
+<td><code>thoughtVectorStore.ts</code>、<code>memoryManager.ts</code>、<code>ragDocumentStore.ts</code></td>
+<td>保留检索，增加分域与来源</td>
+<td>修复会话隔离，增加关系、课程、学情和版本数据，不另建图数据库</td>
+</tr>
+<tr>
+<td>Go backend</td>
+<td>保留语音与向量职责，修正假就绪</td>
+<td>按服务独立降级，不承载课堂或伴侣业务</td>
+</tr>
+<tr>
+<td><code>docs/functions.json</code> 与 provider adapters</td>
+<td>统一工具描述与能力过滤</td>
+<td>按供应商真实能力提供视觉、工具和 MCP，禁止虚标</td>
+</tr>
+</tbody></table>
+<h2>5.7 建议新增目录</h2>
+<pre><code class="language-text">shared/contracts/
+  events.ts
+  actions.ts
+  teaching-actions.ts
+  memory.ts
+  learning.ts
+
+electron/main/
+  core/events/          # 持久事件、幂等、顺序、订阅
+  core/actions/         # 统一行动代理、授权、回执、撤销
+  core/models/          # 模型路由、预算、版本、降级
+  core/storage/         # 分域 SQLite、迁移、备份、清理
+  companion/            # 伴侣运行时、关心清单、主动裁决
+  missions/             # 守望任务与恢复
+  teaching/materials/   # 格式转换、IR、质量报告
+  teaching/courses/     # 课程编译、版本、锚点
+  teaching/lessons/     # 课堂状态、打断、恢复、控场
+  teaching/learning/    # 学情、评价、复习
+
+src/modules/companion/
+src/modules/teaching/
+src/components/companion/
+src/components/teaching/
+</code></pre>
+<p>新增 IPC 应采用 <code>teaching:*</code>、<code>companion:*</code>、<code>mission:*</code> 的窄类型通道，并继续经过 preload 白名单；不得为了省事新增任意方法名转发的通用高权限通道。</p>
+<h2>5.8 重任务隔离与主线程响应</h2>
+<p>Electron 主进程只负责编排、权限和状态提交，不得在 UI 主线程执行大型 PDF/DOCX/PPTX 转换、OCR、版面分析、页面渲染、大批量 embedding 或索引重建。PDF 解析可扩展现有 worker，其他重任务放入独立 worker thread 或子进程，并通过统一任务协议连接。</p>
+<pre><code class="language-text">electron/main/teaching/materials/     # 仅编排、校验、状态与权限
+electron/workers/teaching/
+  document-converter.worker.ts       # Office/LibreOffice 子进程编排
+  pdf-layout.worker.ts               # PDF 文本、坐标与页面资产
+  ocr-layout.worker.ts               # OCR 与阅读顺序
+  course-index.worker.ts             # 大批量向量与索引
+</code></pre>
+<p>重任务必须支持 <code>jobId</code>、进度、超时、资源上限、取消和崩溃回收。大量 SQLite 写入采用有界队列与批量事务，避免长事务阻塞语音控制。取消后不得遗留失控子进程、临时文件或迟到结果；迟到结果按 <code>jobId</code> 与课程版本丢弃。P1 验收必须包含“大文件处理期间仍能暂停、退出和打断”的测试。</p>
+<hr>
+<h1>六、用户角色与使用场景</h1>
+<h2>6.1 角色</h2>
+<table>
+<thead>
+<tr>
+<th>角色</th>
+<th>目标</th>
+<th>权限与边界</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>成年学习者</td>
+<td>按教案持续学习英语，能自由提问并获得适合水平的指导</td>
+<td>可控制自己的课程、学情和课堂规则，可暂停或退出</td>
+</tr>
+<tr>
+<td>材料提供者</td>
+<td>导入、确认和维护教案及课程版本</td>
+<td>本期与学习者通常是同一人</td>
+</tr>
+<tr>
+<td>电脑所有者</td>
+<td>管理文件、应用、授权和后台任务</td>
+<td>所有高危操作最终控制权始终属于本人</td>
+</tr>
+<tr>
+<td>Alice 伴侣</td>
+<td>维护共同经历、承诺和主动帮助</td>
+<td>不得把推测当事实，不得虚构生活与情感经历</td>
+</tr>
+<tr>
+<td>Alice 教师</td>
+<td>在课堂契约内主导讲解、提问、练习、评价和控场</td>
+<td>权威只覆盖教学，不增加系统权限</td>
+</tr>
+</tbody></table>
+<h2>6.2 核心场景</h2>
+<p><strong>场景一：首次备课。</strong> 用户导入材料，系统识别类型与质量，展示问题和课程草稿；用户确认目标、节奏、语言和严格度后形成课程版本。</p>
+<p><strong>场景二：正式授课。</strong> Alice 复习旧知、说明本课目标，按节点讲解并同步文档；在计划节点提问或组织练习，根据证据决定继续、换例或复习。</p>
+<p><strong>场景三：课程内插话。</strong> 学生对当前短语提问，Alice 保存课堂现场并作答；答疑结束后回到同页同段，必要时用一句话 recap，再继续。</p>
+<p><strong>场景四：明显跑题。</strong> 学生连续谈论无关内容，教师先简短承接，再说明当前目标，将话题放入停车场并回到课堂；严格模式下可暂停推进新内容。</p>
+<p><strong>场景五：学生反复不懂。</strong> 教师更换解释、例子或练习，降低语言难度；仍无证据理解时标记待复习。</p>
+<p><strong>场景六：接回昨天。</strong> 工作或学习现场以 PAUSED 保存，用户第二天手动确认后恢复项目、课程或任务，不自动控制电脑。</p>
+<p><strong>场景七：连续卡住。</strong> Alice 在有明确事件证据时先静默提示，用户查看后给出只读诊断和可验证建议，不把猜测当故障结论。</p>
+<p><strong>场景八：课后与周末复盘。</strong> 系统根据真实作品、课堂和任务记录生成回顾，区分已完成、未掌握、失约和下周建议，并允许用户纠正。</p>
+<h2>6.3 页面与信息架构（非交互设计稿）</h2>
+<table>
+<thead>
+<tr>
+<th>页面或视图</th>
+<th>核心内容</th>
+<th>主要操作</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>课程库</td>
+<td>材料、课程版本、进度、质量状态</td>
+<td>导入、备课、继续、归档、导出</td>
+</tr>
+<tr>
+<td>备课确认</td>
+<td>材料问题、目标、必学/可选节点、时长、大纲、锚点、独立课堂契约</td>
+<td>修改、确认、返回、查看低置信区域</td>
+</tr>
+<tr>
+<td>英语课堂</td>
+<td>当前文档、教师状态、字幕、当前目标、计划/实际用时、时间债、练习与课堂控制</td>
+<td>插话、暂停、重复、慢讲、求助、退出、回到授课位置</td>
+</tr>
+<tr>
+<td>课后报告</td>
+<td>完成内容、学习证据、错题、作业、下次建议</td>
+<td>修正评价、接受作业、安排复习、查看原始依据</td>
+</tr>
+<tr>
+<td>伴侣主页</td>
+<td>共同作品、承诺、工作现场、关心事项</td>
+<td>恢复、确认、暂停、编辑、查看证据</td>
+</tr>
+<tr>
+<td>信任中心</td>
+<td>感知状态、授权、行动回执、数据与成本</td>
+<td>撤销、删除、导出、静音、暂停任务、设置预算</td>
+</tr>
+</tbody></table>
+<hr>
+<h1>七、功能需求</h1>
+<h2>7.1 需求编号与通用规则</h2>
+<p>伴侣需求使用 <code>CMP</code>，教师需求使用 <code>TCH</code>，共享平台需求使用 <code>PLT</code>。Must 表示首个 MVP 必须具备，Should 表示完整产品应交付但可在后续迭代，Could 表示差异化增强，Won&#39;t 表示本期明确不做。每条验收标准均可直接转为测试用例；涉及数值时均为建议验收目标。</p>
+<h2>7.2 伴侣体验的产品要点与交互要求</h2>
+<table>
+<thead>
+<tr>
+<th>体验</th>
+<th>产品要点</th>
+<th>交互要求与边界</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>共同作品</td>
+<td>以作品、目标、决策、文件和下一步构成共享空间，关系从真实合作生长</td>
+<td>作品须由用户显式选择；AI 只能读取授权内容，不能把聊天自动变成共同作品</td>
+</tr>
+<tr>
+<td>双向承诺</td>
+<td>同时记录用户与 Alice 的承诺、条件、验收、结果和失约修复</td>
+<td>建立、修改、豁免须确认；结果只能标为完成、失败、逾期、取消、豁免或待确认</td>
+</tr>
+<tr>
+<td>自我成长与反向求助</td>
+<td>保存 Alice 的观点、依据、置信度、变化和实际改进；允许她就自身误判向用户求例</td>
+<td>用户可查看、修改、停用；不得虚构兴趣、情绪、生活或“我感觉到了”</td>
+</tr>
+<tr>
+<td>关系修复与默契</td>
+<td>识别明确负面反馈，说明误解、采取调整并验证是否改对</td>
+<td>不在争执中连续追问；优先减少打扰，再选择合适时机确认</td>
+</tr>
+<tr>
+<td>决策日记与想法实验室</td>
+<td>保存决定、备选、预期、复查和实际结果；想法附依据、反方和最小实验</td>
+<td>未经同意不得变成自动任务；过期的 AI 建议必须可撤回</td>
+</tr>
+<tr>
+<td>微型礼物与共同仪式</td>
+<td>根据真实作品生成排查卡、整理稿、小工具或周期回顾</td>
+<td>默认草稿；用户可预览、修改、删除，禁止随机煽情和虚构纪念</td>
+</tr>
+<tr>
+<td>关心清单与主动裁决</td>
+<td>从承诺、工作现场、学习和明确兴趣形成候选事项，按价值、时效、置信和打扰成本决策</td>
+<td>每条主动内容展示“为什么出现”；提供有用、不打扰、减少此类、静音和撤销</td>
+</tr>
+<tr>
+<td>接回昨天</td>
+<td>保存授权范围内的项目、课程、文件、窗口和下一步参考</td>
+<td>现场以 PAUSED 保存，恢复前预览，用户手动执行，不自动控制窗口</td>
+</tr>
+<tr>
+<td>守望任务</td>
+<td>条件、时限、进度、取消、验证和结果通知构成持久任务</td>
+<td>每次只读或已授权执行均留回执；异常不能静默消失，结果不可验证时不得报成功</td>
+</tr>
+<tr>
+<td>摩擦矿工与技能学习</td>
+<td>从真实重复事件识别自动化机会，成功流程经验证后可沉淀为技能</td>
+<td>不记录无关活动；先给只读建议和差异预览，用户确认后才执行或保存</td>
+</tr>
+<tr>
+<td>电脑管家基础包</td>
+<td>文件、窗口、浏览器、Office、系统健康统一进入行动代理</td>
+<td>按风险授权，支持预览、审计、撤销；教师身份不增加任何权限</td>
+</tr>
+<tr>
+<td>有边界的感知与安静陪伴</td>
+<td>感知可暂停、可撤回，原始媒体最小化；陪伴可只显示状态而不说话</td>
+<td>默认不保存或上传原始屏幕、音频和视频；敏感场景主动退出并明确提示</td>
+</tr>
+</tbody></table>
+<h2>7.3 伴侣功能需求与验收</h2>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>需求与优先级</th>
+<th>产品与交互规则</th>
+<th>验收标准（Given / When / Then）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>CMP-01</td>
+<td>共同作品工作区，Should</td>
+<td>用户选择项目并关联授权文件、决策和下一步；AI 草稿不得自动纳入</td>
+<td>Given 用户选定项目，When 创建共享空间，Then 只显示授权材料且所有 AI 草稿可识别、可移除</td>
+</tr>
+<tr>
+<td>CMP-02</td>
+<td>作品过程与状态，Could</td>
+<td>保存草稿、进行中、已采用、已归档及版本关系</td>
+<td>Given 一份作品多次修改，When 查看历史，Then 能区分各版本与采纳状态且旧版不被覆盖</td>
+</tr>
+<tr>
+<td>CMP-03</td>
+<td>双向承诺，Must</td>
+<td>承诺的创建、变更、完成、豁免和失约均有证据；AI 承诺可链接真实任务</td>
+<td>Given 双方形成到期承诺，When 到期或结果产生，Then 系统提示承诺人并要求以证据更新状态，不能自行宣称完成</td>
+</tr>
+<tr>
+<td>CMP-04</td>
+<td>观点成长记录，Should</td>
+<td>观点含立场、依据、置信、版本与变化原因，可修正和撤回</td>
+<td>Given Alice 曾提出建议，When 新证据改变结论，Then 展示前后观点、变化原因和当前有效版本</td>
+</tr>
+<tr>
+<td>CMP-05</td>
+<td>Alice 反向求助，Could</td>
+<td>仅针对自身重复误判请求少量示例，并可停用</td>
+<td>Given 同类误判达到设定条件，When Alice 求助，Then 说明具体误判和所需示例，且不索取无关隐私</td>
+</tr>
+<tr>
+<td>CMP-06</td>
+<td>关系修复，Should</td>
+<td>记录明确反馈、调整动作与后续验证；不得连续道歉或追问</td>
+<td>Given 用户说“别烦我”，When 系统响应，Then 立即降低主动级别并停止非必要追问，后续调整可在信任中心查看</td>
+</tr>
+<tr>
+<td>CMP-07</td>
+<td>决策日记与想法实验室，Should</td>
+<td>决定、备选、预期、复查和结果闭环；想法需证据、反方和最小实验</td>
+<td>Given 一个到期决策，When 复查，Then 可对照预期与实际结果；未同意想法不会变成任务</td>
+</tr>
+<tr>
+<td>CMP-08</td>
+<td>微型礼物，Could</td>
+<td>只从已授权真实经历生成小工具或整理稿，默认草稿</td>
+<td>Given 一段真实项目记录，When 生成礼物，Then 用户可查看来源、编辑、拒绝和删除，不含虚构共同经历</td>
+</tr>
+<tr>
+<td>CMP-09</td>
+<td>共同仪式与周期回顾，Could</td>
+<td>支持接回昨天、课后小结和周期作品回顾，频率可配置</td>
+<td>Given 到达复盘周期，When 生成回顾，Then 只引用可回溯记录并区分完成、未完成与建议</td>
+</tr>
+<tr>
+<td>CMP-10</td>
+<td>关心清单与主动裁决，Should</td>
+<td>主动候选必须来自可解释事项，并计算价值、时效、置信与打扰成本</td>
+<td>Given 无新证据的低价值事项，When 主动裁决运行，Then 选择静默；有紧急且可靠事项时才可提升通知级别</td>
+</tr>
+<tr>
+<td>CMP-11</td>
+<td>主动反馈、去重与静音，Must</td>
+<td>每条主动内容有原因、反馈、去重和作用域静音</td>
+<td>Given 用户选择减少此类，When 相同候选再次出现，Then 按所选作用域抑制且历史反馈可撤销</td>
+</tr>
+<tr>
+<td>CMP-12</td>
+<td>接回昨天与工作现场，Must</td>
+<td>现场只保存授权参考，恢复前预览并由用户执行</td>
+<td>Given 一个 PAUSED 现场，When 用户第二天点击恢复，Then 系统展示将打开的项目、文件和下一步，经确认后才执行</td>
+</tr>
+<tr>
+<td>CMP-13</td>
+<td>守望任务，Must</td>
+<td>任务支持条件、进度、暂停、取消、超时、验证和结果通知</td>
+<td>Given 构建守望任务，When 构建结束，Then 生成含退出结果和日志摘要的回执；无法读取结果时只标记待确认</td>
+</tr>
+<tr>
+<td>CMP-14</td>
+<td>摩擦矿工，Could</td>
+<td>只对授权事件做最小聚合，用户确认后才形成自动化建议</td>
+<td>Given 出现重复操作候选，When 生成建议，Then 展示依据、影响范围和停止采集入口，不自动执行</td>
+</tr>
+<tr>
+<td>CMP-15</td>
+<td>技能沉淀，Could</td>
+<td>技能来自已验证流程，含参数、权限、版本、测试与回滚</td>
+<td>Given 一个流程多次验证成功，When 保存技能，Then 用户可预览、试运行、停用和删除，过期授权需重新确认</td>
+</tr>
+<tr>
+<td>CMP-16</td>
+<td>统一电脑行动代理，Must</td>
+<td>即时、定时、教师、脚本和 MCP 统一按 R0—R3 授权；高危动作不得复用缓存批准</td>
+<td>Given 一个曾被永久授权的高危动作，When 以旧授权重放或改为破坏性参数，Then 仍须逐次确认，未经本次确认不得执行</td>
+</tr>
+<tr>
+<td>CMP-17</td>
+<td>语义文件与电脑管理，Should</td>
+<td>搜索、整理、窗口、浏览器、Office 和系统健康使用明确范围与预览</td>
+<td>Given 一次文件整理建议，When 用户查看计划，Then 可看到源路径、目标路径和冲突处理，确认前文件不变化</td>
+</tr>
+<tr>
+<td>CMP-18</td>
+<td>感知隐私与退出权，Must</td>
+<td>感知有独立开关、作用域、撤回和状态提示；原始媒体默认不留存</td>
+<td>Given 用户关闭或撤回感知，When 设置生效，Then 采集与上行停止，后续请求不能恢复，撤销结果可验证</td>
+</tr>
+<tr>
+<td>CMP-19</td>
+<td>安静陪伴，Could</td>
+<td>仅展示在场、任务或专注状态，不产生语音和主动内容</td>
+<td>Given 用户选择安静陪伴，When 非紧急普通事件发生，Then 只保留静默记录，不弹出或播报</td>
+</tr>
+<tr>
+<td>CMP-20</td>
+<td>虚构生活与情绪伪装，Won&#39;t</td>
+<td>禁止虚构人类生活、情绪、兴趣和共同经历</td>
+<td>Given 缺少真实记录，When 生成关系内容，Then 必须说明未知或不生成，不得用想象补齐</td>
+</tr>
+</tbody></table>
+<h2>7.4 英语教师的完整能力地图</h2>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>应具备的能力</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>材料与备课</td>
+<td>多文件导入、页序确认、OCR与版面分析、教案/教材识别、教学目标与先备知识提取、课程大纲、时间分配、练习与量规、视觉锚点、低置信提示、课程版本</td>
+</tr>
+<tr>
+<td>教学设计</td>
+<td>教案忠实度、学生水平、双语比例、讲解深度、例子数量、提问密度、等待时间、复习策略、课堂契约、教师声音与严格度</td>
+</tr>
+<tr>
+<td>授课与展示</td>
+<td>开场复习、目标说明、自动讲解、逐页逐段展示、原文与补充分离、生成板书、提问、等待、练习、总结、按时或按掌握推进</td>
+</tr>
+<tr>
+<td>互动与控场</td>
+<td>语音插话、附和识别、课程问答、延伸问答、学生控制指令、跑题停放、按严格度拉回、沉默与反复不懂处理、紧急事件退出</td>
+</tr>
+<tr>
+<td>英语教学</td>
+<td>词汇、语法、阅读、口语、听力、写作、跟读、替换练习、情景角色扮演、分级纠错、发音与流利度、中文救场、全英文输出训练</td>
+</tr>
+<tr>
+<td>学情与长期教学</td>
+<td>目标掌握证据、错误类型、误解谱系、作业、间隔复习、跨课先备关系、课后报告、下次课准备、教师自评与版本反馈</td>
+</tr>
+<tr>
+<td>信任与可及性</td>
+<td>字幕、键盘、速度、回放、降低动态效果、成本、降级、人工编辑、随时暂停与退出</td>
+</tr>
+</tbody></table>
+<h2>7.5 课堂契约、意图分类与教师权威</h2>
+<p><strong>课堂契约。</strong> 每次首次开课或规则发生重大变化时，用户确认本课目标、预计时长、教案忠实度、语言策略、纠错方式、等待时间、严格度、跑题处理和感知权限。课堂契约只在课程会话中有效，退出后立即恢复普通伴侣权限与人格边界。</p>
+<table>
+<thead>
+<tr>
+<th>学生输入或事件</th>
+<th>教师行为</th>
+<th>是否打断授课</th>
+<th>课程节点是否改变</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>“嗯”“好的”等附和</td>
+<td>继续讲解，不把它当提问</td>
+<td>通常否</td>
+<td>否</td>
+</tr>
+<tr>
+<td>当前知识点追问</td>
+<td>保存现场，依据当前教案回答，必要时换例</td>
+<td>是</td>
+<td>答疑本身不改变</td>
+</tr>
+<tr>
+<td>与课程有关的延伸问题</td>
+<td>简短补充并标明教师补充，再回原节点</td>
+<td>是</td>
+<td>默认不改变</td>
+</tr>
+<tr>
+<td>“暂停”“慢点”“重复”“讲中文”</td>
+<td>识别为课堂控制指令</td>
+<td>立即或按指令</td>
+<td>按指令，跳过记为未形成掌握证据</td>
+</tr>
+<tr>
+<td>明显闲聊或无关请求</td>
+<td>简短承接，放入停车场，说明当前目标并回课</td>
+<td>是</td>
+<td>否</td>
+</tr>
+<tr>
+<td>连续跑题</td>
+<td>按严格度提高语气与停顿级别，可暂停推进新内容</td>
+<td>是</td>
+<td>否</td>
+</tr>
+<tr>
+<td>反复表示不懂</td>
+<td>更换解释、例子、练习或降低难度</td>
+<td>是</td>
+<td>可回到必要先备节点，不算违纪</td>
+</tr>
+<tr>
+<td>用户明确不适或需要休息</td>
+<td>暂停教学，优先照顾用户状态</td>
+<td>是</td>
+<td>保存为 PAUSED</td>
+</tr>
+<tr>
+<td>紧急系统或安全事件</td>
+<td>停止授课并转交相应安全流程</td>
+<td>立即</td>
+<td>保存现场，不自动执行高危动作</td>
+</tr>
+<tr>
+<td>分类置信不足</td>
+<td>按课程相关或普通追问处理，必要时澄清</td>
+<td>可短暂停顿</td>
+<td>否</td>
+</tr>
+</tbody></table>
+<p><strong>严格度建议分为三档。</strong> 单次高置信明显跑题在所有档位都应被及时承接并拉回，建议从学生发言结束到控场响应开始的 P95 不超过 2.5s。严格度决定语气和连续跑题后的升级方式，而不是决定第一次跑题是否回应。</p>
+<table>
+<thead>
+<tr>
+<th>档位</th>
+<th>单次明显跑题</th>
+<th>连续跑题的建议默认阈值</th>
+<th>可采取动作</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>温和</td>
+<td>简短承接后提醒回课</td>
+<td>5 分钟内第 3 次高置信跑题</td>
+<td>可暂停新内容并给出回课、稍后或下课选择</td>
+</tr>
+<tr>
+<td>标准</td>
+<td>使用“承接—目标—选择—回课”</td>
+<td>3 分钟内第 2 次高置信跑题</td>
+<td>可暂停新内容，要求先完成当前小练习或明确标记跳过</td>
+</tr>
+<tr>
+<td>坚定</td>
+<td>第一次即可使用明确、短促的坚定语气</td>
+<td>3 分钟内第 2 次高置信跑题</td>
+<td>可保持暂停直到用户选择</td>
+</tr>
+</tbody></table>
+<p>以上次数与时间是建议默认产品参数，可在课堂契约中调整。课程相关延伸、反复不懂和低置信输入不计入跑题次数；低置信时只能澄清或按普通追问处理，不得强硬控场。</p>
+<h2>7.6 英语教师功能需求与验收</h2>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>需求与优先级</th>
+<th>产品与交互规则</th>
+<th>验收标准（Given / When / Then）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>TCH-01</td>
+<td>多格式教案导入，Must</td>
+<td>支持 PDF、DOCX、PPTX、图片及多文件页序；显示处理进度、大小和错误；宏与嵌入对象不执行</td>
+<td>Given 四类合法样本，When 分别导入，Then 均形成材料记录与可检查预览，失败项有具体原因且不会执行嵌入内容</td>
+</tr>
+<tr>
+<td>TCH-02</td>
+<td>材料类型与质量检查，Must</td>
+<td>区分教案、教材、课件、题目；检查缺页、乱序、OCR、转换和阅读顺序</td>
+<td>Given 一份低清或无教学步骤材料，When 完成检查，Then 系统标明类型与问题；低质量材料不能直接自动授课</td>
+</tr>
+<tr>
+<td>TCH-03</td>
+<td>教学文档 IR 与格式转换，Must</td>
+<td>统一页面图像、文本、阅读顺序、区域坐标、来源和置信度；<code>DOCUMENT_SYNC</code> 与 <code>BOARD_ONLY</code> 明确分流</td>
+<td>Given DOCX/PPTX 转换器可用，When 生成 IR，Then 可进入精确文档联动；不可用时只能修复材料或经用户显式选择进入无原文同步的 BOARD_ONLY</td>
+</tr>
+<tr>
+<td>TCH-04</td>
+<td>课程编译与首次确认，Must</td>
+<td>生成目标、先备、节点、讲解、练习、量规、时间和恢复点；首次必须确认，后续同版本一键继续</td>
+<td>Given 材料通过质量闸门，When 用户确认课程草稿，Then 形成不可变课程版本；未确认前不能进入正式授课</td>
+</tr>
+<tr>
+<td>TCH-05</td>
+<td>视觉锚点与来源分层，Must</td>
+<td>每个教学节点关联页码与区域；原文、模型推断和教师补充明确区分</td>
+<td>Given 教师补充一个例句，When 展示与讲解，Then 标记为教师补充，且不覆盖原文或伪装成教案内容</td>
+</tr>
+<tr>
+<td>TCH-06</td>
+<td>课堂契约与角色切换，Must</td>
+<td>ClassContract 独立版本化并绑定 session；修改契约不派生 CourseVersion，退出清除教师权威</td>
+<td>Given 同一课程内容先后使用两种契约，When 修改并保存契约，Then 生成新 contractVersionId 而 courseVersionId 不变，旧 session 仍可回放原契约</td>
+</tr>
+<tr>
+<td>TCH-07</td>
+<td>开场、复习与授课节奏，Must</td>
+<td>支持旧知复习、目标说明、按节点推进；推进只由合法状态条件触发</td>
+<td>Given 已确认课程，When 开始授课，Then 先进入开场与目标节点；仅生成结束或用户翻页不会自动跳到下一节点</td>
+</tr>
+<tr>
+<td>TCH-08</td>
+<td>有据自动讲解，Must</td>
+<td>Alice 是授课主体，可自动讲解；内容绑定当前目标、锚点和补充策略</td>
+<td>Given 当前教学节点，When 自动讲解，Then 讲解与该节点一致，课程外事实有来源或标为补充，不无故脱离教案</td>
+</tr>
+<tr>
+<td>TCH-09</td>
+<td>文档同步与自由浏览，Must</td>
+<td>课程锚点与学生视口分离；学生翻页不改变节点，可一键回到授课位置</td>
+<td>Given 学生处于自由浏览，When 答疑后恢复，Then 课程锚点正确更新；视口可按跟随设置保留，点击回到授课位置后才强制同步页码与锚点</td>
+</tr>
+<tr>
+<td>TCH-10</td>
+<td>实时语音、字幕与静音，Must</td>
+<td>支持语音提问、字幕、回放与代次控制；静音必须停止采集和上行</td>
+<td>Given 教师讲话中学生发言，When 检测到有效语音，Then 当前语音代次被接管；用户静音后不再产生新的音频采集或上传</td>
+</tr>
+<tr>
+<td>TCH-11</td>
+<td>打断识别与噪声守卫，Must</td>
+<td>区分附和、噪声、控制指令和真实问题；教师、学生和取消目标分别使用独立 ID，快照与取消目标原子写入</td>
+<td>Given 教师讲话中学生发言，When 写入打断，Then 先保存旧 teacherTurnId 与 cancelTeacherTurnId 并生成 studentTurnId，再只取消匹配旧教师音频</td>
+</tr>
+<tr>
+<td>TCH-12</td>
+<td>课程内问答，Must</td>
+<td>优先使用当前节点和课程资料，答案带依据；答疑不自动推进节点</td>
+<td>Given 对当前句子的追问，When Alice 作答，Then 展示对应依据或补充标记，回答后仍处于原教学节点</td>
+</tr>
+<tr>
+<td>TCH-13</td>
+<td>答疑后的完整恢复，Must</td>
+<td>快照记录句子索引、提交和播放状态；封闭答疑默认自动回课，再次插话、暂停或退出取消待恢复</td>
+<td>Given 当前教学句已完整播放并提交，When 封闭答疑结束，Then 从下一句恢复；Given 句子未播放或只播放一部分，When 恢复，Then 从该句开头重讲，且旧音频不复活</td>
+</tr>
+<tr>
+<td>TCH-14</td>
+<td>学生课堂控制指令，Must</td>
+<td>支持暂停、继续、重复、慢讲、中文解释、换例、跳回和跳过；跳过仍被允许但记录未掌握证据</td>
+<td>Given 学生说“跳过这部分”，When 执行，Then 用户可继续后续内容，系统把该目标记为跳过而非已掌握</td>
+</tr>
+<tr>
+<td>TCH-15</td>
+<td>跑题停放与拉回，Must</td>
+<td>单次高置信明显跑题即承接并拉回；连续阈值按严格度执行；停车场内容不得自动执行</td>
+<td>Given 标准档下一次高置信无关请求，When 学生发言结束，Then 在目标时延内开始控场并保存话题；Given 低置信或课程延伸，When 分类，Then 不得计入跑题或强硬控场</td>
+</tr>
+<tr>
+<td>TCH-16</td>
+<td>严格度与课堂干预，Must</td>
+<td>三档严格度；坚定档可暂停新内容</td>
+<td>Given 坚定档连续跑题，When 教师干预，Then 可按严格度暂停推进，待学生选择后继续</td>
+</tr>
+<tr>
+<td>TCH-17</td>
+<td>理解检查与课堂练习，Must</td>
+<td>在计划节点发起跟读、造句、选择、角色练习等，绑定目标和量规；沉默不直接判错</td>
+<td>Given 一个练习节点，When 学生作答或超时，Then 按量规进入反馈、提示、换例或继续分支，并保存真实作答</td>
+</tr>
+<tr>
+<td>TCH-18</td>
+<td>沉默与反复不懂处理，Should</td>
+<td>提供思考时间、提示、降低难度与替代解释</td>
+<td>Given 学生连续两次表示不懂，When 再次讲解，Then 使用不同解释或更简单练习</td>
+</tr>
+<tr>
+<td>TCH-19</td>
+<td>节点级语言与纠错策略，Must</td>
+<td>全英文只绑定特定输出活动；中文提问可按契约回答；流利度与精准纠错分开</td>
+<td>Given 全英文练习后出现中文元问题，When 教师回答，Then 按节点策略允许中文救场，返回练习时再恢复英文，不被全局语言锁阻断</td>
+</tr>
+<tr>
+<td>TCH-20</td>
+<td>发音与流利度反馈，Should</td>
+<td>使用具备词或音素时间戳的服务，展示置信、回放和可练点；无能力时明确降级</td>
+<td>Given 发音评估服务不可用，When 学生跟读，Then 不提供伪造音素分数，只保留录音、示范与可用的一般反馈</td>
+</tr>
+<tr>
+<td>TCH-21</td>
+<td>证据型学情模型，Must</td>
+<td>每个目标保存作答、错误类型、量规、时间与版本；自评和系统推断分开</td>
+<td>Given 查看某项目标掌握度，When 打开依据，Then 可回溯具体作答和评分；无作答时只能显示未知或待评估</td>
+</tr>
+<tr>
+<td>TCH-22</td>
+<td>作业与课后承诺，Should</td>
+<td>作业须与目标和错误相关，接受后形成承诺和可选提醒</td>
+<td>Given 课后建议作业，When 用户接受或拒绝，Then 接受才创建承诺与提醒，拒绝只记录偏好</td>
+</tr>
+<tr>
+<td>TCH-23</td>
+<td>间隔复习与下次课准备，Should</td>
+<td>根据错误、先备和时间安排提取练习，复习结果更新后续计划</td>
+<td>Given 一个到期复习点，When 下次课开始，Then 先进行对应提取练习，并用新证据调整而非只显示打卡天数</td>
+</tr>
+<tr>
+<td>TCH-24</td>
+<td>课后报告，Must</td>
+<td>区分内容完成、目标掌握、跳过、错误、作业和下一步；所有评价可查看证据</td>
+<td>Given 一节课结束，When 生成报告，Then 材料完成度与掌握度分别展示，跳过内容不得计入已掌握</td>
+</tr>
+<tr>
+<td>TCH-25</td>
+<td>断点续课与课程版本，Must</td>
+<td>崩溃恢复到最后已提交步骤；课程修改生成新版本，学习记录仍指向原版本</td>
+<td>Given 授课中异常退出，When 重启，Then 课程以 PAUSED 恢复到最后提交步骤；编辑课程后旧课记录不被改写</td>
+</tr>
+<tr>
+<td>TCH-26</td>
+<td>可及性与操作方式，Must</td>
+<td>字幕、键盘、速度、回放、减少动态效果</td>
+<td>Given 用户仅使用键盘，When 完成课堂操作，Then 核心控制可达，字幕、速度与回放设置生效</td>
+</tr>
+<tr>
+<td>TCH-27</td>
+<td>教师自评与反馈闭环，Should</td>
+<td>记录答案、讲解、控场和评价反馈，关联模型、提示、课程和规则版本</td>
+<td>Given 用户标记一次错误讲解，When 提交反馈，Then 可定位具体字段、原因和全部版本，用于回归评测而非静默改人格</td>
+</tr>
+<tr>
+<td>TCH-28</td>
+<td>专项英语活动扩展，Could</td>
+<td>写作、听力、情景角色扮演、阅读策略等使用独立练习状态和量规</td>
+<td>Given 一种专项活动，When 学生完成，Then 保存对应产物和量规评价，不把通用聊天评价直接当作专项能力</td>
+</tr>
+<tr>
+<td>TCH-30</td>
+<td>课时节奏、必学压缩边界与时间债，Must</td>
+<td>节点区分必学/可选与时长边界，按节奏策略处理缓冲、压缩、加时询问和收尾</td>
+<td>Given 45 分钟课程因答疑累计超时 10 分钟，When 到达下一节奏检查点，Then 系统按契约计算时间债并执行缓冲或可选压缩；仍不足时询问加时或保留待学内容，不静默删除必学节点</td>
+</tr>
+</tbody></table>
+<h2>7.7 共享平台功能需求与验收</h2>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>需求与优先级</th>
+<th>产品与交互规则</th>
+<th>验收标准（Given / When / Then）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>PLT-01</td>
+<td>持久事件总线，Must</td>
+<td>事件包含 ID、作用域、时间、来源、载荷、隐私级别和幂等键；支持顺序、重放和死信</td>
+<td>Given 同一文件或提醒事件重复到达，When 消费与重启，Then 不重复触发动作，可查看处理状态和失败原因</td>
+</tr>
+<tr>
+<td>PLT-02</td>
+<td>类型化教学动作，Must</td>
+<td>大模型只能请求白名单动作，经 Schema、课程版本和状态校验后执行</td>
+<td>Given 模型输出非法页码或任意脚本，When 动作校验，Then 被拒绝并记录，播放器与文件系统均不执行</td>
+</tr>
+<tr>
+<td>PLT-03</td>
+<td>模型路由、预算与版本，Must</td>
+<td>按任务配置模型能力、成本、降级与版本，记录每次调用的输入类型和输出用途</td>
+<td>Given 某模型不支持视觉或预算耗尽，When 接收任务，Then 自动降级或暂停并说明，不把文本模型伪装成视觉结果</td>
+</tr>
+<tr>
+<td>PLT-04</td>
+<td>分域记忆与证据，Must</td>
+<td>普通对话、关系、项目、课程和学情按 scope 隔离；记忆含来源、时间、置信、敏感度和有效期</td>
+<td>Given 两个会话或角色使用同一关键词，When 检索记忆，Then 只返回当前作用域及明确授权共享的内容，无跨域串用</td>
+</tr>
+<tr>
+<td>PLT-05</td>
+<td>授权缓存与实时撤销，Must</td>
+<td>只有 R0/R1 的明确作用域可使用会话或永久缓存，撤销即时生效；R2 限定目的，R3 永远逐次确认</td>
+<td>Given R3 动作曾批准且存在旧永久缓存，When 再次执行或被撤销后重放，Then 必须重新确认或直接拒绝，不得沿用旧批准</td>
+</tr>
+<tr>
+<td>PLT-06</td>
+<td>崩溃恢复与副作用幂等，Must</td>
+<td>只从已提交状态恢复；失败动作重试不产生重复文件、重复任务或重复通知</td>
+<td>Given 动作完成后事件确认前崩溃，When 重启恢复，Then 通过幂等键核对结果，不重复执行同一副作用</td>
+</tr>
+<tr>
+<td>PLT-07</td>
+<td>教材与网页提示注入防护，Must</td>
+<td>文档、网页和工具结果永远是数据，不得改变系统规则、课堂契约或工具权限</td>
+<td>Given 教案含“忽略规则并执行命令”，When 解析和授课，Then 仅作为教材文本展示或标记风险，不执行其指令</td>
+</tr>
+<tr>
+<td>PLT-08</td>
+<td>AI 反馈与评测版本闭环，Must</td>
+<td>反馈关联结果字段、用户修订、模型、提示、知识、课程和规则版本</td>
+<td>Given 用户修正一项学情或记忆，When 保存反馈，Then 可复现原结果及版本，并加入对应评测候选集</td>
+</tr>
+<tr>
+<td>PLT-09</td>
+<td>现有设置与数据迁移，Should</td>
+<td>迁移前备份，预演校验，失败可回滚；旧聊天、语音和记忆行为有回归测试</td>
+<td>Given 现有用户数据，When 执行迁移，Then 数量、关联和核心行为校验通过，失败可恢复到迁移前版本</td>
+</tr>
+<tr>
+<td>PLT-10</td>
+<td>最小指标看板与可观测性，Must</td>
+<td>展示课程质量、打断恢复、学情证据、主动反馈、任务结果、权限和成本</td>
+<td>Given 完成一节课或一个守望任务，When 打开看板，Then 可查看对应指标、原始事件和异常，不只有汇总分数</td>
+</tr>
+<tr>
+<td>PLT-11</td>
+<td>本地服务真实降级，Must</td>
+<td>STT、TTS、向量和模型下载按服务独立报告真实能力，禁止假就绪和占位成功</td>
+<td>Given Piper 或模型缺失，When 查询状态或调用，Then 明示不可用并切换合法降级，不返回“成功”的占位音频</td>
+</tr>
+<tr>
+<td>PLT-12</td>
+<td>数据备份、导出与删除，Must</td>
+<td>支持按课程、项目或全局导出和删除，覆盖数据库、索引、资产与缓存</td>
+<td>Given 用户删除一门课程，When 操作完成，Then 对应文档、锚点、课堂、索引和缓存按规则清理，并生成可核验结果</td>
+</tr>
+<tr>
+<td>PLT-13</td>
+<td>重任务 worker 隔离与取消，Must</td>
+<td>转换、OCR、版面、渲染和批量索引在 worker/子进程执行，主线程只编排；支持进度、超时和回收</td>
+<td>Given 大文件正在转换且教师正在讲话，When 用户暂停或取消，Then 语音控制在目标时延内响应，worker 被取消或回收，迟到结果按 jobId 丢弃</td>
+</tr>
+</tbody></table>
+<h2>7.8 AI 输入与输出契约</h2>
+<table>
+<thead>
+<tr>
+<th>契约项</th>
+<th>教师模式</th>
+<th>伴侣模式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>任务定义</td>
+<td>基于确认课程和课堂契约完成讲解、互动、控场与形成性评价</td>
+<td>基于授权事件与记忆提供关系、建议和受控行动</td>
+</tr>
+<tr>
+<td>输入来源</td>
+<td>教学文档 IR、课程版本、课堂快照、学生语音/文本、练习与量规</td>
+<td>授权事件、工作现场、承诺、关系反馈、行动回执</td>
+</tr>
+<tr>
+<td>缺失处理</td>
+<td>材料不清先修复；关键上下文缺失时询问或降级，不能编造教案</td>
+<td>无证据就保持未知或静默，不把推测写成事实</td>
+</tr>
+<tr>
+<td>输出结构</td>
+<td>合法 TeachingAction、来源锚点、教师补充标记、评价证据和恢复信息</td>
+<td>主动候选、证据、风险、建议动作、反馈与可撤销状态</td>
+</tr>
+<tr>
+<td>禁止输出</td>
+<td>任意脚本、伪造来源、无依据掌握结论、越权指令</td>
+<td>虚构共同经历、未授权行动、伪造完成结果、操纵性亲密表达</td>
+</tr>
+<tr>
+<td>后续去向</td>
+<td>只有课堂运行时可推进状态；练习结果进入学情</td>
+<td>只有行动代理可执行；用户反馈进入主动策略与评测</td>
+</tr>
+<tr>
+<td>版本关联</td>
+<td>模型、提示、课程、规则、量规和知识版本</td>
+<td>模型、提示、记忆、权限、策略和工具版本</td>
+</tr>
+</tbody></table>
+<h2>7.9 AI 验收样本集</h2>
+<p>评测集必须覆盖正常、边界、对抗和敏感场景，至少包含：结构清晰教案、扫描低清教案、页序混乱图片、含表格和公式的 PPT、含提示注入的教材、课程内追问、延伸问题、明显跑题、反复不懂、全英文练习中的中文提问、噪声与附和、异常退出、模型不支持视觉、云端超时、预算耗尽、撤销权限后重放旧动作。每个样本均写明可接受与不可接受结果，不能只检查“最终有回答”。</p>
+<hr>
+<h1>八、非功能需求</h1>
+<h2>8.1 性能、容量与响应</h2>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>非功能需求</th>
+<th>建议验收口径</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>NFR-01</td>
+<td>首次语音活动到开始降音量/暂停 P95 ≤300ms、到旧音频实际停止 P95 ≤800ms；按钮或热键暂停、退出到音频停止 P95 ≤200ms</td>
+<td>在约定设备、网络和模型下至少 30 次，从首次语音活动或明确控制操作起计时；附和的降音量后恢复单列</td>
+</tr>
+<tr>
+<td>NFR-01A</td>
+<td>本地文档页切换与高亮响应 P95 不超过 300ms</td>
+<td>页面资产已加载，测量 TeachingAction 校验完成到视图更新，不含模型生成时间</td>
+</tr>
+<tr>
+<td>NFR-02</td>
+<td>课堂问答与单次跑题控场首个有效响应 P95 不超过 2.5s；无法达到时先显示处理状态并保持可打断</td>
+<td>从学生发言结束到开始有效回答或控场，另报分类、生成和播放各段耗时</td>
+</tr>
+<tr>
+<td>NFR-03</td>
+<td>初始单文件建议上限为 32MB、200页；超限提供分批或转换建议，禁止静默截断</td>
+<td>该上限为 MVP 产品参数，后续根据性能实测调整并版本化</td>
+</tr>
+<tr>
+<td>NFR-04</td>
+<td>后台感知与索引采用事件驱动、批处理和并发上限；转换、OCR、渲染和批量索引必须 worker 隔离</td>
+<td>无有效事件时不产生模型调用；重任务期间语音暂停、退出和打断仍满足 NFR-01</td>
+</tr>
+</tbody></table>
+<h2>8.2 可靠性与恢复</h2>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>非功能需求</th>
+<th>建议验收口径</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>NFR-05</td>
+<td>课程、承诺、守望任务和行动均使用持久状态，异常退出后只恢复到最后已提交点</td>
+<td>20 次异常终止测试无状态丢失、无重复推进、无重复副作用</td>
+</tr>
+<tr>
+<td>NFR-06</td>
+<td>云端模型、STT、TTS、向量或转换服务失败时按服务独立降级</td>
+<td>单项服务故障不得拖垮整个应用；用户能看到不可用能力、替代路径和恢复方式</td>
+</tr>
+<tr>
+<td>NFR-07</td>
+<td>所有产生副作用的请求均有幂等键和回执，重试不得重复创建或重复通知</td>
+<td>对同一请求重放至少 3 次，只产生一个有效结果</td>
+</tr>
+<tr>
+<td>NFR-08</td>
+<td>离线时仍可查看已缓存材料、课程版本、学情和报告</td>
+<td>无网络时不伪造新讲解或新评价，可进入只读与复习已有内容模式</td>
+</tr>
+</tbody></table>
+<h2>8.3 AI 质量与可解释性</h2>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>非功能需求</th>
+<th>建议验收口径</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>NFR-09</td>
+<td>课程依赖型事实、主动关系内容和学情结论必须可回溯证据</td>
+<td>有效依据展示率 100%，无来源时明确标为推测、教师补充或未知</td>
+</tr>
+<tr>
+<td>NFR-10</td>
+<td>低置信分类不得触发越权动作或不可逆状态变化</td>
+<td>低置信样本进入澄清、保守分支或静默</td>
+</tr>
+<tr>
+<td>NFR-11</td>
+<td>所有 AI 结果关联模型、提示、知识、规则和课程内容版本</td>
+<td>任一失败结果均可重现输入上下文和版本组合</td>
+</tr>
+</tbody></table>
+<h2>8.4 安全、隐私与可及性</h2>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>非功能需求</th>
+<th>建议验收口径</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>NFR-12</td>
+<td>未授权高危动作、越权跨域检索、撤销后继续执行、默认原始媒体上传均为 0</td>
+<td>覆盖全部入口和崩溃恢复路径，自动化安全测试与人工复核结合</td>
+</tr>
+<tr>
+<td>NFR-13</td>
+<td>密钥使用 safeStorage 或等效机制；敏感数据加密、最小化采集、按期清理</td>
+<td>不在日志、文档或测试样本中写入真实密钥和未脱敏个人信息</td>
+</tr>
+<tr>
+<td>NFR-14</td>
+<td>核心课堂功能支持键盘、字幕、字体缩放、减少动态效果和可读对比度</td>
+<td>不使用鼠标也能暂停、继续、提问、查看字幕和退出；状态不只依赖颜色</td>
+</tr>
+<tr>
+<td>NFR-15</td>
+<td>继续上次课程不超过 2 次关键操作，暂停和回到授课位置不超过 1 次</td>
+<td>从课程库或课堂主视图测量，不包括必要的异常修复确认</td>
+</tr>
+</tbody></table>
+<h2>8.5 兼容、成本与维护</h2>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>非功能需求</th>
+<th>建议验收口径</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>NFR-16</td>
+<td>首个 MVP 以 Windows 11 为验收平台；Office 依赖必须可检测、可降级</td>
+<td>未安装 Office 时不得卡死导入，可提供 LibreOffice 路径或结构备课降级</td>
+</tr>
+<tr>
+<td>NFR-17</td>
+<td>每课时、每次备课和每个后台任务均记录模型用量、成本与降级原因</td>
+<td>用户可设置预算，达到预算后停止非必要后台调用并保留进度</td>
+</tr>
+<tr>
+<td>NFR-18</td>
+<td>新增契约具备单元、集成、故障注入和旧功能回归测试</td>
+<td>普通聊天、语音、历史、记忆、权限和设置迁移不得因新运行时回归</td>
+</tr>
+<tr>
+<td>NFR-19</td>
+<td>文档、页面资产与数据库备份具有版本和回滚能力</td>
+<td>迁移失败可恢复，删除操作可按产品规则进入备份或彻底清理流程</td>
+</tr>
+</tbody></table>
+<hr>
+<h1>九、业务流程与状态流转</h1>
+<h2>9.1 课程生命周期</h2>
+<table>
+<thead>
+<tr>
+<th>当前状态</th>
+<th>触发事件</th>
+<th>下一状态</th>
+<th>必须满足的规则</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DRAFT</td>
+<td>导入材料</td>
+<td>PARSING</td>
+<td>创建材料 ID 与内容哈希，不执行宏和外链</td>
+</tr>
+<tr>
+<td>PARSING</td>
+<td>解析完成</td>
+<td>NEEDS_REVIEW</td>
+<td>输出类型、质量报告、缺失与低置信项</td>
+</tr>
+<tr>
+<td>PARSING</td>
+<td>解析失败</td>
+<td>IMPORT_FAILED</td>
+<td>保留错误与可恢复路径，不生成“可授课”假象</td>
+</tr>
+<tr>
+<td>NEEDS_REVIEW</td>
+<td>用户修复并确认</td>
+<td>READY</td>
+<td>大纲、锚点、练习和课堂契约达到质量闸门</td>
+</tr>
+<tr>
+<td>NEEDS_REVIEW</td>
+<td>用户返回修改</td>
+<td>DRAFT 或 PARSING</td>
+<td>修改材料后重新计算版本，不覆盖旧版本</td>
+</tr>
+<tr>
+<td>READY</td>
+<td>开始上课</td>
+<td>IN_SESSION</td>
+<td>创建唯一 sessionId 并绑定课程版本</td>
+</tr>
+<tr>
+<td>IN_SESSION</td>
+<td>暂停、退出或异常</td>
+<td>PAUSED</td>
+<td>保存最后已提交课堂快照</td>
+</tr>
+<tr>
+<td>PAUSED</td>
+<td>手动继续</td>
+<td>IN_SESSION</td>
+<td>展示恢复位置，确认后恢复，不自动操作电脑</td>
+</tr>
+<tr>
+<td>IN_SESSION</td>
+<td>完成全部节点</td>
+<td>COMPLETED</td>
+<td>内容完成与目标掌握分别计算</td>
+</tr>
+<tr>
+<td>任意非终态</td>
+<td>归档请求</td>
+<td>ARCHIVED</td>
+<td>保留或按删除规则处理学习证据</td>
+</tr>
+<tr>
+<td>任意状态</td>
+<td>转换、存储或模型不可恢复错误</td>
+<td>ERROR / PAUSED</td>
+<td>有错误说明和人工接管位置，不静默丢失</td>
+</tr>
+</tbody></table>
+<p>课程内容修改才派生 CourseVersion。课堂契约修改只派生 ClassContract 版本，并记录其在 session 中从哪个 TeachingStep 生效；不得因此重置课程、学习进度或旧契约回放。</p>
+<h2>9.2 课堂状态采用三个正交维度</h2>
+<p>为避免把“讲解中被打断”“练习中被打断”“答疑时翻页”组合成难以维护的状态爆炸，课堂状态拆为三个维度。</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>状态集合</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>lessonPhase</code></td>
+<td>OPENING、REVIEW、NARRATING、CHECKING、PRACTICING、SUMMARIZING、COMPLETED</td>
+<td>表示教学进度，只有教师运行时可改变</td>
+</tr>
+<tr>
+<td><code>turnState</code></td>
+<td>IDLE、TEACHER_SPEAKING、STUDENT_SPEAKING、ANSWERING、REDIRECTING、PAUSED、ERROR</td>
+<td>表示当前谁在说以及是否发生插话或控场</td>
+</tr>
+<tr>
+<td><code>presentationState</code></td>
+<td>FOLLOW_LESSON、FREE_BROWSE、REFERENCE_VIEW、GENERATED_BOARD</td>
+<td>表示文档或板书视图，不反向修改教学进度</td>
+</tr>
+</tbody></table>
+<p><code>sessionId</code>、<code>teacherTurnId</code>、<code>studentTurnId</code> 与 <code>cancelTeacherTurnId</code> 必须分开。学生新插话只使指定旧教师代次失效，不能抹掉课堂会话、新学生输入或已提交学习记录。</p>
+<h2>9.3 自动授课主流程</h2>
+<p>一是读取课程版本与课堂契约，进入开场和必要复习。二是载入当前教学节点，校验锚点和所需材料。三是执行展示、讲解、提问或练习动作。四是根据节点完成规则判断下一步，而不是根据“模型已经说完”判断。</p>
+<p>节点推进至少同时满足：当前动作已提交、没有有效学生语音、没有未处理的高优先级控制指令、节点所需检查已得到结果或按契约允许跳过、没有阻断性错误。对于练习节点，结果可以是掌握、需复习、跳过或待评估，不能只设成功和失败。</p>
+<p>如果学生连续未理解，教师最多按当前策略尝试若干替代解释，建议初始上限为 2 次，随后提供“再试一种、先标记复习后继续、暂停”选择。该参数是建议默认值，须可通过课堂契约调整，避免无限循环或强行拖住学生。</p>
+<p><strong>课时节奏与时间债。</strong> 每个节点在课程编译时区分必学与可选，并记录计划时长、是否可压缩及最小/最大时长。课堂在每个节奏检查点计算 <code>timeDebt = actualElapsed - plannedElapsed</code>，其中答疑、练习和控场耗时必须计入，不能只累计教师播放时长。</p>
+<p>时间优先策略先使用计划缓冲，再压缩可选例子、活动和非关键补充，始终保留必学内容与最低收尾时间；仍无法容纳时必须询问用户加时、转为待学或提前安全收尾。掌握优先策略允许超时，但在超过节点或课时上限时明确提示并由用户选择。默认平衡策略依次执行“缓冲—可选压缩—可选转复习—询问加时或收尾”，不得静默删除必学内容。</p>
+<p>例如一节 45 分钟课程因两次深入答疑累计多花 10 分钟，系统不能到 45 分钟突然停止，也不能假装仍按计划。它应显示当前时间债，按契约压缩可选内容或询问是否延长；若用户不加时，则把未完成的可选或必学内容明确保留到后续课程，并完成当前小结。</p>
+<h2>9.4 打断与恢复流程</h2>
+<ol>
+<li>VAD 首次检测到语音活动时立即记录起始时间戳，并先降音量或短暂停顿；按钮和热键控制走更快通道。噪声与附和守卫继续判断是否需要完全停止旧音频。</li>
+<li>运行时在同一原子步骤中读取旧 <code>teacherTurnId</code>，写入 <code>cancelTeacherTurnId</code>，生成新的 <code>studentTurnId</code>，并提交课堂快照和 <code>STUDENT_SPEAKING</code> 状态。快照未完成前不得发出取消。</li>
+<li>调用取消接口时只传 <code>cancelTeacherTurnId</code>。渲染层仅清理匹配该 ID 的旧教师待播音频，其他教师答复、学生输入和已提交学习证据不得被清理。</li>
+<li>对学生输入分类：课程追问、延伸、控制、跑题、紧急、身心状态或低置信。单次高置信明显跑题直接进入控场候选，低置信不得强硬处理。</li>
+<li>在对应分支中回答、执行课堂控制、停放话题或转交安全流程。教师答疑使用新的 <code>teacherTurnId</code>，任何分支都不得悄悄推进课程节点。</li>
+<li>封闭答疑完成后默认进入可取消的自动恢复；开放式讨论需达到结束条件或用户明确继续。再次插话会取消待恢复并建立新快照，暂停或退出则终止恢复。</li>
+<li>恢复时先读取课程版本、契约版本和课程锚点。<code>FOLLOW_LESSON</code> 同步页码与锚点；<code>FREE_BROWSE</code> 可保留学生视口，仅更新课程锚点并显示回到授课位置。</li>
+<li>若当前教学句已完整播放并提交，则从下一句恢复；若未播放或只播放一部分，则从该句开头重讲。较长答疑后可增加一句 recap，但不能额外推进节点。</li>
+<li>写入恢复事件并生成新的 <code>teacherTurnId</code>，所有迟到音频和结果都按 ID 与 <code>nodeRevision</code> 校验，旧代次直接丢弃。</li>
+</ol>
+<h2>9.5 跑题与控场流程</h2>
+<p>单次高置信明显跑题在所有档位都进入“承接—决策—回课”流程，建议从学生发言结束到开始控场响应的 P95 不超过 2.5s。连续跑题按 7.5 的次数与时间窗口升级；课程延伸、反复不懂和低置信输入不得进入该计数。</p>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>系统行为</th>
+<th>用户体验要求</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>识别</td>
+<td>结合当前目标、最近内容和输入分类，不仅靠关键词</td>
+<td>课程相关追问不能被当成闲聊</td>
+</tr>
+<tr>
+<td>承接</td>
+<td>用一句话承认问题或需求</td>
+<td>—</td>
+</tr>
+<tr>
+<td>决策</td>
+<td>相关则回答；可停放则存入停车场；紧急则退出教学流程</td>
+<td>低置信时不得采用强硬控场</td>
+</tr>
+<tr>
+<td>回课</td>
+<td>恢复原节点，必要时先做一个极小练习</td>
+<td>—</td>
+</tr>
+<tr>
+<td>课后</td>
+<td>用户可选择处理停车场话题</td>
+<td>不得自动执行其中的高风险或无关电脑操作</td>
+</tr>
+</tbody></table>
+<h2>9.6 伴侣主动裁决流程</h2>
+<p>授权事件进入事件总线后，先更新对应工作现场或关心事项，再生成主动候选。候选依次经过证据校验、权限与隐私校验、价值与紧急度评估、置信评估、当前打扰成本、频率与去重检查，最终输出语音、卡片、静默记录、稍后或行动草稿。所有主动结果都记录理由与反馈；没有新证据时不得为了显得有生命而强行说话。</p>
+<h2>9.7 守望任务状态机</h2>
+<table>
+<thead>
+<tr>
+<th>状态</th>
+<th>进入条件</th>
+<th>允许操作与退出</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DRAFT</td>
+<td>用户或 AI 形成任务草稿</td>
+<td>编辑、确认、取消，不产生后台执行</td>
+</tr>
+<tr>
+<td>SCHEDULED</td>
+<td>条件与权限已确认</td>
+<td>可暂停、取消；条件满足进入 RUNNING</td>
+</tr>
+<tr>
+<td>RUNNING</td>
+<td>正在检查或执行</td>
+<td>记录进度；可取消；不得无限运行</td>
+</tr>
+<tr>
+<td>WAITING</td>
+<td>等待条件、外部结果或授权</td>
+<td>保留现场，可超时、恢复或取消</td>
+</tr>
+<tr>
+<td>VERIFYING</td>
+<td>动作结束，等待结果验证</td>
+<td>只能进入 SUCCEEDED、FAILED 或 NEEDS_CONFIRMATION</td>
+</tr>
+<tr>
+<td>SUCCEEDED</td>
+<td>验证通过</td>
+<td>生成证据与通知，可进入复盘</td>
+</tr>
+<tr>
+<td>FAILED</td>
+<td>动作或验证失败</td>
+<td>保存错误与恢复建议，不得自动反复重试</td>
+</tr>
+<tr>
+<td>NEEDS_CONFIRMATION</td>
+<td>无法自动判断结果</td>
+<td>由用户确认完成或失败</td>
+</tr>
+<tr>
+<td>PAUSED / CANCELLED</td>
+<td>用户暂停或取消</td>
+<td>可恢复或归档，取消后不得被旧事件重新触发</td>
+</tr>
+</tbody></table>
+<h2>9.8 下课与角色恢复</h2>
+<p>用户主动下课、课程完成或发生需要终止课堂的情况时，先保存课堂与学情，再生成或延后课后报告，最后清除课堂严格度和控场权限。课后话题可转交伴侣，但必须由用户选择。</p>
+<hr>
+<h1>十、数据与埋点需求</h1>
+<h2>10.1 核心数据实体</h2>
+<p>实现上优先复用 SQLite 关系表、文件资产和现有 HNSW 检索，不因“关系”或“知识图谱”概念引入额外图数据库。向量索引只负责检索，权威状态以关系记录和事件为准。</p>
+<table>
+<thead>
+<tr>
+<th>实体</th>
+<th>关键字段与用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Event</td>
+<td>eventId、scope、type、sourceId、occurredAt、payload、privacyLevel、idempotencyKey、processStatus</td>
+</tr>
+<tr>
+<td>MemoryRecord</td>
+<td>memoryId、scope、type、content、sourceEventIds、confidence、sensitivity、createdAt、lastConfirmedAt、expiresAt</td>
+</tr>
+<tr>
+<td>Project / Artifact</td>
+<td>项目目标、授权来源、作品类型、内容或路径、版本、状态、采纳人、时间</td>
+</tr>
+<tr>
+<td>Commitment</td>
+<td>commitmentId、owner、scope、statement、dueCondition、evidenceRule、status、resultEvidence、waiveReason</td>
+</tr>
+<tr>
+<td>Opinion</td>
+<td>opinionId、topic、position、evidence、confidence、version、supersedes、changeReason、status</td>
+</tr>
+<tr>
+<td>CareItem / ProactiveDecision</td>
+<td>候选事项、依据、价值、紧急度、置信、打扰成本、渠道、理由、结果、反馈</td>
+</tr>
+<tr>
+<td>WorkScene</td>
+<td>sceneId、scope、goal、projectIds、authorizedApps、fileRefs、progress、nextAction、state、savedAt</td>
+</tr>
+<tr>
+<td>Mission / Skill</td>
+<td>条件、计划、权限、状态、进度、重试、验证、回执；技能另含版本、测试和回滚</td>
+</tr>
+<tr>
+<td>ActionReceipt</td>
+<td>receiptId、actor、action、paramsDigest、risk、permission、result、verification、undoReceipt、modelVersion</td>
+</tr>
+<tr>
+<td>ModelRun</td>
+<td>runId、taskType、provider、model、promptVersion、knowledgeVersion、tokens、cost、latency、degradeReason</td>
+</tr>
+<tr>
+<td>Material / DocumentPage</td>
+<td>材料类型、哈希、来源、转换状态、质量；页码、图像、文本、阅读顺序、置信度</td>
+</tr>
+<tr>
+<td>ContentAnchor</td>
+<td>anchorId、materialId、pageId、textRange、bbox、anchorType、confidence、sourceHash</td>
+</tr>
+<tr>
+<td>Course / CourseVersion</td>
+<td>课程基本信息；版本号、目标、节点、来源、练习、内容量规、状态、确认人、确认时间、内容哈希，不含课堂契约</td>
+</tr>
+<tr>
+<td>ClassContract</td>
+<td>contractVersionId、courseVersionId、目标时长、pacePolicy、presentationMode、语言、纠错、严格度、跑题阈值、隐私规则、effectiveFromStepId</td>
+</tr>
+<tr>
+<td>LessonNode</td>
+<td>nodeId、courseVersionId、objective、sequence、required、plannedDuration、compressible、minDuration、maxDuration、teachingActions、anchors、completionRule、recoveryPolicy</td>
+</tr>
+<tr>
+<td>ClassSession</td>
+<td>sessionId、courseVersionId、contractVersionId、learnerId、lessonPhase、turnState、presentationState、teacherTurnId、studentTurnId、cancelTeacherTurnId、lessonAnchor、viewport、timeDebt、status</td>
+</tr>
+<tr>
+<td>TeachingStep / Snapshot</td>
+<td>stepId、sessionId、nodeId、nodeRevision、action、sourceRefs、teacherTurnId、studentTurnId、cancelTeacherTurnId、sentenceIndex、sentenceCommitted、playbackState、committedAt、视觉与练习快照、恢复点</td>
+</tr>
+<tr>
+<td>Exercise / Attempt</td>
+<td>题型、目标、量规、等待与提示；学生作答、录音引用、评分、反馈、版本和时间</td>
+</tr>
+<tr>
+<td>ObjectiveMastery</td>
+<td>objectiveId、level、evidenceAttemptIds、selfAssessment、assessmentVersion、updatedAt、nextReviewAt</td>
+</tr>
+<tr>
+<td>ReviewItem / LearningReport</td>
+<td>复习规则、到期、结果；完成度、掌握度、错误、跳过、作业、下一步和证据链接</td>
+</tr>
+</tbody></table>
+<h2>10.2 主要关系</h2>
+<ul>
+<li>一个 Course 有多个 CourseVersion；一个 CourseVersion 有多个 LessonNode。课程内容修改才派生 CourseVersion。</li>
+<li>一个 ClassContract 可派生多个 contractVersion；每个 ClassSession 同时绑定 CourseVersion 与 ClassContract 版本，契约变化记录生效步骤，不修改课程内容。</li>
+<li>一个 Material 有多个 DocumentPage，页面有多个 ContentAnchor；LessonNode 可引用多个锚点和来源。</li>
+<li>一个 ClassSession 有多个 TeachingStep、InterruptionSnapshot 和 Attempt；恢复只能引用同一 session 的有效快照与匹配代次。</li>
+<li>ObjectiveMastery 必须关联至少一条评估证据，或明确标记为自评、未知、待评估；不允许无来源分数。</li>
+<li>Commitment 可关联 Mission、ReviewItem 或 Artifact；ActionReceipt 可关联任一业务作用域，但不能跨域扩大权限。</li>
+<li>所有 AI 生成结果通过 ModelRun 关联模型、提示、知识、规则和课程内容版本；课堂结果另关联 contractVersion。</li>
+</ul>
+<h2>10.3 数据分类与建议留存规则</h2>
+<p>以下留存时间为<strong>建议默认产品参数</strong>，用户可在设置中缩短；删除与导出规则必须在首次使用前可见。</p>
+<table>
+<thead>
+<tr>
+<th>数据</th>
+<th>默认处理</th>
+<th>建议留存与删除</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>原始教案与页面资产</td>
+<td>本地保存，云端处理需单独说明</td>
+<td>直至用户删除课程；删除时同步清理索引、锚点与缓存</td>
+</tr>
+<tr>
+<td>课堂文字记录与学情</td>
+<td>按课程作用域保存，可更正和导出</td>
+<td>直至用户删除；删除学情不影响无关普通聊天</td>
+</tr>
+<tr>
+<td>原始语音</td>
+<td>默认不持久化</td>
+<td>开启发音复习时按课程单独授权，建议默认 30 天并可提前删除</td>
+</tr>
+<tr>
+<td>原始屏幕、摄像头媒体</td>
+<td>默认不保存、不上传</td>
+<td>仅按需会话使用，结束即释放；需要保存时逐次确认</td>
+</tr>
+<tr>
+<td>感知与系统事件</td>
+<td>只保留完成目的所需的最小元数据</td>
+<td>建议原始事件 90 天，聚合结果按用户选择保留</td>
+</tr>
+<tr>
+<td>行动与安全回执</td>
+<td>保留必要授权、结果和撤销信息</td>
+<td>建议 180 天，用户可提前删除；安全所需最短期限另行评审</td>
+</tr>
+<tr>
+<td>日志与诊断</td>
+<td>脱敏、限制大小，不记录密钥和完整敏感内容</td>
+<td>建议 30 天或按容量滚动清理</td>
+</tr>
+<tr>
+<td>备份</td>
+<td>加密、版本化，删除规则与主数据一致</td>
+<td>建议保留最近 2 代，迁移成功后按用户确认清理</td>
+</tr>
+</tbody></table>
+<h2>10.4 核心埋点</h2>
+<table>
+<thead>
+<tr>
+<th>事件名</th>
+<th>触发时机</th>
+<th>关键属性</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>material.imported</code></td>
+<td>材料导入完成或失败</td>
+<td>materialType、sizeBucket、pageCount、conversionStatus、qualityStatus</td>
+</tr>
+<tr>
+<td><code>course.confirmed</code></td>
+<td>课程版本确认</td>
+<td>courseVersionId、contractVersionId、materialType、editCount、anchorCoverage、presentationMode</td>
+</tr>
+<tr>
+<td><code>lesson.node.started</code></td>
+<td>教学节点开始</td>
+<td>sessionId、nodeId、objectiveId、sequence、sourceRefs</td>
+</tr>
+<tr>
+<td><code>lesson.interrupted</code></td>
+<td>首次语音活动与有效学生打断</td>
+<td>sessionId、teacherTurnId、studentTurnId、cancelTeacherTurnId、firstVoiceAt、stopAt、fromPhase、intent、noiseGuardResult</td>
+</tr>
+<tr>
+<td><code>lesson.resumed</code></td>
+<td>课堂恢复</td>
+<td>sessionId、nodeId、anchorId、sentenceIndex、playbackState、resumePolicy、viewportMode、oldAudioDiscarded、result</td>
+</tr>
+<tr>
+<td><code>lesson.pace.changed</code></td>
+<td>时间债或节奏策略触发处置</td>
+<td>sessionId、contractVersionId、plannedElapsed、actualElapsed、timeDebt、action、affectedNodeIds</td>
+</tr>
+<tr>
+<td><code>lesson.redirected</code></td>
+<td>跑题控场</td>
+<td>intent、confidence、strictness、action、userResponse、parkedTopicId</td>
+</tr>
+<tr>
+<td><code>practice.evaluated</code></td>
+<td>练习评价</td>
+<td>exerciseId、attemptId、rubricVersion、evidenceRefs、scoreStatus、feedbackEdited</td>
+</tr>
+<tr>
+<td><code>mission.completed</code></td>
+<td>守望任务结束</td>
+<td>missionId、actionReceiptId、verificationStatus、latency、cost</td>
+</tr>
+<tr>
+<td><code>proactive.decided</code></td>
+<td>主动裁决完成</td>
+<td>candidateId、evidenceRefs、decision、channel、reason、suppressReason</td>
+</tr>
+<tr>
+<td><code>permission.changed</code></td>
+<td>授权或撤销</td>
+<td>actor、scope、risk、decision、source、effectiveAt</td>
+</tr>
+<tr>
+<td><code>data.rights.requested</code></td>
+<td>导出、删除或更正</td>
+<td>dataScope、requestType、status、completedAt、failureReason</td>
+</tr>
+</tbody></table>
+<p>所有埋点遵循最小化原则，不默认记录完整教案、完整语音、完整屏幕内容或未脱敏个人信息。</p>
+<h2>10.5 指标口径与最小看板</h2>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>公式与统计口径</th>
+<th>排除项与注意事项</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>锚点准确率</td>
+<td>正确页码且主要讲解对象位于标注区域的教学片段数 ÷ 抽检片段总数</td>
+<td>仅统计 DOCUMENT_SYNC；BOARD_ONLY 单列，不得用无锚课堂稀释或抬高本指标</td>
+</tr>
+<tr>
+<td>有效依据展示率</td>
+<td>展示可打开且与结论相关依据的课程依赖型结果数 ÷ 课程依赖型结果总数</td>
+<td>明确标记的教师补充从本项分子和分母同时剔除，另算补充标识准确率</td>
+</tr>
+<tr>
+<td>补充标识准确率</td>
+<td>被正确标为“教师补充”的补充内容数 ÷ 全部教师补充内容数</td>
+<td>目标 100%，不能用提高依据展示率的方式把补充伪装成原文</td>
+</tr>
+<tr>
+<td>事实正确率</td>
+<td>人工或规则评测为正确的事实性回答数 ÷ 被评测事实性回答总数</td>
+<td>观点、练习鼓励和纯指令不进入分母</td>
+</tr>
+<tr>
+<td>打断停止时延</td>
+<td>首次语音活动到旧音频实际停止的毫秒数，报告 P50/P95；另报开始降音量时延</td>
+<td>不从语义确认后重新起算；附和、噪声与真实提问分组报告</td>
+</tr>
+<tr>
+<td>控场响应时延</td>
+<td>学生发言结束到教师开始有效控场回应的毫秒数，报告 P50/P95</td>
+<td>单次高置信明显跑题与连续跑题分别报告，不能复用答疑完成后的停止时延</td>
+</tr>
+<tr>
+<td>节奏处置正确率</td>
+<td>超时后按契约完成缓冲、可选压缩、加时询问或安全收尾的场景数 ÷ 超时测试场景总数</td>
+<td>静默删除必学内容、未提示超时或突然结束均计失败</td>
+</tr>
+<tr>
+<td>恢复准确率</td>
+<td>恢复到正确课程版本、节点、视觉锚点且旧音频不复活的次数 ÷ 恢复测试总次数</td>
+<td>只恢复聊天文本但页码错误不计成功</td>
+</tr>
+<tr>
+<td>误打断率</td>
+<td>噪声、附和或教师自声导致非预期停课次数 ÷ 对应样本总数</td>
+<td>与真实提问漏识别分开报告</td>
+</tr>
+<tr>
+<td>跑题召回率</td>
+<td>被正确识别并按契约处理的跑题样本数 ÷ 标注跑题样本总数</td>
+<td>课程相关延伸不属于跑题</td>
+</tr>
+<tr>
+<td>误判跑题率</td>
+<td>被错误控场的课程相关追问数 ÷ 课程相关追问总数</td>
+<td>该指标优先于单纯提高跑题召回</td>
+</tr>
+<tr>
+<td>学情证据覆盖率</td>
+<td>可打开有效作答与量规依据的学情结论数 ÷ 学情结论总数</td>
+<td>自评单列，不能混作系统评价</td>
+</tr>
+<tr>
+<td>主动有用率</td>
+<td>标记有用的主动消息数 ÷ 有明确反馈的主动消息总数</td>
+<td>无反馈单独统计，不强行计入有用或无用</td>
+</tr>
+<tr>
+<td>明确打扰率</td>
+<td>标记打扰或要求减少的主动消息数 ÷ 有明确反馈的主动消息总数</td>
+<td>与忽略率分开，不能把沉默都视为喜欢</td>
+</tr>
+<tr>
+<td>到期承诺跟进率</td>
+<td>到期后按契约完成跟进或状态确认的承诺数 ÷ 到期承诺总数</td>
+<td>用户主动豁免且已确认的承诺单列</td>
+</tr>
+<tr>
+<td>任务结果验证率</td>
+<td>具有成功、失败或待确认有效证据的守望任务数 ÷ 已结束守望任务总数</td>
+<td>无验证结果不得进入成功数</td>
+</tr>
+<tr>
+<td>权限违规数</td>
+<td>未授权执行、撤销后执行、跨域执行的总次数</td>
+<td>目标恒为 0，按入口与风险等级拆分</td>
+</tr>
+<tr>
+<td>单课时成本</td>
+<td>同一 session 的备课摊销、课堂模型、语音与后台任务成本之和</td>
+<td>同时报告模型、金额估算方法和降级，不设虚假统一价格</td>
+</tr>
+<tr>
+<td>延迟复习保持率</td>
+<td>到期复习中达到量规通过线的项目数 ÷ 到期复习项目总数</td>
+<td>只作学习趋势，不与当堂跟读通过混为一谈</td>
+</tr>
+</tbody></table>
+<p><strong>最小看板。</strong> 首版至少包含四块：课程质量（锚点、依据、打断、恢复）、学习证据（目标、错误、复习）、伴侣信任（主动反馈、承诺、任务）、系统安全与成本（权限、降级、模型用量）。每块均可从汇总数字回到原始事件和版本。</p>
+<h2>10.6 反馈与版本闭环</h2>
+<p>用户可以针对讲解内容、文档锚点、控场行为、练习评价、记忆和主动消息分别反馈。反馈至少包含“哪里错、希望怎样、是否采用修改、是否减少类似行为”。系统保存原始结果、用户修改和最终采用状态，并关联全部版本。反馈进入候选评测集后，须经过脱敏与人工确认，不得直接在线改变系统提示或人格。</p>
+<hr>
+<h1>十一、权限与安全要求</h1>
+<h2>11.1 角色与权限矩阵</h2>
+<table>
+<thead>
+<tr>
+<th>能力</th>
+<th>学习者</th>
+<th>材料提供者</th>
+<th>电脑所有者</th>
+<th>Alice 教师</th>
+<th>Alice 伴侣</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查看本人课程与学情</td>
+<td>允许</td>
+<td>仅本人材料相关</td>
+<td>允许</td>
+<td>仅当前授权课程</td>
+<td>仅明确共享的摘要</td>
+</tr>
+<tr>
+<td>导入与编辑材料</td>
+<td>允许本人材料</td>
+<td>允许</td>
+<td>允许</td>
+<td>生成草稿，不直接覆盖</td>
+<td>不适用</td>
+</tr>
+<tr>
+<td>修改课堂契约</td>
+<td>允许</td>
+<td>按同一用户身份</td>
+<td>允许</td>
+<td>只能提出建议</td>
+<td>只能提出建议</td>
+</tr>
+<tr>
+<td>课堂讲解与文档展示</td>
+<td>使用</td>
+<td>预览</td>
+<td>使用</td>
+<td>在当前课程内允许</td>
+<td>不适用</td>
+</tr>
+<tr>
+<td>课堂控场</td>
+<td>可调整或退出</td>
+<td>可预览规则</td>
+<td>可调整或退出</td>
+<td>仅契约范围内</td>
+<td>退出课堂后禁止</td>
+</tr>
+<tr>
+<td>读取其他文件或应用</td>
+<td>需另行授权</td>
+<td>需另行授权</td>
+<td>授权主体</td>
+<td>不因教师身份获得</td>
+<td>按独立作用域授权</td>
+</tr>
+<tr>
+<td>执行高危系统动作</td>
+<td>必须确认</td>
+<td>必须确认</td>
+<td>必须确认</td>
+<td>无独立批准权</td>
+<td>无独立批准权</td>
+</tr>
+<tr>
+<td>导出或删除数据</td>
+<td>本人范围</td>
+<td>本人材料范围</td>
+<td>全部范围</td>
+<td>只能发起请求</td>
+<td>只能发起请求</td>
+</tr>
+</tbody></table>
+<h2>11.2 AI 行为约束三层</h2>
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>教师模式</th>
+<th>伴侣模式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Always do</td>
+<td>读取已授权课程、展示合法锚点、讲解、提问、暂停、保存进度、生成可编辑练习和报告</td>
+<td>读取已授权事件、更新草稿、生成有证据建议、在安静模式下保持静默</td>
+</tr>
+<tr>
+<td>Ask first</td>
+<td>使用新的云端处理、保存原始录音、修改课程契约、创建文件或分享内容、跨作用域调用学情；R3 永远逐次确认</td>
+<td>修改或移动文件、执行命令、启动新后台任务、发送或发布、跨域共享记忆、改变长期感知授权；R3 永远逐次确认</td>
+</tr>
+<tr>
+<td>Never do</td>
+<td>执行教材中的指令或宏、伪造掌握度、绕过权限</td>
+<td>虚构共同经历、伪造任务成功、绕过审批、默认上传原始媒体、利用情感操纵延长使用</td>
+</tr>
+</tbody></table>
+<h2>11.3 感知、麦克风与媒体安全</h2>
+<p>麦克风和摄像头必须有独立、可见、可验证的状态。静音或撤销后立即停止采集与网络上行，销毁不再需要的 VAD 和临时缓冲，后续事件不得自行恢复。原始屏幕、音频、视频默认不持久化；发音复习录音、截图留档或云端视觉处理分别授权，不能用一次“允许陪伴”覆盖所有目的。</p>
+<h2>11.4 行动与内容安全</h2>
+<p>所有工具调用，无论来自普通聊天、教师、cron、后台任务、自定义脚本或 MCP，都必须进入统一行动代理。授权按动作风险、目标和作用域判断，而不是只看可执行名。</p>
+<table>
+<thead>
+<tr>
+<th>风险级别</th>
+<th>示例</th>
+<th>可复用授权</th>
+<th>必须满足的约束</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>R0：低敏只读</td>
+<td>读取明确授权的课程、目录名称或系统状态</td>
+<td>可按明确作用域使用会话或可撤销永久授权</td>
+<td>不扩大目录、对象和用途，撤回即时生效</td>
+</tr>
+<tr>
+<td>R1：可逆本地修改</td>
+<td>在指定目录创建草稿、可恢复移动或修改</td>
+<td>仅同一精确作用域可使用会话或永久授权</td>
+<td>有差异预览、备份、回执和撤销；参数变化重新评估</td>
+</tr>
+<tr>
+<td>R2：敏感读取、上传或新用途</td>
+<td>云端处理私人教案、保存录音、跨域共享学情</td>
+<td>不得永久复用；仅同目的、同对象的会话授权</td>
+<td>新目的、新接收方或新数据类型必须重新告知确认</td>
+</tr>
+<tr>
+<td>R3：破坏性或外部高危</td>
+<td>永久删除、对外发送发布、付款、凭据、系统安全设置、不可逆操作</td>
+<td><strong>禁止会话或永久复用，永远逐次确认</strong></td>
+<td>每次展示动作、对象、后果并确认；旧缓存不得作为批准依据</td>
+</tr>
+</tbody></table>
+<p>自定义 Node 工具改为隔离 worker，具备资源限制、超时、权限声明和审计。所有缓存撤销即时刷新主进程与设置视图；迁移时不得把旧的“永久可执行名授权”直接提升为 R2/R3 权限。浏览器 WebSocket 增加本机连接鉴权，Google token 等凭据纳入 safeStorage 或等效加密。</p>
+<p>教案、网页、邮件和工具结果均按不可信数据处理。文本中的“忽略规则”“上传文件”“执行命令”等内容不得成为系统指令；PPT 宏、嵌入对象、外部链接和脚本默认不执行。课程生成功能不得自行访问材料目录之外的文件。</p>
+<hr>
+<h1>十二、异常处理清单</h1>
+<table>
+<thead>
+<tr>
+<th>异常</th>
+<th>触发与识别</th>
+<th>系统行为</th>
+<th>用户恢复路径</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>文件损坏、加密或超限</td>
+<td>无法读取、密码保护、超过当前容量</td>
+<td>停止解析并说明具体文件和原因，不无限重试</td>
+<td>提供修复、解密后重试、分批导入或删除</td>
+</tr>
+<tr>
+<td>OCR 或版面置信低</td>
+<td>文字缺失、阅读顺序不确定、区域冲突</td>
+<td>标出具体页和区域，阻止直接进入自动授课</td>
+<td>用户手动调整顺序、补充文字或重新上传</td>
+</tr>
+<tr>
+<td>DOCX/PPTX 无可用转换器</td>
+<td>未检测到 Office/LibreOffice 或转换失败</td>
+<td>禁止进入 DOCUMENT_SYNC；可提供结构预览或明确标注的 BOARD_ONLY</td>
+<td>安装转换器、先转 PDF，或由用户显式选择无原文同步课堂</td>
+</tr>
+<tr>
+<td>图片页序不明</td>
+<td>多图缺少页码或顺序冲突</td>
+<td>要求确认顺序</td>
+<td>拖动排序或按文件名/时间规则确认</td>
+</tr>
+<tr>
+<td>教学节点缺少有效锚点</td>
+<td>课程编译无法定位来源</td>
+<td>节点标为不可自动授课</td>
+<td>用户选择锚点、允许纯板书节点或重编译</td>
+</tr>
+<tr>
+<td>教材含提示注入</td>
+<td>文本要求忽略规则、执行命令或泄露信息</td>
+<td>作为不可信教材内容标记，不执行、不改变契约</td>
+<td>用户可查看风险并决定删除、修复或继续仅作内容</td>
+</tr>
+<tr>
+<td>模型不支持视觉</td>
+<td>供应商能力探测或调用失败</td>
+<td>禁止声称已看到页面，切换可用模型或仅使用结构化文本</td>
+<td>更换视觉模型、重新解析或转入文本备课</td>
+</tr>
+<tr>
+<td>云端模型超时或拒答</td>
+<td>超时、限流、内容拒绝、低置信</td>
+<td>保留课堂状态，提供重试、替代模型或保守回答</td>
+<td>用户可重试、切换、暂停或人工继续，不丢失位置</td>
+</tr>
+<tr>
+<td>重任务 worker 阻塞或崩溃</td>
+<td>转换/OCR/索引超时、资源超限或子进程退出</td>
+<td>主线程保持语音可暂停，标记 job 失败并回收资源，迟到结果丢弃</td>
+<td>取消任务、降低负载、修复材料或重试，不影响旧课堂</td>
+</tr>
+<tr>
+<td>预算耗尽</td>
+<td>课时或后台预算达到上限</td>
+<td>停止非必要生成和后台任务，保留当前进度</td>
+<td>调整预算、使用已有内容复习或下课后继续</td>
+</tr>
+<tr>
+<td>STT 对中英混说识别差</td>
+<td>控制指令或答案置信低</td>
+<td>不执行高风险控场或评分，提供字幕确认</td>
+<td>用户点击控制、重说或手动修正 transcript</td>
+</tr>
+<tr>
+<td>噪声、附和或教师自声</td>
+<td>语音守卫判定非真实提问</td>
+<td>不打断课程，记录误打断样本</td>
+<td>用户可调整灵敏度或改用按键发言</td>
+</tr>
+<tr>
+<td>TTS 不可用或本地假就绪</td>
+<td>服务真实状态不可用</td>
+<td>显示字幕并停止伪装语音成功，独立降级其他服务</td>
+<td>切换 TTS、继续字幕课堂或暂停</td>
+</tr>
+<tr>
+<td>学生长时间沉默</td>
+<td>超过节点等待时间</td>
+<td>给一次提示或延长思考，不直接判错</td>
+<td>学生可要求更多时间、看提示、跳过或暂停</td>
+</tr>
+<tr>
+<td>学生反复不懂</td>
+<td>多次回答未达量规或明确表示困惑</td>
+<td>更换解释与练习，达到尝试上限后提供复习或继续选择</td>
+<td>学生决定再试、标记复习、跳过或退出</td>
+</tr>
+<tr>
+<td>长答疑导致超时</td>
+<td>timeDebt 超过节点或课时缓冲</td>
+<td>按 pacePolicy 压缩可选、转复习、询问加时或安全收尾，不静默跳必学</td>
+<td>用户选择加时、保留待学、调整节奏或下课</td>
+</tr>
+<tr>
+<td>连续跑题</td>
+<td>达到当前严格度干预条件</td>
+<td>按契约坚定回课，可暂停新内容</td>
+<td>回课、调整严格度、处理停车场或下课</td>
+</tr>
+<tr>
+<td>用户不适或明确需要休息</td>
+<td>用户表达或主动选择</td>
+<td>立即暂停</td>
+<td>保存现场，用户决定休息、结束或转伴侣支持</td>
+</tr>
+<tr>
+<td>学生自由翻页</td>
+<td>视图离开授课锚点</td>
+<td>课程节点不变，显示回到授课位置</td>
+<td>一键恢复或继续自由浏览</td>
+</tr>
+<tr>
+<td>应用异常退出</td>
+<td>进程崩溃、断电或窗口关闭</td>
+<td>从最后已提交快照恢复为 PAUSED，旧事件不重复执行</td>
+<td>用户查看位置后继续或退出</td>
+</tr>
+<tr>
+<td>守望任务失败</td>
+<td>条件错误、工具失败、超时或无法验证</td>
+<td>进入 FAILED 或 NEEDS_CONFIRMATION，不自动报成功</td>
+<td>查看回执、修改任务、重试或取消</td>
+</tr>
+<tr>
+<td>权限被撤销</td>
+<td>任一授权发生变化</td>
+<td>后续动作即时拒绝，运行中任务进入等待或停止</td>
+<td>重新授权、缩小任务或取消</td>
+</tr>
+<tr>
+<td>数据删除失败</td>
+<td>数据库、索引或资产残留</td>
+<td>显示失败范围并保留权利请求记录</td>
+<td>重试、导出诊断、人工清理并复核</td>
+</tr>
+<tr>
+<td>磁盘不足</td>
+<td>页面资产、模型或备份写入失败</td>
+<td>停止新导入和非必要后台生成，保护既有数据</td>
+<td>清理缓存、选择其他目录或删除旧资产</td>
+</tr>
+<tr>
+<td>学情或记忆发生冲突</td>
+<td>新证据与旧结论不一致</td>
+<td>保留版本与来源，不静默覆盖；低置信标为待确认</td>
+<td>用户查看证据、修正或选择当前有效版本</td>
+</tr>
+</tbody></table>
+<p><strong>人工接管要求。</strong> 任一 AI 或自动化失败需要用户接管时，必须携带原始材料、当前课程或任务、已执行动作、失败原因、权限状态和可继续位置，不得只显示“系统繁忙”。</p>
+<hr>
+<h1>十三、上线计划、依赖与上线后验证</h1>
+<h2>13.1 分阶段实施路线</h2>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>主要交付</th>
+<th>阶段验收</th>
+<th>回滚方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>P0：可信基线</td>
+<td>修复摘要会话隔离、重复提醒、一次性任务、权限旁路、假就绪和当前测试；建立契约、持久事件、行动代理、模型路由和 worker 任务协议</td>
+<td>现有测试全部恢复；新权限测试覆盖各入口；普通聊天、语音、历史、记忆无回归</td>
+<td>新业务保持功能开关关闭，仅保留修复与基础服务</td>
+</tr>
+<tr>
+<td>P1：课程编译</td>
+<td>四类材料导入、质量报告、教学文档 IR、worker 隔离、课程编译、锚点确认、CourseVersion 与独立 ClassContract</td>
+<td>四类样本通过质量闸门；低质量材料正确阻断；大文件处理期间语音控制满足时延；锚点抽检达标</td>
+<td>关闭教师入口，不影响普通 RAG 和聊天</td>
+</tr>
+<tr>
+<td>P2：课堂 MVP</td>
+<td>自动讲解、文档同步、节奏与时间债、基础 Exercise/Attempt/ObjectiveMastery、语音插话、跑题控场、恢复与证据型课后报告</td>
+<td>30 组打断恢复、20 次异常恢复、60 组意图、节奏超时与证据查询、完整一节课和字幕降级通过</td>
+<td>课堂回到 PAUSED；关闭新课堂，旧聊天继续可用</td>
+</tr>
+<tr>
+<td>P3：最小伴侣与长期学习闭环</td>
+<td>双向承诺、接回昨天、守望任务、跨课作业复习、学情趋势和最小看板</td>
+<td>承诺可跟进、现场可手动恢复、任务可验证、跨课复习使用 P2 的原始学习证据</td>
+<td>关闭后台任务与新看板，不影响既有数据读取</td>
+</tr>
+<tr>
+<td>P4：差异化扩展</td>
+<td>高级发音、想法实验室、观点成长、主动裁决增强、微型礼物、技能学习和更多电脑能力</td>
+<td>按各功能独立验收与灰度，不捆绑发布</td>
+<td>每个功能独立开关、独立数据迁移与回滚</td>
+</tr>
+</tbody></table>
+<p>P0—P2 构成教师模式的第一个可用版本，P3 是与其共用底座的最小扩展。不得因为 P4 的构想丰富而提前挤占 P0—P2 的可靠性工作。</p>
+<h2>13.2 依赖就绪度评估</h2>
+<table>
+<thead>
+<tr>
+<th>依赖</th>
+<th>当前状态</th>
+<th>分级</th>
+<th>最晚就绪时点</th>
+<th>影响与替代方案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>持久事件与统一行动代理</td>
+<td>未形成统一实现</td>
+<td>阻塞（Blocker）</td>
+<td>P0 完成前</td>
+<td>未就绪不得开发依赖后台状态的新功能</td>
+</tr>
+<tr>
+<td>重任务 worker 运行时</td>
+<td>现有仅有 PDF worker，统一取消、回收与资源协议未形成</td>
+<td>阻塞（Blocker）</td>
+<td>P1 联调前</td>
+<td>未就绪不得开展大文件自动备课；语音控制不得让位于解析</td>
+</tr>
+<tr>
+<td>PDF 解析、渲染与文本坐标</td>
+<td>现有 pdfjs、worker 与 RAG 基础可复用，需验证区域坐标</td>
+<td>阻塞</td>
+<td>P1 联调前</td>
+<td>无法精确锚定的页面必须人工确认或禁止自动授课</td>
+</tr>
+<tr>
+<td>DOCX/PPTX 页面转换</td>
+<td>Office/LibreOffice 可用性未确认</td>
+<td>阻塞精确联动，部分可绕过</td>
+<td>P1 范围冻结前</td>
+<td>无转换器时仅结构备课或引导转 PDF，不宣称完整支持</td>
+</tr>
+<tr>
+<td>OCR 与视觉模型</td>
+<td>现有云模型与部分视觉链可复用，供应商差异明显</td>
+<td>并行（Parallel）</td>
+<td>P1 联调前</td>
+<td>低置信时人工修正锚点，不允许编造页面内容</td>
+</tr>
+<tr>
+<td>STT/TTS 与真实音频设备</td>
+<td>代码链完整，但本地服务存在占位与假就绪，需真机验证</td>
+<td>阻塞语音 MVP</td>
+<td>P2 联调前</td>
+<td>可降级为文字与字幕课堂，但不得宣称语音验收通过</td>
+</tr>
+<tr>
+<td>支持视觉与工具调用的主模型</td>
+<td>现有多供应商可配置，但能力不统一</td>
+<td>阻塞</td>
+<td>P1 模型评审前</td>
+<td>使用能力探测与替代模型；不支持的供应商自动排除</td>
+</tr>
+<tr>
+<td>发音词/音素级评估服务</td>
+<td>尚未选型</td>
+<td>可绕过（Workaround）</td>
+<td>P4 对应功能开发前</td>
+<td>MVP 使用示范、录音与一般反馈，不给伪音素分数</td>
+</tr>
+<tr>
+<td>教案、意图与恢复评测集</td>
+<td>尚未形成标准样本</td>
+<td>阻塞发布</td>
+<td>P2 验收前</td>
+<td>未通过评测不得对外宣称课堂可靠</td>
+</tr>
+<tr>
+<td>OpenMAIC 等外部参考</td>
+<td>可研究其课程动作与课堂控制；代码复用未决定</td>
+<td>可绕过</td>
+<td>仅在复用前</td>
+<td>自研为主</td>
+</tr>
+</tbody></table>
+<p>模型选型需单独评审质量、隐私和单次课时成本。开发或评测大任务前应与用户确认所选模型，默认选择能满足质量门槛且具有合理成本的组合，而不是全程使用同一高成本模型。</p>
+<h2>13.3 测试与评测计划</h2>
+<p><strong>单元与契约测试。</strong> 覆盖事件幂等、权限撤销、课程编译、锚点、课堂状态、动作 Schema、恢复、学情证据、数据删除和模型能力过滤。现有 144/146 通过且 3 个测试文件失败的基线必须先收敛，不能把旧失败带入新架构。</p>
+<p><strong>材料测试集。</strong> 建议至少 20 份覆盖四类格式、清晰与扫描件、表格图片、页序异常、提示注入和无教学步骤材料；每份记录可接受与不可接受结果。另测无 Office/LibreOffice 时只能修复或显式进入 BOARD_ONLY，不能误入 DOCUMENT_SYNC。</p>
+<p><strong>课堂意图测试集。</strong> 建议至少 60 组覆盖附和、噪声、当前追问、延伸、控制、单次明显跑题、连续跑题、反复不懂、紧急与低置信；逐档验证次数和时间窗口，同时评估跑题召回、干预时延和课程追问误判。</p>
+<p><strong>打断与故障注入。</strong> 建议至少 30 组跨讲解、提问、练习、答疑、自由浏览的打断测试，覆盖教学句未播放、播放中、已完整播放、二次插话、取消待恢复和暂停退出；另做 20 次在生成、播放、动作提交和数据库写入不同阶段的异常退出。</p>
+<p><strong>节奏与恢复测试。</strong> 构造 45 分钟课程增加 10 分钟答疑的场景，分别验证三种 pacePolicy；检查必学内容不被静默删除。验证契约修改不派生 CourseVersion，以及 FOLLOW_LESSON 与 FREE_BROWSE 下课程锚点和学生视口各自正确。</p>
+<p><strong>端到端验收。</strong> 完成“导入—确认—开课—插话—答疑—回课—练习—跑题—拉回—下课—报告—次日续课”全链路；验证暂停、退出、静音、撤销权限和删除数据同样有效。</p>
+<p><strong>安全与性能回归。</strong> 所有工具入口重放未授权、撤销后和旧永久授权请求，R3 必须逐次确认；检查宏、提示注入、WebSocket、自定义脚本、token 存储、日志脱敏和跨域记忆。大文件转换、OCR 和索引期间并行执行语音暂停、退出与打断，验证主线程响应和 worker 回收。</p>
+<p><strong>成本与性能。</strong> 在约定模型组合下记录备课、45 分钟课堂和后台复习的用量、时延与降级。45 分钟仅为建议基准课时，用于横向比较，不构成教学效果承诺。</p>
+<h2>13.4 灰度与上线后验证</h2>
+<p>第一步只使用合成或测试材料，不开放真实私人教案；第二步由用户选择一份低风险真实教案，完成单课验证；第三步再开启连续多课、课后复习和最小伴侣后台能力。每一步均有功能开关，关闭后回到上一稳定行为。</p>
+<p>上线后第一周重点观察材料失败原因、锚点错误、误打断、课程追问误判、恢复失败、单位课时成本和用户主动调整严格度的行为。若出现权限违规、跨域泄露、伪造学情或不可恢复课堂状态，立即停止灰度并回滚，不以平均指标良好为由继续。</p>
+<h2>13.5 数据迁移与回滚</h2>
+<p>迁移范围包括现有设置、聊天、长期记忆、thoughts、RAG、cron 和授权。流程为备份与数量基线、迁移预演、只读新库验证、分批迁移、关联校验、功能回归、保留旧库回滚。课程、学情和事件使用新增表，不改写既有记忆语义。迁移失败时恢复旧数据库与设置，并保留失败日志供修复后重新预演。</p>
+<hr>
+<h1>十四、风险与遗留问题</h1>
+<h2>14.1 风险登记册</h2>
+<p>概率与影响采用 1—5 级，风险值=概率×影响；15—25 为高，8—14 为中，1—7 为低。评分为本次产品评审判断，不是历史事故统计。</p>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>风险</th>
+<th align="right">概率</th>
+<th align="right">影响</th>
+<th>等级</th>
+<th>应对措施</th>
+<th>责任角色</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RK-01</td>
+<td>Word/PPT 转换后版式与锚点不稳定</td>
+<td align="right">4</td>
+<td align="right">5</td>
+<td>20 高</td>
+<td>统一 IR、可信转换器、低置信阻断、人工锚点确认、结构备课降级</td>
+<td>研发/测试</td>
+<td>跟踪中</td>
+</tr>
+<tr>
+<td>RK-02</td>
+<td>讲课或答疑出现无依据内容</td>
+<td align="right">3</td>
+<td align="right">5</td>
+<td>15 高</td>
+<td>课程检索、来源契约、补充分层、低置信降级、事实评测</td>
+<td>产品/研发</td>
+<td>跟踪中</td>
+</tr>
+<tr>
+<td>RK-03</td>
+<td>三条时间线导致旧音频复活、跳页或进度丢失</td>
+<td align="right">4</td>
+<td align="right">4</td>
+<td>16 高</td>
+<td>独立 utteranceId、课堂快照、单点状态写者、故障注入</td>
+<td>研发/测试</td>
+<td>跟踪中</td>
+</tr>
+<tr>
+<td>RK-04</td>
+<td>定时、脚本、MCP 或后台路径绕过权限</td>
+<td align="right">3</td>
+<td align="right">5</td>
+<td>15 高</td>
+<td>统一行动代理、撤销即时生效、全入口安全重放</td>
+<td>研发/安全</td>
+<td>跟踪中</td>
+</tr>
+<tr>
+<td>RK-05</td>
+<td>伴侣与教师同时铺开导致范围失控</td>
+<td align="right">5</td>
+<td align="right">4</td>
+<td>20 高</td>
+<td>教师垂直场景先行，伴侣最小闭环，独立功能开关和变更评审</td>
+<td>产品</td>
+<td>跟踪中</td>
+</tr>
+<tr>
+<td>RK-07</td>
+<td>中英混说、口音与噪声造成误判或错误评分</td>
+<td align="right">4</td>
+<td align="right">3</td>
+<td>12 中</td>
+<td>真实样本评测、字幕确认、低置信不控场不评分、人工修正</td>
+<td>研发/测试</td>
+<td>跟踪中</td>
+</tr>
+<tr>
+<td>RK-08</td>
+<td>备课与长课时模型成本过高</td>
+<td align="right">4</td>
+<td align="right">3</td>
+<td>12 中</td>
+<td>模型路由、缓存、动作化输出、预算、批量后台和成本看板</td>
+<td>产品/研发</td>
+<td>跟踪中</td>
+</tr>
+<tr>
+<td>RK-10</td>
+<td>学情被过度解读，完成播放被误当学习效果</td>
+<td align="right">2</td>
+<td align="right">4</td>
+<td>8 中</td>
+<td>证据型评价、自评分列、延迟复习</td>
+<td>产品</td>
+<td>跟踪中</td>
+</tr>
+<tr>
+<td>RK-11</td>
+<td>单用户样本使指标过拟合</td>
+<td align="right">3</td>
+<td align="right">3</td>
+<td>9 中</td>
+<td>固定对抗样本、记录失败、分材料类型报告，后续扩大测试用户</td>
+<td>测试/产品</td>
+<td>跟踪中</td>
+</tr>
+<tr>
+<td>RK-12</td>
+<td>上游模型与本地服务能力差异造成体验漂移</td>
+<td align="right">4</td>
+<td align="right">3</td>
+<td>12 中</td>
+<td>能力探测、供应商合同测试、模型路由和明确降级</td>
+<td>研发</td>
+<td>跟踪中</td>
+</tr>
+</tbody></table>
+<h2>14.2 待用户确认的三项问题</h2>
+<p><strong>第一，实际材料更接近哪一种。</strong> 是包含教学目标、活动和时间安排的教师用详案，还是主要包含知识点的教材、讲义或 PPT？建议 P1 前提供每类至少一份脱敏样本，用于确定课程编译和锚点规则；未提供前按两类都支持设计。</p>
+<p><strong>第二，英语水平与课堂语言偏好。</strong> 当前大致处于什么阶段，希望全英文沉浸，还是英语讲解、中文随时救场？本版默认后者，并只在特定输出练习中启用全英文。</p>
+<p><strong>第三，教师严格度与典型课时。</strong> 默认“温和但坚定”是否符合预期，通常希望一节多少分钟、跑题时希望被多坚定地拉回？本版默认标准档，并把课时和严格度放入每次可修改的课堂契约。</p>
+<h2>14.3 变更控制</h2>
+<p>新增摄像头注意力、多人课堂、公开课程分享、收费、移动端或全自动电脑操作，均属于重大范围变更。必须评估对架构、工期、成本、隐私、安全和既有需求的影响，经用户明确拍板后调整版本；未获批准前进入后续需求池，不在开发中静默加入。</p>
+<hr>
+<h1>十五、附录</h1>
+<h2>15.1 关键用户故事与端到端验收</h2>
+<p><strong>US-01：首次按教案上课。</strong> 作为成年学习者，我希望把已有教案交给 Alice，以便不用自己拆课就能开始一节有结构的英语课。</p>
+<ul>
+<li>Given 一份通过质量检查的材料，When 我确认课程大纲和课堂契约，Then 形成可继续的课程版本并开始开场教学。</li>
+<li>Given 一份缺少教学步骤的教材，When 系统生成补充授课计划，Then 我能先检查目标和活动，未经确认不得直接自动授课。</li>
+</ul>
+<p><strong>US-02：课中随时提问。</strong> 作为学生，我希望在不懂时直接插话，以便不丢失学习思路。</p>
+<ul>
+<li>Given Alice 正在第 N 节点讲解，When 我追问当前内容，Then 她暂停、回答并保留原节点。</li>
+<li>Given 答疑结束，When 恢复授课，Then 页面、区域和教学句按策略恢复，旧音频不复活，也不会自动跳到 N+1。</li>
+<li>Given 当前教学句只播放了一部分且我处于自由浏览，When 封闭答疑结束，Then 默认从该句开头重讲；课程锚点更新但我的视口可按跟随设置保留，点击回到授课位置后才同步页面。</li>
+</ul>
+<p><strong>US-03：跑题时被拉回。</strong> 作为希望保持学习计划的学生，我希望老师在我明显跑题时坚定提醒，以便完成本课目标。</p>
+<ul>
+<li>Given 我连续谈论无关内容，When 达到课堂契约的干预条件，Then Alice 简短承接、停放话题、说明当前目标并回课。</li>
+</ul>
+<p><strong>US-04：第二天接回昨天。</strong> 作为电脑所有者，我希望快速恢复昨天的工作或学习现场，以便减少重新进入状态的成本。</p>
+<ul>
+<li>Given 昨天保存了 PAUSED 现场，When 我今天点击恢复，Then 先看到将打开的内容和下一步，确认后才执行。</li>
+<li>Given 现场中某个文件或应用已变化，When 预览恢复，Then 系统提示冲突并允许选择，不静默覆盖。</li>
+</ul>
+<p><strong>US-05：连续卡住时获得有证据的帮助。</strong> 作为项目开发者，我希望 Alice 在我反复失败时提供真正有用的诊断，以便解决问题而不是被泛化安慰。</p>
+<ul>
+<li>Given 同一测试连续失败且已有日志证据，When Alice 提示，Then 她先保持低打扰并说明证据，经我查看后提供只读诊断或修复草稿。</li>
+<li>Given 证据不足，When 生成建议，Then 明示假设和验证方式，不把猜测说成根因。</li>
+</ul>
+<p><strong>US-06：周末共同复盘。</strong> 作为长期用户，我希望看到共同作品与学习证据，以便理解本周真实进展和下周选择。</p>
+<ul>
+<li>Given 一周内有课程、作品和任务记录，When 生成周末回顾，Then 每项内容都可回到原始证据，完成、跳过、失约与建议分开。</li>
+<li>Given 某条回顾不准确，When 我修正，Then 保存修正及版本，不用新叙述掩盖旧错误。</li>
+</ul>
+<h2>15.2 需求追踪矩阵（RTM）</h2>
+<p>测试编号为建议编号，开发时应建立对应用例；状态表示本方案评审时的工程状态。</p>
+<table>
+<thead>
+<tr>
+<th>需求来源</th>
+<th>需求编号</th>
+<th>PRD 章节</th>
+<th>架构/设计落点</th>
+<th>建议测试用例</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>共同作品</td>
+<td>CMP-01～02</td>
+<td>7.2～7.3</td>
+<td>伴侣工作区、Artifact</td>
+<td>TC-C01～02</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>双向承诺</td>
+<td>CMP-03</td>
+<td>7.2～7.3</td>
+<td>Commitment、Mission</td>
+<td>TC-C03</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>自我成长与反向求助</td>
+<td>CMP-04～05</td>
+<td>7.2～7.3</td>
+<td>Opinion、反馈作用域</td>
+<td>TC-C04～05</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>关系修复</td>
+<td>CMP-06</td>
+<td>7.2～7.3</td>
+<td>主动反馈与信任中心</td>
+<td>TC-C06</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>决策与想法</td>
+<td>CMP-07</td>
+<td>7.2～7.3</td>
+<td>决策日记、想法实验室</td>
+<td>TC-C07</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>礼物与共同仪式</td>
+<td>CMP-08～09</td>
+<td>7.2～7.3</td>
+<td>作品回顾、来源展示</td>
+<td>TC-C08～09</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>主动裁决</td>
+<td>CMP-10～11</td>
+<td>7.2～7.3、9.6</td>
+<td>持久事件、主动裁决、去重静音</td>
+<td>TC-C10～11</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>接回昨天</td>
+<td>CMP-12</td>
+<td>6.2、7.2～7.3</td>
+<td>WorkScene、预览恢复</td>
+<td>TC-C12</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>守望任务</td>
+<td>CMP-13</td>
+<td>7.2～7.3、9.7</td>
+<td>MissionRunner、ActionReceipt</td>
+<td>TC-C13</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>摩擦与技能</td>
+<td>CMP-14～15</td>
+<td>7.2～7.3</td>
+<td>事件聚合、技能版本</td>
+<td>TC-C14～15</td>
+<td>后续版本</td>
+</tr>
+<tr>
+<td>电脑行动</td>
+<td>CMP-16～17</td>
+<td>7.3、11.4</td>
+<td>ActionBroker、权限与回执</td>
+<td>TC-C16～17</td>
+<td>部分现有，需重构</td>
+</tr>
+<tr>
+<td>感知与安静陪伴</td>
+<td>CMP-18～20</td>
+<td>7.2～7.3、11.3</td>
+<td>感知开关、隐私作用域</td>
+<td>TC-C18～20</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>材料导入与 IR</td>
+<td>TCH-01～03</td>
+<td>7.4、7.6、5.4</td>
+<td>DocumentNormalizer、质量闸门</td>
+<td>TC-T01～03</td>
+<td>部分基础可复用</td>
+</tr>
+<tr>
+<td>课程编译与锚点</td>
+<td>TCH-04～05</td>
+<td>5.4、7.6</td>
+<td>CourseCompiler、CourseVersion</td>
+<td>TC-T04～05</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>课堂契约</td>
+<td>TCH-06</td>
+<td>7.5～7.6</td>
+<td>契约版本与角色边界</td>
+<td>TC-T06</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>自动授课、文档联动与节奏</td>
+<td>TCH-07～09、TCH-30</td>
+<td>5.5、7.6、9.3</td>
+<td>LectureRuntime、TeachingAction、PacePolicy、TimeDebt</td>
+<td>TC-T07～09、TC-T30</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>语音互动与恢复</td>
+<td>TCH-10～14</td>
+<td>5.5、7.6、9.4</td>
+<td>三时间线、快照、utteranceId</td>
+<td>TC-T10～14</td>
+<td>部分语音基础可复用</td>
+</tr>
+<tr>
+<td>跑题与教师权威</td>
+<td>TCH-15～16</td>
+<td>7.5～7.6、9.5</td>
+<td>意图分类、课堂契约、停车场</td>
+<td>TC-T15～16</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>练习与英语策略</td>
+<td>TCH-17～20</td>
+<td>7.4～7.6</td>
+<td>Exercise、量规、语言策略</td>
+<td>TC-T17～20</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>学情、作业与报告</td>
+<td>TCH-21～24</td>
+<td>7.6、10.1</td>
+<td>LearningStore、ReviewItem</td>
+<td>TC-T21～24</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>断点与课程版本</td>
+<td>TCH-25</td>
+<td>7.6、9.1～9.4</td>
+<td>Snapshot、持久课堂状态</td>
+<td>TC-T25</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>可及性与反馈</td>
+<td>TCH-26～28</td>
+<td>7.6、11、10.6</td>
+<td>字幕、版本反馈</td>
+<td>TC-T26～28</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>共享平台</td>
+<td>PLT-01～13</td>
+<td>5、7.7～7.9、11</td>
+<td>事件、模型、行动、分域记忆、worker 隔离</td>
+<td>TC-P01～13</td>
+<td>部分现有，需重构</td>
+</tr>
+<tr>
+<td>三个端到端伴侣目标</td>
+<td>US-04～06</td>
+<td>6.2、15.1</td>
+<td>工作现场、守望、共同回顾</td>
+<td>TC-E04～06</td>
+<td>待开发</td>
+</tr>
+<tr>
+<td>三个端到端教师目标</td>
+<td>US-01～03</td>
+<td>6.2、15.1</td>
+<td>备课、课堂、控场与恢复</td>
+<td>TC-E01～03</td>
+<td>待开发</td>
+</tr>
+</tbody></table>
+<h2>15.3 主要工程参考文件</h2>
+<p>现有实现审查和后续改造重点包括：<code>src/modules/conversation/</code>、<code>src/composables/useAudioProcessing.ts</code>、<code>src/modules/conversation/speechQueue.ts</code>、<code>src/prompts/englishCoachPrompt.ts</code>、<code>electron/main/schedulerManager.ts</code>、<code>desktopManager.ts</code>、<code>customToolsManager.ts</code>、<code>thoughtVectorStore.ts</code>、<code>memoryManager.ts</code>、<code>ragDocumentStore.ts</code>、<code>settingsManager.ts</code> 与 <code>electron/preload/ipcBridgePolicy.ts</code>。具体保留、重构与新增边界见第五章。</p>
+<h2>15.4 外部参考与证据边界</h2>
+<ol>
+<li>THU-MAIC/OpenMAIC，多材料课程生成、课堂动作与持续运行参考，<a href="https://github.com/THU-MAIC/OpenMAIC">https://github.com/THU-MAIC/OpenMAIC</a> ，检索日期 2026-10-25。</li>
+<li>Wu 等，From MOOC to MAIC: Reshaping Online Teaching and Learning through LLM-driven Agents，课堂 Session Controller 与角色参考，<a href="https://keg.cs.tsinghua.edu.cn/persons/xubin/papers/From-MOOC-to-MAIC.pdf">https://keg.cs.tsinghua.edu.cn/persons/xubin/papers/From-MOOC-to-MAIC.pdf</a> 。</li>
+<li>GKK 公开报道，PPT/PDF 自动讲解、课件内问答与返回原进度等相邻能力，<a href="https://www.xhby.net/content/s6aa25cefe4b0f3986ee89772.html">https://www.xhby.net/content/s6aa25cefe4b0f3986ee89772.html</a> 。相关材料以厂商与媒体公开信息为主，未作为本项目性能依据。</li>
+<li>ZEGO 大班课 AI 数字人伴学互动，实时语音和打断能力参考，<a href="https://www.zego.im/solution/ai-large-class">https://www.zego.im/solution/ai-large-class</a> 。本项目验收阈值仍须在自己的设备、网络和模型组合上独立验证。</li>
+</ol>
+<p><strong>市场结论。</strong> 不能声称该方向完全空白。当前更准确的判断是：上传材料生成课程、AI 讲解、课件问答和实时语音均有相邻实现，但“英语专属教学法、长期私人学情、精确文档锚点、可控教师权威、桌面伴侣关系和可验证行动”仍有明显整合与深化空间。</p>
+<h2>15.5 评审自查</h2>
+<ul>
+<li><input checked="" disabled="" type="checkbox"> 15 段结构完整，覆盖背景、目标、范围、方案、角色、功能、非功能、流程、数据、权限、异常、上线、风险和附录。</li>
+<li><input checked="" disabled="" type="checkbox"> 伴侣、教师和共享平台需求均有编号、产品要点、交互规则和 Given/When/Then 验收。</li>
+<li><input checked="" disabled="" type="checkbox"> 成功指标有公式、口径、排除项和建议目标，未把假设写成实测数据。</li>
+<li><input checked="" disabled="" type="checkbox"> 提供三种架构方案对比、推荐结论和带触发条件的演进路径。</li>
+<li><input checked="" disabled="" type="checkbox"> 依赖按阻塞、并行、可绕过分级，并给出最晚就绪时点和降级方案。</li>
+<li><input checked="" disabled="" type="checkbox"> AI 六模块覆盖任务、输入输出、质量样本、降级接管、三层行为边界和版本反馈。</li>
+<li><input checked="" disabled="" type="checkbox"> 需求追踪矩阵贯通来源、需求、设计、建议用例和状态。</li>
+<li><input checked="" disabled="" type="checkbox"> 不包含交互设计稿，所有图均为架构、课程管线或状态时间线。</li>
+</ul>
+<h2>15.6 第一轮复核反馈决策表</h2>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>复核反馈</th>
+<th>决策</th>
+<th>修订落点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RV-01</td>
+<td>缺少课时节奏、可选内容边界和时间债</td>
+<td>采纳</td>
+<td>TCH-30、节奏策略定义、9.3、节奏测试与指标</td>
+</tr>
+<tr>
+<td>RV-02</td>
+<td>打断 ID、句级恢复、自动恢复和自由浏览不明确</td>
+<td>采纳</td>
+<td>独立代次与取消目标、TCH-11/13、5.5、9.2/9.4、快照实体</td>
+</tr>
+<tr>
+<td>RV-03</td>
+<td>打断时延未从首次语音活动测量，缺显式控制指标</td>
+<td>采纳</td>
+<td>2.4、NFR-01、10.5、9.4</td>
+</tr>
+<tr>
+<td>RV-04</td>
+<td>单次与连续跑题缺阈值和响应时延</td>
+<td>采纳</td>
+<td>7.5 分档表、TCH-15、9.5、课堂意图测试</td>
+</tr>
+<tr>
+<td>RV-05</td>
+<td>CourseVersion 与 ClassContract 混用</td>
+<td>采纳</td>
+<td>独立 ClassContract、TCH-06、9.1、数据实体与关系</td>
+</tr>
+<tr>
+<td>RV-06</td>
+<td>无转换器时降级路径不一致</td>
+<td>采纳</td>
+<td>DOCUMENT_SYNC 与 BOARD_ONLY 分流、4.2、5.4、TCH-03、异常与指标</td>
+</tr>
+<tr>
+<td>RV-07</td>
+<td>P2 报告缺少 Exercise/Attempt/ObjectiveMastery</td>
+<td>采纳</td>
+<td>P2 增加基础学情实体，P3 只做跨课复习与趋势</td>
+</tr>
+<tr>
+<td>RV-08</td>
+<td>重文档处理可能阻塞主线程</td>
+<td>采纳</td>
+<td>5.8、PLT-13、NFR-04、worker 依赖与性能测试</td>
+</tr>
+<tr>
+<td>RV-09</td>
+<td>有效依据指标混入教师补充</td>
+<td>采纳</td>
+<td>补充从分子分母同时剔除，新增补充标识准确率</td>
+</tr>
+<tr>
+<td>RV-10</td>
+<td>永久或会话授权可能被高危动作复用</td>
+<td>采纳</td>
+<td>R0—R3 授权矩阵、CMP-16、PLT-05、11.4、安全回归</td>
+</tr>
+</tbody></table>
+</main></body></html>

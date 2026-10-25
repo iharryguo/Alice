@@ -1,0 +1,40 @@
+<svg viewBox="0 0 680 414" width="100%" role="img" aria-labelledby="pipeline-title pipeline-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="pipeline-title">教案到课堂的课程编译管线</title>
+  <desc id="pipeline-desc">多格式教案先转换为带页面和锚点的教学文档，再生成可确认的课程版本，课堂按教学动作执行并沉淀学情。</desc>
+  <defs>
+    <marker id="pipeline-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <text x="40" y="38" fill="#2C2C2A" font-family="Arial, Microsoft YaHei, sans-serif" font-size="15" font-weight="500">先把教案编译成课程，再让教师开课</text>
+  <g>
+    <rect x="40" y="76" width="104" height="76" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="92" y="104" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">多格式材料</text>
+    <text x="92" y="130" text-anchor="middle" dominant-baseline="central" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="11">PDF / Word / PPT / 图片</text>
+    <rect x="164" y="76" width="104" height="76" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="216" y="104" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">教学文档 IR</text>
+    <text x="216" y="130" text-anchor="middle" dominant-baseline="central" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="11">页面、文本、区域锚点</text>
+    <rect x="288" y="76" width="104" height="76" rx="10" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="340" y="104" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">课程编译</text>
+    <text x="340" y="130" text-anchor="middle" dominant-baseline="central" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="11">目标、节点、练习、时间</text>
+    <rect x="412" y="76" width="104" height="76" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="464" y="104" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">课堂运行时</text>
+    <text x="464" y="130" text-anchor="middle" dominant-baseline="central" fill="#0F6E56" font-family="Arial, Microsoft YaHei, sans-serif" font-size="11">讲解、互动、控场、恢复</text>
+    <rect x="536" y="76" width="104" height="76" rx="10" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="588" y="104" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">学情与复习</text>
+    <text x="588" y="130" text-anchor="middle" dominant-baseline="central" fill="#0F6E56" font-family="Arial, Microsoft YaHei, sans-serif" font-size="11">掌握度、错题、下次课</text>
+  </g>
+  <path d="M144 114H160 M268 114H284 M392 114H408 M516 114H532" fill="none" stroke="#185FA5" stroke-width="1.5" marker-end="url(#pipeline-arrow)"/>
+  <rect x="64" y="190" width="250" height="118" rx="12" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="84" y="216" fill="#0C447C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">质量闸门一：材料可读</text>
+  <text x="84" y="244" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">OCR 与转换置信度、缺页、乱序、</text>
+  <text x="84" y="266" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">无法辨识区域必须逐项提示。</text>
+  <text x="84" y="290" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">低质量材料不得直接自动授课。</text>
+  <rect x="366" y="190" width="250" height="118" rx="12" fill="#FFFFFF" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="386" y="216" fill="#085041" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">质量闸门二：课程可执行</text>
+  <text x="386" y="244" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">首次课程大纲必须确认；开课后</text>
+  <text x="386" y="266" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">修改生成新版本，不篡改既有进度。</text>
+  <text x="386" y="290" fill="#0F6E56" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">大模型只能选择合法教学动作。</text>
+  <text x="40" y="354" fill="#5F5E5A" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">核心原则：原文与教师补充分开，讲授进度与自由浏览分开，内容版本与契约版本分开。</text>
+  <text x="40" y="380" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">稳定页锚 → DOCUMENT_SYNC；无稳定页锚 → 修复材料或显式 BOARD_ONLY。重任务全部进入 worker。</text>
+</svg>

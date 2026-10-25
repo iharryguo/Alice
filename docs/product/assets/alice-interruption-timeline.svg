@@ -1,0 +1,47 @@
+<svg viewBox="0 0 680 486" width="100%" role="img" aria-labelledby="interrupt-title interrupt-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="interrupt-title">课堂打断的三条时间线</title>
+  <desc id="interrupt-desc">学生开口时，生成、音频和文档展示三条时间线分别冻结或清理，答疑后恢复同一教学节点与视觉锚点。</desc>
+  <defs>
+    <marker id="interrupt-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <text x="40" y="38" fill="#2C2C2A" font-family="Arial, Microsoft YaHei, sans-serif" font-size="15" font-weight="500">打断不是停止播放器，而是保存完整课堂现场</text>
+  <text x="160" y="78" text-anchor="middle" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12" font-weight="500">授课中</text>
+  <text x="300" y="78" text-anchor="middle" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12" font-weight="500">学生开口</text>
+  <text x="440" y="78" text-anchor="middle" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12" font-weight="500">处理意图</text>
+  <text x="580" y="78" text-anchor="middle" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12" font-weight="500">恢复授课</text>
+  <text x="40" y="126" fill="#0C447C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">生成时间线</text>
+  <text x="40" y="226" fill="#0C447C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">音频时间线</text>
+  <text x="40" y="326" fill="#0C447C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">视觉时间线</text>
+  <g>
+    <rect x="120" y="100" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="176" y="128" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">生成教学节点 N</text>
+    <rect x="260" y="100" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="316" y="128" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">先写快照与取消目标</text>
+    <rect x="400" y="100" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="456" y="128" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">生成答疑或控场</text>
+    <rect x="540" y="100" width="100" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="590" y="128" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">按教学句恢复</text>
+    <rect x="120" y="200" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="176" y="228" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">播放节点 N</text>
+    <rect x="260" y="200" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="316" y="228" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">按 ID 清旧教师音频</text>
+    <rect x="400" y="200" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="456" y="228" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">播放当前答复</text>
+    <rect x="540" y="200" width="100" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="590" y="228" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">不重复不丢句</text>
+    <rect x="120" y="300" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="176" y="328" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">页面与锚点 N</text>
+    <rect x="260" y="300" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="316" y="328" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">冻结课堂画面</text>
+    <rect x="400" y="300" width="112" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="456" y="328" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">答疑或补充板书</text>
+    <rect x="540" y="300" width="100" height="56" rx="8" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="590" y="328" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">回到页面锚点 N</text>
+  </g>
+  <path d="M232 128H256 M372 128H396 M512 128H536 M232 228H256 M372 228H396 M512 228H536 M232 328H256 M372 328H396 M512 328H536" fill="none" stroke="#185FA5" stroke-width="1.5" marker-end="url(#interrupt-arrow)"/>
+  <rect x="40" y="392" width="600" height="66" rx="12" fill="#FFFFFF" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="60" y="418" fill="#085041" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">恢复规则</text>
+  <text x="60" y="442" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">最小单位是教学句或教学动作，不从半个词继续；只有课堂运行时可以推进课程节点。</text>
+</svg>

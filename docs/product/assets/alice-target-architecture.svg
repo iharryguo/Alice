@@ -1,0 +1,58 @@
+<svg viewBox="0 0 680 650" width="100%" role="img" aria-labelledby="arch-title arch-desc" xmlns="http://www.w3.org/2000/svg">
+  <title id="arch-title">Alice 目标总体架构</title>
+  <desc id="arch-desc">渲染层包含聊天、伴侣、课堂和设置，主进程包含对话、伴侣和教师三个运行时，共享事件、模型、记忆学情与行动代理，底层连接本地数据、语音服务和操作系统。</desc>
+  <defs>
+    <marker id="arch-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <text x="40" y="38" fill="#2C2C2A" font-family="Arial, Microsoft YaHei, sans-serif" font-size="15" font-weight="500">三个运行时，共享一套可信底座</text>
+  <rect x="40" y="60" width="600" height="94" rx="16" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="58" y="82" fill="#0C447C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">Vue 渲染层：只负责呈现与交互</text>
+  <g>
+    <rect x="58" y="96" width="130" height="42" rx="8" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="123" y="117" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13">聊天驾驶舱</text>
+    <rect x="200" y="96" width="130" height="42" rx="8" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="265" y="117" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13">伴侣与工作现场</text>
+    <rect x="342" y="96" width="130" height="42" rx="8" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="407" y="117" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13">英语课堂</text>
+    <rect x="484" y="96" width="130" height="42" rx="8" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="549" y="117" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13">设置与授权</text>
+  </g>
+  <path d="M340 154V174" fill="none" stroke="#185FA5" stroke-width="1.5" marker-end="url(#arch-arrow)"/>
+  <rect x="40" y="178" width="600" height="148" rx="16" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+  <text x="58" y="202" fill="#0C447C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">Electron 主进程：独立业务运行时</text>
+  <g>
+    <rect x="58" y="220" width="178" height="82" rx="10" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="147" y="246" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="14" font-weight="500">对话运行时</text>
+    <text x="147" y="272" text-anchor="middle" dominant-baseline="central" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">保留并收窄现有链路</text>
+    <rect x="251" y="220" width="178" height="82" rx="10" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="340" y="246" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="14" font-weight="500">伴侣运行时</text>
+    <text x="340" y="272" text-anchor="middle" dominant-baseline="central" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">关系、主动与守望</text>
+    <rect x="444" y="220" width="178" height="82" rx="10" fill="#FFFFFF" stroke="#185FA5" stroke-width="0.5"/>
+    <text x="533" y="246" text-anchor="middle" dominant-baseline="central" fill="#042C53" font-family="Arial, Microsoft YaHei, sans-serif" font-size="14" font-weight="500">教师运行时</text>
+    <text x="533" y="272" text-anchor="middle" dominant-baseline="central" fill="#185FA5" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">课程、课堂与学情</text>
+  </g>
+  <path d="M340 326V346" fill="none" stroke="#0F6E56" stroke-width="1.5" marker-end="url(#arch-arrow)"/>
+  <rect x="40" y="350" width="600" height="148" rx="16" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+  <text x="58" y="374" fill="#085041" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">共享核心服务：所有入口遵守同一契约</text>
+  <g>
+    <rect x="58" y="392" width="130" height="82" rx="10" fill="#FFFFFF" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="123" y="420" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="14" font-weight="500">持久事件总线</text>
+    <text x="123" y="447" text-anchor="middle" dominant-baseline="central" fill="#0F6E56" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">去重、顺序、恢复</text>
+    <rect x="200" y="392" width="130" height="82" rx="10" fill="#FFFFFF" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="265" y="420" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="14" font-weight="500">模型路由</text>
+    <text x="265" y="447" text-anchor="middle" dominant-baseline="central" fill="#0F6E56" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">质量、成本、版本</text>
+    <rect x="342" y="392" width="130" height="82" rx="10" fill="#FFFFFF" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="407" y="420" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="14" font-weight="500">记忆与学情</text>
+    <text x="407" y="447" text-anchor="middle" dominant-baseline="central" fill="#0F6E56" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">分域、证据、时间</text>
+    <rect x="484" y="392" width="130" height="82" rx="10" fill="#FFFFFF" stroke="#0F6E56" stroke-width="0.5"/>
+    <text x="549" y="420" text-anchor="middle" dominant-baseline="central" fill="#04342C" font-family="Arial, Microsoft YaHei, sans-serif" font-size="14" font-weight="500">统一行动代理</text>
+    <text x="549" y="447" text-anchor="middle" dominant-baseline="central" fill="#0F6E56" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">授权、审计、撤销</text>
+  </g>
+  <path d="M340 498V518" fill="none" stroke="#0F6E56" stroke-width="1.5" marker-end="url(#arch-arrow)"/>
+  <rect x="40" y="522" width="600" height="92" rx="16" fill="#FFFFFF" stroke="#5F5E5A" stroke-width="0.5"/>
+  <text x="58" y="546" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13" font-weight="500">基础设施与外部能力</text>
+  <text x="58" y="578" fill="#444441" font-family="Arial, Microsoft YaHei, sans-serif" font-size="13">SQLite / HNSW / 文件资产　｜　Workers / Go 语音与向量服务</text>
+  <text x="58" y="600" fill="#5F5E5A" font-family="Arial, Microsoft YaHei, sans-serif" font-size="12">云与本地模型　｜　Windows / 浏览器 / Office　｜　Codex 与远程 MCP</text>
+</svg>
