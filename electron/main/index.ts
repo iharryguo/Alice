@@ -43,6 +43,7 @@ import {
 } from './hotkeyManager'
 import { initializeUpdater, checkForUpdates } from './updaterManager'
 import { registerAuthIPCHandlers, stopAuthServer } from './authManager'
+import { registerTeachingHandlers } from './teaching/ipc'
 import {
   registerCodexIPCHandlers,
   stopCodexAppServer,
@@ -159,6 +160,7 @@ function initializeManagers(): void {
   registerGoogleIPCHandlers()
   registerAuthIPCHandlers()
   registerCodexIPCHandlers()
+  registerTeachingHandlers()
   console.log(`[Main Index ${initId}] Managers initialization complete.`)
 }
 

@@ -100,6 +100,14 @@ export const INVOKE_CHANNELS = new Set([
   'codex-response:start',
   'codex-response:cancel',
   'codex-tool:result',
+  'teaching:material:pick-and-import',
+  'teaching:material:import',
+  'teaching:material:list',
+  'teaching:material:get',
+  'teaching:material:pages',
+  'teaching:material:anchors',
+  'teaching:material:delete',
+  'teaching:course:version',
 ])
 
 export const SEND_CHANNELS = new Set([

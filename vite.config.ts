@@ -77,6 +77,8 @@ export default defineConfig(({ mode, command }) => {
                   index: 'electron/main/index.ts',
                   'workers/pdfParserWorker':
                     'electron/main/workers/pdfParserWorker.ts',
+                  'workers/teachingPdfWorker':
+                    'electron/main/workers/teachingPdfWorker.ts',
                 },
               },
             },
