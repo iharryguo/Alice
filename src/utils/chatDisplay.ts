@@ -18,6 +18,12 @@ export interface MessageDisplayItem {
   text: string
   time: number | null
   toolNames: string[]
+  /** 语音说的、还是打字发的 */
+  channel: 'voice' | 'text'
+  /** Alice 主动开口（定时提醒 / 主动关心），气泡上要单独标记 */
+  isProactive: boolean
+  /** 主动消息的来由，例如定时任务名 */
+  proactiveReason?: string
 }
 
 export interface ToolDisplayItem {
@@ -149,6 +155,10 @@ export function buildChatDisplayItems(
 
     flushPendingStatus(index)
 
+    const proactivePart = Array.isArray(message.content)
+      ? message.content.find(part => part?.isScheduledReminder)
+      : undefined
+
     items.push({
       kind: 'message',
       key,
@@ -159,6 +169,11 @@ export function buildChatDisplayItems(
       toolNames: hasToolCalls
         ? message.tool_calls!.map(call => call?.name || 'tool')
         : [],
+      channel: message.channel === 'voice' ? 'voice' : 'text',
+      isProactive:
+        message.role === 'assistant' &&
+        (Boolean(message.isProactive) || Boolean(proactivePart)),
+      proactiveReason: proactivePart?.taskName,
     })
   })
 
@@ -171,6 +186,31 @@ export function formatClock(timestamp: number | null | undefined): string {
   const date = new Date(timestamp)
   if (Number.isNaN(date.getTime())) return ''
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * 气泡上的时间：今天只说几点几分，跨天补上日期。
+ * 聊天记录常常翻到好几天前，只留一个"09:12"根本分不清是哪天。
+ */
+export function formatMessageTime(timestamp: number | null | undefined): string {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return ''
+  const clock = date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  const now = new Date()
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  if (sameDay) return clock
+  const day = date.toLocaleDateString([], {
+    month: '2-digit',
+    day: '2-digit',
+  })
+  return `${day} ${clock}`
 }
 
 export function formatDateLabel(timestamp: number): string {

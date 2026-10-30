@@ -1,5 +1,45 @@
 <template>
   <div class="composer">
+    <div class="quick-actions">
+      <button
+        v-for="action in quickActions"
+        :key="action.key"
+        type="button"
+        class="quick-action"
+        :class="{ 'quick-action-on': action.active }"
+        :disabled="action.busy"
+        :title="action.title"
+        @click="action.run"
+      >
+        <span class="quick-icon">{{ action.icon }}</span>
+        <span>{{ action.label }}</span>
+      </button>
+      <span v-if="perceptionHint" class="quick-hint">{{ perceptionHint }}</span>
+    </div>
+
+    <div v-if="pendingAttachments.length" class="pending-row">
+      <span
+        v-for="attachment in pendingAttachments"
+        :key="attachment.key"
+        class="pending-chip"
+      >
+        <img
+          v-if="attachment.preview"
+          :src="attachment.preview"
+          class="pending-thumb"
+          alt=""
+        />
+        <span>{{ attachment.label }}</span>
+        <button
+          class="attach-remove"
+          title="不再随下一条消息发送"
+          @click="attachment.remove()"
+        >
+          ✕
+        </button>
+      </span>
+    </div>
+
     <div v-if="attachedFile" class="attach-chip">
       <span class="attach-name" :title="attachedFile.name">📎 {{ attachedFile.name }}</span>
       <button class="attach-remove" title="移除附件" @click="clearAttachedFile">✕</button>
@@ -26,17 +66,6 @@
             @click="triggerFileUpload"
           >
             📎
-          </button>
-
-          <button
-            class="bar-btn bar-btn-mic"
-            :class="{ 'bar-btn-on': isRecording }"
-            :title="isRecording ? '关闭麦克风（VAD 自动断句）' : '开启麦克风（VAD 自动断句）'"
-            :disabled="disabled"
-            @click="$emit('toggle-recording')"
-          >
-            <span class="mic-glyph" :class="{ 'mic-live': isRecording }">🎙</span>
-            <span class="bar-label">{{ isRecording ? '聆听中' : '语音' }}</span>
           </button>
 
           <button
@@ -98,6 +127,7 @@ import { computed, nextTick, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useGeneralStore } from '../../stores/generalStore'
 import { useSettingsStore } from '../../stores/settingsStore'
+import { usePerception } from '../../composables/usePerception'
 import { getPersona } from '../../prompts/personas'
 
 const props = defineProps<{
@@ -121,12 +151,84 @@ const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const draft = ref('')
 
+const perception = usePerception()
+const { screenShot, screenshotReady, cameraShot, cameraShotReady, cameraCaptureBusy } =
+  perception
+
 const isRecording = computed(
   () =>
     isRecordingRequested.value ||
     audioState.value === 'LISTENING' ||
     audioState.value === 'PROCESSING_AUDIO'
 )
+
+/**
+ * 聊天框上方的三个手动感知按钮。
+ * 拍下来的画面挂在 store 上，随下一条消息一起发出 —— 用户还能先补一句
+ * "帮我看下这个报错"，而不是点完就立刻把图怼给模型。
+ */
+const quickActions = computed(() => [
+  {
+    key: 'screen',
+    icon: '🖥',
+    label: '看屏幕',
+    title: '框选一块屏幕内容，随下一条消息发给 AI',
+    active: screenshotReady.value,
+    busy: perception.takingScreenShot.value,
+    run: () => void perception.captureScreen(),
+  },
+  {
+    key: 'camera',
+    icon: '📷',
+    label: '看摄像头',
+    title: '拍一张摄像头画面，随下一条消息发给 AI',
+    active: cameraShotReady.value,
+    busy: cameraCaptureBusy.value,
+    run: () => void perception.captureCamera(),
+  },
+  {
+    key: 'voice',
+    icon: '🎙',
+    label: isRecording.value ? '结束语音' : '语音说话',
+    title: isRecording.value ? '关闭麦克风' : '打开麦克风，说完自动断句',
+    active: isRecording.value,
+    busy: Boolean(props.disabled),
+    run: () => emit('toggle-recording'),
+  },
+])
+
+const pendingAttachments = computed(() => {
+  const list: Array<{
+    key: string
+    label: string
+    preview?: string
+    remove: () => void
+  }> = []
+  if (screenshotReady.value && screenShot.value) {
+    list.push({
+      key: 'screen',
+      label: '屏幕截图待发送',
+      preview: screenShot.value,
+      remove: perception.clearScreenShot,
+    })
+  }
+  if (cameraShotReady.value && cameraShot.value) {
+    list.push({
+      key: 'camera',
+      label: '摄像头画面待发送',
+      preview: cameraShot.value,
+      remove: perception.clearCameraShot,
+    })
+  }
+  return list
+})
+
+const perceptionHint = computed(() => {
+  if (cameraCaptureBusy.value) return '正在拍照…'
+  if (perception.takingScreenShot.value) return '正在截屏…'
+  if (pendingAttachments.value.length) return '会随下一条消息一起发送'
+  return ''
+})
 const ttsEnabled = computed(() => isTTSEnabled.value)
 const canSend = computed(() => draft.value.trim().length > 0 || !!attachedFile.value)
 
@@ -197,6 +299,84 @@ const clearAttachedFile = () => {
   padding: 8px 10px 10px;
   background: linear-gradient(to top, rgb(2 6 23 / 0.96), rgb(2 6 23 / 0.7));
   border-top: 1px solid rgb(148 163 184 / 0.18);
+}
+
+.quick-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.quick-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: rgb(148 163 184);
+  background: rgb(30 41 59 / 0.6);
+  border: 1px solid rgb(148 163 184 / 0.22);
+  border-radius: 999px;
+  padding: 2px 9px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.quick-action:hover:not(:disabled) {
+  color: rgb(224 242 254);
+  border-color: rgb(56 189 248 / 0.5);
+  background: rgb(56 189 248 / 0.12);
+}
+
+.quick-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.quick-action-on {
+  color: rgb(125 211 252);
+  border-color: rgb(56 189 248 / 0.55);
+  background: rgb(56 189 248 / 0.16);
+}
+
+.quick-icon {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.quick-hint {
+  font-size: 10px;
+  color: rgb(100 116 139);
+}
+
+.pending-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pending-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: rgb(203 213 225);
+  background: rgb(15 23 42 / 0.9);
+  border: 1px solid rgb(56 189 248 / 0.35);
+  border-radius: 999px;
+  padding: 2px 8px 2px 3px;
+}
+
+.pending-thumb {
+  width: 20px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 999px;
+  border: 1px solid rgb(148 163 184 / 0.4);
 }
 
 .attach-chip {

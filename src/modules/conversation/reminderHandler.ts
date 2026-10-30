@@ -29,6 +29,8 @@ export function createReminderHandler(
       const reminderMessage: ChatMessage = {
         id: `reminder-${Date.now()}`,
         role: 'assistant',
+        // 这条不是用户问出来的：界面上要标成「主动关心」
+        isProactive: true,
         content: [
           {
             type: 'app_text',

@@ -21,6 +21,9 @@
           📖 课堂
         </button>
         <button class="head-btn" title="设置" @click="openSettings">⚙</button>
+        <button class="head-btn" title="仪表盘：连接、感知与状态总览" @click="openDashboard">
+          📊 仪表盘
+        </button>
         <button class="head-btn" title="记忆管理" @click="openMemories">
           🧠 记忆
         </button>
@@ -308,6 +311,10 @@ const openMemories = () => {
   generalStore.sideBarView = 'memories'
 }
 
+const openDashboard = () => {
+  generalStore.sideBarView = 'dashboard'
+}
+
 const openSettings = () => {
   window.aliceIPC
     ?.invoke('settings-window:open')
@@ -373,6 +380,8 @@ onUnmounted(() => {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  row-gap: 4px;
   gap: 8px;
   padding: 6px 8px;
   border-bottom: 1px solid rgb(148 163 184 / 0.16);

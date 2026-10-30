@@ -1,207 +1,161 @@
 <template>
-  <div class="settings-panel p-4 h-full overflow-y-auto text-white">
+  <div class="settings-panel text-white">
     <div
       v-if="settingsStore.isLoading && !settingsStore.initialLoadAttempted"
-      class="text-center p-4"
+      class="settings-loading"
     >
       <span class="loading loading-lg loading-spinner text-primary my-4"></span>
       <p>Loading settings...</p>
     </div>
 
-    <form @submit.prevent="handleSaveAndTestSettings" v-else class="space-y-6">
-      <div class="tabs justify-between mb-6 tabs-box flex-wrap">
+    <form
+      v-else
+      @submit.prevent="handleSaveAndTestSettings"
+      class="settings-shell"
+    >
+      <!-- 左侧分类：宽屏常驻，窄屏折叠成顶部横向导航（见 settings.css） -->
+      <aside class="settings-nav">
+        <div class="settings-nav-brand">
+          <span class="nav-title">设置</span>
+          <span class="nav-sub">模型、语音、权限与外观</span>
+        </div>
+
         <button
+          v-for="tab in tabs"
+          :key="tab.id"
           type="button"
-          class="tab"
-          :class="{ 'tab-active': activeTab === 'core' }"
-          @click="activeTab = 'core'"
+          class="nav-item"
+          :class="{ 'nav-item-active': activeTab === tab.id }"
+          @click="activeTab = tab.id"
         >
-          🔑 Core
+          <span class="nav-icon">{{ tab.icon }}</span>
+          <span class="nav-text">
+            <span class="nav-label">{{ tab.label }}</span>
+            <span class="nav-hint">{{ tab.hint }}</span>
+          </span>
         </button>
-        <button
-          type="button"
-          class="tab"
-          :class="{ 'tab-active': activeTab === 'assistant' }"
-          @click="activeTab = 'assistant'"
-        >
-          🤖 AI
-        </button>
-        <button
-          type="button"
-          class="tab"
-          :class="{ 'tab-active': activeTab === 'memories' }"
-          @click="activeTab = 'memories'"
-        >
-          🧠 Memories
-        </button>
-        <button
-          type="button"
-          class="tab"
-          :class="{ 'tab-active': activeTab === 'hotkeys' }"
-          @click="activeTab = 'hotkeys'"
-        >
-          ⌨️ Keys
-        </button>
-        <button
-          type="button"
-          class="tab"
-          :class="{ 'tab-active': activeTab === 'integrations' }"
-          @click="activeTab = 'integrations'"
-        >
-          🔌 Apps
-        </button>
-        <button
-          type="button"
-          class="tab"
-          :class="{ 'tab-active': activeTab === 'security' }"
-          @click="activeTab = 'security'"
-        >
-          🔒 Permissions
-        </button>
-        <button
-          type="button"
-          class="tab"
-          :class="{ 'tab-active': activeTab === 'customization' }"
-          @click="activeTab = 'customization'"
-        >
-          ✨ Customization
-        </button>
-      </div>
 
-      <div>
-        <CoreSettingsTab
-          v-if="activeTab === 'core'"
-          :current-settings="currentSettings"
-          @update:setting="updateCurrentSetting"
-        />
-
-        <AssistantSettingsTab
-          v-if="activeTab === 'assistant'"
-          :current-settings="currentSettings"
-          :available-models="availableModelsForSelect"
-          :available-tools="availableToolsForSelect"
-          :is-refreshing-models="isRefreshingModels"
-          :is-tool-configured="isToolConfigured"
-          @refresh-models="refreshModels"
-          @reset-system-prompt="resetSystemPrompt"
-        />
-
-        <HotkeysTab
-          v-if="activeTab === 'hotkeys'"
-          :current-settings="currentSettings"
-          :is-recording-hotkey-for="isRecordingHotkeyFor"
-          @start-recording-hotkey="startRecordingHotkey"
-          @clear-hotkey="clearHotkey"
-        />
-
-        <IntegrationsTab
-          v-if="activeTab === 'integrations'"
-          :current-settings="currentSettings"
-          :google-auth-status="googleAuthStatus"
-          @connect-google-services="connectGoogleServices"
-          @disconnect-google-services="disconnectGoogleServices"
-        />
-
-        <SecurityTab
-          v-if="activeTab === 'security'"
-          :approved-commands="settingsStore.settings.approvedCommands"
-          :session-approved-commands="settingsStore.sessionApprovedCommands"
-          @remove-command="removeCommand"
-        />
-
-        <MemoryManager v-if="activeTab === 'memories'" />
-
-        <UserCustomizationTab
-          v-if="activeTab === 'customization'"
-          :current-settings="currentSettings"
-          @update:setting="updateCurrentSetting"
-        />
-      </div>
-
-      <div class="mt-8 flex flex-col sm:flex-row justify-center gap-4">
-        <button
-          type="submit"
-          :disabled="settingsStore.isSaving"
-          class="btn btn-primary btn-active w-full sm:w-auto"
-        >
-          <span
-            v-if="settingsStore.isSaving"
-            class="loading loading-spinner loading-sm"
-          ></span>
-          {{ settingsStore.isSaving ? 'Saving...' : 'Save & Apply' }}
-        </button>
-      </div>
-
-      <div
-        role="alert"
-        class="alert alert-error mt-4"
-        v-if="settingsStore.error"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="h-6 w-6 shrink-0 stroke-current"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
-        <span>{{ settingsStore.error }}</span>
-      </div>
-      <div
-        role="alert"
-        class="alert alert-success mt-4"
-        v-if="settingsStore.successMessage && !settingsStore.error"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="h-6 w-6 shrink-0 stroke-current"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
-        <span>{{ settingsStore.successMessage }}</span>
-      </div>
-
-      <p class="text-xs text-gray-400 mt-4 text-center">
-        * Essential for core functionality. Other API keys are optional based on
-        desired tools.
-      </p>
-      <div
-        class="text-xs text-gray-400 mt-4 flex justify-center items-center gap-1"
-      >
-        <span
-          >Alice
+        <div class="nav-footer">
+          <span>Alice v{{ appVersion }}</span>
           <a
-            :href="
-              'https://github.com/pmbstyle/Alice/releases/tag/v' + appVersion
-            "
+            :href="'https://github.com/pmbstyle/Alice/releases/tag/v' + appVersion"
             target="_blank"
-            class="link link-hover"
-            >v{{ appVersion }}</a
-          >. Built with</span
-        >
-        <img :src="heartIcon" class="size-3 inline-block ml-1" />
-        <span
-          >by
-          <a
-            href="https://github.com/pmbstyle"
-            target="_blank"
-            class="link link-hover"
-            >pmbstyle</a
+            class="nav-link"
+            >更新日志</a
           >
-        </span>
-      </div>
+        </div>
+      </aside>
+
+      <main class="settings-main">
+        <header class="settings-main-head">
+          <div class="head-text">
+            <h2 class="head-title">
+              <span class="head-icon">{{ activeTabMeta.icon }}</span>
+              {{ activeTabMeta.label }}
+            </h2>
+            <p class="head-hint">{{ activeTabMeta.hint }}</p>
+          </div>
+          <div class="head-actions">
+            <span v-if="settingsStore.isSaving" class="saving-hint">保存中…</span>
+            <button
+              type="submit"
+              :disabled="settingsStore.isSaving"
+              class="btn-save"
+            >
+              {{ settingsStore.isSaving ? 'Saving...' : '保存并应用' }}
+            </button>
+          </div>
+        </header>
+
+        <div class="settings-scroll">
+          <div
+            v-if="activeTab === 'core'"
+          >
+            <CoreSettingsTab
+              :current-settings="currentSettings"
+              @update:setting="updateCurrentSetting"
+            />
+          </div>
+
+          <div
+            v-if="activeTab === 'assistant'"
+          >
+            <AssistantSettingsTab
+              :current-settings="currentSettings"
+              :available-models="availableModelsForSelect"
+              :available-tools="availableToolsForSelect"
+              :is-refreshing-models="isRefreshingModels"
+              :is-tool-configured="isToolConfigured"
+              @refresh-models="refreshModels"
+              @reset-system-prompt="resetSystemPrompt"
+            />
+          </div>
+
+          <div
+            v-if="activeTab === 'hotkeys'"
+          >
+            <HotkeysTab
+              :current-settings="currentSettings"
+              :is-recording-hotkey-for="isRecordingHotkeyFor"
+              @start-recording-hotkey="startRecordingHotkey"
+              @clear-hotkey="clearHotkey"
+            />
+          </div>
+
+          <div
+            v-if="activeTab === 'integrations'"
+          >
+            <IntegrationsTab
+              :current-settings="currentSettings"
+              :google-auth-status="googleAuthStatus"
+              @connect-google-services="connectGoogleServices"
+              @disconnect-google-services="disconnectGoogleServices"
+            />
+          </div>
+
+          <div
+            v-if="activeTab === 'security'"
+          >
+            <SecurityTab
+              :approved-commands="settingsStore.settings.approvedCommands"
+              :session-approved-commands="settingsStore.sessionApprovedCommands"
+              @remove-command="removeCommand"
+            />
+          </div>
+
+          <div
+            v-if="activeTab === 'customization'"
+          >
+            <UserCustomizationTab
+              :current-settings="currentSettings"
+              @update:setting="updateCurrentSetting"
+            />
+          </div>
+
+          <div v-if="activeTab === 'memories'" class="settings-memories">
+            <MemoryManager />
+          </div>
+
+          <div
+            role="alert"
+            class="alert alert-error mt-4"
+            v-if="settingsStore.error"
+          >
+            <span>{{ settingsStore.error }}</span>
+          </div>
+          <div
+            role="alert"
+            class="alert alert-success mt-4"
+            v-if="settingsStore.successMessage && !settingsStore.error"
+          >
+            <span>{{ settingsStore.successMessage }}</span>
+          </div>
+
+          <p class="settings-note">
+            留空的密钥表示"保持原配置不变"。设置只在点击「保存并应用」后写入本地。
+          </p>
+        </div>
+      </main>
     </form>
   </div>
 </template>
@@ -211,14 +165,13 @@ import { ref, watch, onMounted, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useSettingsStore, type AliceSettings } from '../stores/settingsStore'
 import { useConversationStore } from '../stores/conversationStore'
-import { heartIcon } from '../utils/assetsImport'
-import { PREDEFINED_OPENAI_TOOLS } from '../utils/assistantTools'
 import { useHotkeyRecording } from '../composables/useHotkeyRecording'
 import { useGoogleAuth } from '../composables/useGoogleAuth'
 import {
   getStaticModelsForProvider,
   type ProviderModelDefinition,
 } from '../services/llmProviders/providerCatalog'
+import { PREDEFINED_OPENAI_TOOLS } from '../utils/assistantTools'
 import CoreSettingsTab from './settings/CoreSettingsTab.vue'
 import AssistantSettingsTab from './settings/AssistantSettingsTab.vue'
 import HotkeysTab from './settings/HotkeysTab.vue'
@@ -226,6 +179,65 @@ import IntegrationsTab from './settings/IntegrationsTab.vue'
 import SecurityTab from './settings/SecurityTab.vue'
 import UserCustomizationTab from './settings/UserCustomizationTab.vue'
 import MemoryManager from './MemoryManager.vue'
+
+type SettingsTabId =
+  | 'core'
+  | 'assistant'
+  | 'hotkeys'
+  | 'integrations'
+  | 'security'
+  | 'memories'
+  | 'customization'
+
+const tabs: Array<{
+  id: SettingsTabId
+  icon: string
+  label: string
+  hint: string
+}> = [
+  {
+    id: 'core',
+    icon: '🔑',
+    label: '核心 API',
+    hint: '模型提供商、语音识别/合成与向量嵌入',
+  },
+  {
+    id: 'assistant',
+    icon: '🤖',
+    label: 'AI 助手',
+    hint: '模型参数、工具能力与补充设定',
+  },
+  {
+    id: 'hotkeys',
+    icon: '⌨️',
+    label: '快捷键',
+    hint: '全局按键绑定',
+  },
+  {
+    id: 'integrations',
+    icon: '🔌',
+    label: '应用集成',
+    hint: 'Google 日历 / 邮件与下载工具',
+  },
+  {
+    id: 'security',
+    icon: '🔒',
+    label: '权限',
+    hint: '命令审批与白名单',
+  },
+  {
+    id: 'memories',
+    icon: '🧠',
+    label: '记忆',
+    hint: '长期记忆的查看与清理',
+  },
+  {
+    id: 'customization',
+    icon: '✨',
+    label: '个性化',
+    hint: '形象、头像与外观',
+  },
+]
 
 const appVersion = ref(import.meta.env.VITE_APP_VERSION || '')
 const settingsStore = useSettingsStore()
@@ -235,15 +247,11 @@ const { settings } = storeToRefs(settingsStore)
 const currentSettings = ref<AliceSettings>({
   ...settings.value,
 })
-const activeTab = ref<
-  | 'core'
-  | 'assistant'
-  | 'hotkeys'
-  | 'integrations'
-  | 'security'
-  | 'memories'
-  | 'customization'
->('core')
+const activeTab = ref<SettingsTabId>('core')
+
+const activeTabMeta = computed(
+  () => tabs.find(tab => tab.id === activeTab.value) ?? tabs[0]
+)
 
 const isRefreshingModels = ref(false)
 
@@ -268,10 +276,6 @@ const availableToolsForSelect = computed(() => {
       displayName: toolInfo.displayName,
     }
   }).filter(tool => tool.name)
-})
-
-const isBrowserContextToolActive = computed(() => {
-  return currentSettings.value.assistantTools.includes('browser_context')
 })
 
 const availableModelsForSelect = computed(() => {

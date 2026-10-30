@@ -826,10 +826,11 @@ export async function createSettingsWindow(): Promise<BrowserWindow> {
   settingsWindow = new BrowserWindow({
     title: 'Alice Settings',
     icon: path.join(getVitePublic(), 'app_logo.png'),
-    width: 900,
-    height: 700,
-    minWidth: 600,
-    minHeight: 500,
+    // 设置页是"左侧分类 + 右侧双列卡片"，900 宽只能挤出一列
+    width: 1180,
+    height: 820,
+    minWidth: 720,
+    minHeight: 560,
     frame: false,
     resizable: true,
     alwaysOnTop: false,

@@ -6,6 +6,19 @@
     <div class="msg-stack" :class="isUser ? 'items-end' : 'items-start'">
       <div class="msg-meta" :class="isUser ? 'justify-end' : 'justify-start'">
         <span class="msg-role">{{ roleLabel }}</span>
+        <span v-if="item.isProactive" class="msg-badge msg-badge-proactive">
+          主动关心
+        </span>
+        <span v-if="item.channel === 'voice'" class="msg-badge msg-badge-voice">
+          语音
+        </span>
+        <span
+          v-if="item.isProactive && item.proactiveReason"
+          class="msg-reason"
+          :title="item.proactiveReason"
+        >
+          · {{ item.proactiveReason }}
+        </span>
         <span v-if="clock" class="msg-time">{{ clock }}</span>
       </div>
 
@@ -58,7 +71,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { MessageDisplayItem } from '../../utils/chatDisplay'
-import { formatClock } from '../../utils/chatDisplay'
+import { formatMessageTime } from '../../utils/chatDisplay'
 import { renderMessageContent } from '../../utils/messageRender'
 import { toolLabel } from '../../utils/toolLabels'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -74,7 +87,7 @@ defineEmits<{ (e: 'speak', text: string): void }>()
 const copied = ref(false)
 
 const isUser = computed(() => props.item.role === 'user')
-const clock = computed(() => formatClock(props.item.time))
+const clock = computed(() => formatMessageTime(props.item.time))
 const html = computed(() => renderMessageContent(props.item.message))
 
 const settingsStore = useSettingsStore()
@@ -161,6 +174,38 @@ const handleContentClick = (event: MouseEvent) => {
 .msg-time {
   font-variant-numeric: tabular-nums;
   opacity: 0.75;
+}
+
+.msg-badge {
+  font-size: 9px;
+  line-height: 1.5;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.msg-badge-proactive {
+  color: rgb(254 215 170);
+  background: rgb(249 115 22 / 0.18);
+  border-color: rgb(249 115 22 / 0.45);
+}
+
+.msg-badge-voice {
+  color: rgb(165 243 252);
+  background: rgb(6 182 212 / 0.16);
+  border-color: rgb(6 182 212 / 0.4);
+}
+
+.msg-reason {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  opacity: 0.7;
 }
 
 .msg-bubble {

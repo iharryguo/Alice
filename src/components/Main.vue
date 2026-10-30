@@ -91,6 +91,7 @@ import TitleBar from './TitleBar.vue'
 import { useGeneralStore } from '../stores/generalStore'
 import { useConversationStore } from '../stores/conversationStore'
 import { useTeachingStore } from '../stores/teachingStore'
+import { useObservationStore } from '../stores/observationStore'
 // 课堂按需加载：pdfjs 有自己的 worker 与近 1MB 的代码，
 // 不该因为一次课程库打不开就把整个聊天界面拖下去
 const TeachingMode = defineAsyncComponent(
@@ -399,6 +400,10 @@ const handleProcessingComplete = (transcription: string) => {
     recording: generalStore.isRecordingRequested,
   })
 
+  if (meaningfulTranscription) {
+    useObservationStore().observe('audio', `听到：${transcription.trim().slice(0, 80)}`)
+  }
+
   // 上课时学生的话属于课堂，不进普通聊天链路：
   // 交给自己判断意图（提问/控制/跑题），而不是让 ChatOrchestrator 回答。
   if (teachingStore.isInClass) {
@@ -542,6 +547,15 @@ const processRequest = async (
     screenShot.value = ''
   }
 
+  // 手动「看摄像头」拍下的那一帧：和截图一样，只随这一条消息发出
+  if (generalStore.cameraShotReady && generalStore.cameraShot) {
+    appContentParts.push({
+      type: 'app_image_uri',
+      uri: generalStore.cameraShot,
+    })
+    generalStore.clearPendingCameraShot()
+  }
+
   // 诊断日志：确认截图是否真的被附加到了本次请求（只打印类型与 URI 前缀，
   // 避免刷屏 base64）
   console.log(
@@ -569,6 +583,7 @@ const processRequest = async (
   const userMessage: ChatMessage = {
     role: 'user',
     content: appContentParts,
+    channel: source === 'VOICE' ? 'voice' : 'text',
   }
 
   try {
@@ -594,6 +609,10 @@ const processRequest = async (
   }
 
   generalStore.addMessageToHistory(userMessage)
+  useObservationStore().observe(
+    'chat',
+    `${source === 'VOICE' ? '语音说' : '发消息'}：${text.trim().slice(0, 80) || '（图片/文件）'}`
+  )
   try {
     const chatPromise = conversationStore.chat()
 

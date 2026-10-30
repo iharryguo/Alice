@@ -1,8 +1,5 @@
 <template>
-  <div class="space-y-6">
-    <h3 class="text-xl font-semibold mb-4 text-blue-400">
-      Core API Configuration
-    </h3>
+  <div class="settings-sections">
     <fieldset
       class="fieldset bg-gray-900/90 border-blue-500/50 rounded-box w-full border p-4"
     >

@@ -45,6 +45,8 @@
     extendInfo: {
       NSMicrophoneUsageDescription:
         'Alice uses the microphone for voice activity detection and speech recognition.',
+      NSCameraUsageDescription:
+        'Alice captures a single camera frame only when you tap "看摄像头", and sends it with your next message.',
     },
     artifactName: 'Alice-AI-App-Mac-${version}-Installer.${ext}',
   },

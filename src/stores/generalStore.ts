@@ -6,6 +6,7 @@ import { isExpectedAbortError } from '../utils/isAbortError'
 import type { ChatMessage } from '../types/chat'
 import { createHistoryManager } from '../modules/conversation/historyManager'
 import { useCustomAvatarsStore } from './customAvatarsStore'
+import { useObservationStore } from './observationStore'
 
 export type AudioState =
   | 'IDLE'
@@ -92,6 +93,16 @@ export const useGeneralStore = defineStore('general', () => {
   const lastScreenshot = ref<ScreenshotRecord | null>(null)
   // 按保存路径索引的截图记录，多屏/多次截图时工具卡片能各自取到自己的图
   const screenshotRecords = ref<Record<string, ScreenshotRecord>>({})
+  /**
+   * 手动感知（聊天框下方的「看屏幕 / 看摄像头」）拍下的画面：
+   * 存在 store 而不是组件里，是因为触发入口（Composer / 仪表盘）和
+   * 消费入口（Main.processRequest 组装消息）不在同一棵子树上。
+   */
+  const screenShot = ref<string>('')
+  const screenshotReady = ref<boolean>(false)
+  const cameraShot = ref<string>('')
+  const cameraShotReady = ref<boolean>(false)
+  const cameraCaptureBusy = ref<boolean>(false)
 
   const setAudioState = (newState: AudioState) => {
     if (audioState.value === newState) return
@@ -297,6 +308,34 @@ export const useGeneralStore = defineStore('general', () => {
       [key]: record,
     }
     lastScreenshot.value = record
+    try {
+      useObservationStore().observe(
+        'screen',
+        `截取 ${record.displayName || '屏幕'} ${record.width}×${record.height}`
+      )
+    } catch {
+      // 仪表盘记录失败不能影响截图主流程
+    }
+  }
+
+  const setPendingScreenshot = (dataUrl: string) => {
+    screenShot.value = dataUrl
+    screenshotReady.value = Boolean(dataUrl)
+  }
+
+  const clearPendingScreenshot = () => {
+    screenShot.value = ''
+    screenshotReady.value = false
+  }
+
+  const setPendingCameraShot = (dataUrl: string) => {
+    cameraShot.value = dataUrl
+    cameraShotReady.value = Boolean(dataUrl)
+  }
+
+  const clearPendingCameraShot = () => {
+    cameraShot.value = ''
+    cameraShotReady.value = false
   }
 
   const stopPlaybackAndClearQueue = () => {
@@ -358,9 +397,18 @@ export const useGeneralStore = defineStore('general', () => {
     pendingScreenshots,
     lastScreenshot,
     screenshotRecords,
+    screenShot,
+    screenshotReady,
+    cameraShot,
+    cameraShotReady,
+    cameraCaptureBusy,
     addPendingScreenshot,
     clearPendingScreenshots,
     setLastScreenshot,
     addScreenshotRecord,
+    setPendingScreenshot,
+    clearPendingScreenshot,
+    setPendingCameraShot,
+    clearPendingCameraShot,
   }
 })

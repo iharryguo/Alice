@@ -1,8 +1,5 @@
 <template>
-  <div class="space-y-6">
-    <h3 class="text-xl font-semibold mb-4 text-red-400">
-      Security & Command Permissions
-    </h3>
+  <div class="settings-sections">
 
     <fieldset
       class="fieldset bg-gray-900/90 border-red-500/50 rounded-box w-full border p-4"

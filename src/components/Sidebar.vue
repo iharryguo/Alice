@@ -19,6 +19,7 @@
         :disabled="!isConversationReady"
         @send="handleSend"
       />
+      <Dashboard v-else-if="sideBarView === 'dashboard'" />
       <div
         v-else-if="sideBarView === 'memories'"
         class="flex flex-col h-full min-h-0"
@@ -87,6 +88,7 @@
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
 import ChatCockpit from './chat/ChatCockpit.vue'
+import Dashboard from './Dashboard.vue'
 import MemoryManagerComponent from './MemoryManager.vue'
 import { useGeneralStore } from '../stores/generalStore'
 import { useSettingsStore } from '../stores/settingsStore'
